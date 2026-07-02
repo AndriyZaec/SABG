@@ -1,4 +1,4 @@
-// F5 — Winner / Payout (Андрій). Depends on C2/C3 (payout, badge) + B6 (winner list).
+// F5 — Winner / Payout (A). Depends on C2/C3 (payout, badge) + B6 (winner list).
 export function PayoutScreen() {
   return (
     <main>

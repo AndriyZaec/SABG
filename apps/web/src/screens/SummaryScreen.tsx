@@ -1,4 +1,4 @@
-// F4 — Match Summary (Viktor).
+// F4 — Match Summary (V).
 export function SummaryScreen() {
   return (
     <main>

@@ -1,4 +1,4 @@
-// F4 — Leaderboard (Viktor). Score + tie-breaks (spec §7).
+// F4 — Leaderboard (V). Score + tie-breaks (spec §7).
 export function LeaderboardScreen() {
   return (
     <main>

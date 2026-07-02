@@ -1,6 +1,6 @@
 # @arena/api — Backend (placeholder)
 
-**Owner:** Viktor. This slot is intentionally empty — drop the existing backend repo here.
+**Owner:** V. This slot is intentionally empty — drop the existing backend repo here.
 
 ## How to bring the backend in
 

@@ -10,7 +10,7 @@ Spec & plan live in [`docs/`](./docs) (`spec_v2.md` is the source of truth).
 ```
 SABG/
 ├── apps/
-│   ├── api/         # backend (Node/TS) — placeholder, Viktor drops his repo here
+│   ├── api/         # backend (Node/TS) — placeholder, V drops his repo here
 │   └── web/         # React + Vite PWA frontend (F1–F5)
 ├── packages/
 │   └── contracts/   # @arena/contracts — shared types, DTOs, WS catalog, settlement DSL (S1)
@@ -39,6 +39,6 @@ anchor build
 
 ## Ownership (build plan)
 
-- **Viktor:** backend core + realtime (`apps/api`), live arena / leaderboard / spectator (`apps/web` F3–F4).
-- **Андрій:** Solana program + payout + wallet (`programs/arena`), wallet / entry / payout screens (`apps/web` F1/F2/F5).
+- **V:** backend core + realtime (`apps/api`), live arena / leaderboard / spectator (`apps/web` F3–F4).
+- **A:** Solana program + payout + wallet (`programs/arena`), wallet / entry / payout screens (`apps/web` F1/F2/F5).
 - **Shared:** `packages/contracts` (S1) and the settlement DSL (S5).

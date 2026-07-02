@@ -1,4 +1,4 @@
-// F3 — Live Arena + Prediction Card (Viktor). Realtime via WS; countdown to lockAt (>=60s, spec §5).
+// F3 — Live Arena + Prediction Card (V). Realtime via WS; countdown to lockAt (>=60s, spec §5).
 export function ArenaScreen() {
   return (
     <main>

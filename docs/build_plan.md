@@ -7,8 +7,8 @@
 > Solana (Anchor) on-chain, devnet. WS для realtime.
 >
 > **Owners:**
-> - **Viktor** — backend core, WS/feed parsing, realtime, live-arena frontend.
-> - **Андрій** — Solana program, payout bridge, wallet/identity, entry/payout frontend.
+> - **V** — backend core, WS/feed parsing, realtime, live-arena frontend.
+> - **A** — Solana program, payout bridge, wallet/identity, entry/payout frontend.
 
 ---
 
@@ -61,18 +61,18 @@ TxODDS feed ──► [Ingestion/Parser] ──S3──► [Match State Engine]
 
 | ID | Блок | Owner | Вихід |
 |----|------|-------|-------|
-| P0.1 | Monorepo (pnpm workspaces: `apps/api`, `apps/web`, `packages/contracts`, `programs/arena`) | Viktor | каркас + CI lint/build |
+| P0.1 | Monorepo (pnpm workspaces: `apps/api`, `apps/web`, `packages/contracts`, `programs/arena`) | V | каркас + CI lint/build |
 | P0.2 | `@arena/contracts` — усі типи з spec §13 + REST DTO + WS messages | обидва | published пакет, імпортиться скрізь |
-| P0.3 | DB schema + міграції (Postgres) по §13 | Viktor | `migrate up` працює |
-| P0.4 | API+WS контракт (OpenAPI + message catalog §S2) + **mock-сервер** | Viktor | FE може кодити без реального backend |
-| P0.5 | Anchor program skeleton + IDL stub (інструкції без логіки) | Андрій | IDL генериться, FE/Payout мають типи |
+| P0.3 | DB schema + міграції (Postgres) по §13 | V | `migrate up` працює |
+| P0.4 | API+WS контракт (OpenAPI + message catalog §S2) + **mock-сервер** | V | FE може кодити без реального backend |
+| P0.5 | Anchor program skeleton + IDL stub (інструкції без логіки) | A | IDL генериться, FE/Payout мають типи |
 | P0.6 | Узгодити S5 settlement DSL | обидва | зафіксований JSON-формат |
 
 **Definition of done Phase 0:** frontend стартує проти мок-сервера; backend має порожні engine-модулі з типами; Anchor IDL білдиться.
 
 ---
 
-## Backend track — Viktor
+## Backend track — V
 
 Всі блоки споживають/продюсять через S1/S3, тестуються юніт-тестами на синтетичних подіях (реальний фід не потрібен до B7/B1).
 
@@ -122,7 +122,7 @@ TxODDS feed ──► [Ingestion/Parser] ──S3──► [Match State Engine]
 
 ---
 
-## On-chain track — Андрій (Solana / Anchor, devnet)
+## On-chain track — A (Solana / Anchor, devnet)
 
 ### C1. Arena Escrow + Entry Pass program
 **Теза:** Anchor-програма. PDA на арену, інструкція `buy_entry` переводить fixed lamports у escrow PDA, мінтить/реєструє entry pass (proof of participation).
@@ -155,11 +155,11 @@ React + Vite PWA, mobile-first. Wallet adapter (Solana wallet-adapter / mobile w
 
 | ID | Екран/модуль | Owner | Залежить |
 |----|--------------|-------|----------|
-| F1 | App shell, routing, PWA, **wallet adapter + connect** | Андрій | P0.5, C5 |
-| F2 | Match Lobby + **Entry Pass purchase** (buy tx) | Андрій | C1, F1 |
-| F3 | **Live Arena + Prediction Card** (realtime, countdown ≥60s до lock) | Viktor | B7 (мок P0.4) |
-| F4 | Leaderboard + Spectator + Match Summary | Viktor | B7 |
-| F5 | Winner / Payout screen (badge, claim/виплата) | Андрій | C2/C3, B6 |
+| F1 | App shell, routing, PWA, **wallet adapter + connect** | A | P0.5, C5 |
+| F2 | Match Lobby + **Entry Pass purchase** (buy tx) | A | C1, F1 |
+| F3 | **Live Arena + Prediction Card** (realtime, countdown ≥60s до lock) | V | B7 (мок P0.4) |
+| F4 | Leaderboard + Spectator + Match Summary | V | B7 |
+| F5 | Winner / Payout screen (badge, claim/виплата) | A | C2/C3, B6 |
 
 **Контракт countdown (F3):** таймер рахує до `lockAt`, не показує «10–15с»; lead time ≥60s. Після lock UI блокує input.
 
@@ -213,6 +213,6 @@ Frontend:               F1 → F2 (onchain)     ┐
 ---
 
 ## Хто що бере (підсумок)
-- **Viktor:** P0.1/P0.3/P0.4, B1–B8 (увесь backend core + realtime), F3+F4 (live arena, leaderboard, spectator).
-- **Андрій:** P0.5, C1–C5 (Solana program + payout + wallet/identity), F1+F2+F5 (wallet connect, entry purchase, payout screen).
+- **V:** P0.1/P0.3/P0.4, B1–B8 (увесь backend core + realtime), F3+F4 (live arena, leaderboard, spectator).
+- **A:** P0.5, C1–C5 (Solana program + payout + wallet/identity), F1+F2+F5 (wallet connect, entry purchase, payout screen).
 - **Разом:** P0.2 contracts, P0.6 settlement DSL, точки інтеграції I1–I4.

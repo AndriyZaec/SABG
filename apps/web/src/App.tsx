@@ -7,11 +7,11 @@ import { SummaryScreen } from "./screens/SummaryScreen.js";
 import { PayoutScreen } from "./screens/PayoutScreen.js";
 
 // Screen map -> build plan frontend tracks:
-//   F1 app shell + wallet connect (Андрій)      -> this shell
-//   F2 Match Lobby + Entry Pass purchase (Андрій)-> LobbyScreen
-//   F3 Live Arena + Prediction Card (Viktor)     -> ArenaScreen
-//   F4 Leaderboard + Spectator + Summary (Viktor)-> Leaderboard/Spectator/Summary
-//   F5 Winner / Payout (Андрій)                  -> PayoutScreen
+//   F1 app shell + wallet connect (A)      -> this shell
+//   F2 Match Lobby + Entry Pass purchase (A)-> LobbyScreen
+//   F3 Live Arena + Prediction Card (V)     -> ArenaScreen
+//   F4 Leaderboard + Spectator + Summary (V)-> Leaderboard/Spectator/Summary
+//   F5 Winner / Payout (A)                  -> PayoutScreen
 export function App() {
   return (
     <BrowserRouter>
