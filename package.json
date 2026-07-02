@@ -1,0 +1,24 @@
+{
+  "name": "sabg",
+  "version": "0.0.1",
+  "private": true,
+  "description": "SABG (Sports Arena Battle Ground) — Fan Battle Royale: live football survival prediction game on Solana devnet. Monorepo.",
+  "type": "module",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r --if-present lint",
+    "test": "pnpm -r --if-present test",
+    "dev:api": "pnpm --filter @arena/api dev",
+    "dev:web": "pnpm --filter @arena/web dev",
+    "contracts:build": "pnpm --filter @arena/contracts build",
+    "anchor:build": "cd programs/arena && anchor build"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}

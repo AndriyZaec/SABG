@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Anchor / Solana
+programs/arena/target/
+programs/arena/.anchor/
+test-ledger/
+**/*.rs.bk
+
+# Env & secrets (payout authority key, feed creds — never commit)
+.env
+.env.*
+!.env.example
+*.pem
+keypair*.json
+wallet*.json
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.log

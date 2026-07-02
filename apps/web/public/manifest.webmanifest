@@ -1,0 +1,10 @@
+{
+  "name": "SABG — Sports Arena Battle Ground",
+  "short_name": "SABG",
+  "description": "Read the game. Survive the match.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0b0b0f",
+  "theme_color": "#0b0b0f",
+  "icons": []
+}

@@ -1,0 +1,9 @@
+# Rust workspace for the Anchor program(s). Separate from the pnpm/TS workspace.
+[workspace]
+members = ["programs/*"]
+resolver = "2"
+
+[profile.release]
+overflow-checks = true
+lto = "fat"
+codegen-units = 1
