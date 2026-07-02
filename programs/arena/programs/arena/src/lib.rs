@@ -11,7 +11,7 @@ pub mod state;
 
 use state::*;
 
-declare_id!("Arena111111111111111111111111111111111111111");
+declare_id!("84o7QQ3vkGkm3D6wfaqEHxFN93p3Q2b6SFtfazzxZuxH");
 
 #[program]
 pub mod arena {

@@ -5,7 +5,7 @@ resolution = true
 skip-lint = false
 
 [programs.devnet]
-arena = "Arena111111111111111111111111111111111111111"
+arena = "84o7QQ3vkGkm3D6wfaqEHxFN93p3Q2b6SFtfazzxZuxH"
 
 [registry]
 url = "https://api.apr.dev"
