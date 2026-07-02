@@ -10,11 +10,16 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./onchain": {
+      "types": "./src/onchain/index.ts",
+      "default": "./src/onchain/index.ts"
     }
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "idl:sync": "cp ../../programs/arena/target/idl/arena.json src/onchain/arena.idl.json && cp ../../programs/arena/target/types/arena.ts src/onchain/arena.ts"
   },
   "devDependencies": {
     "typescript": "^5.4.0"
