@@ -21,6 +21,9 @@ test-ledger/
 keypair*.json
 wallet*.json
 
+# Local task scratchpad (per-dev, not shared)
+TASK.md
+
 # Editor / OS
 .DS_Store
 .idea/
