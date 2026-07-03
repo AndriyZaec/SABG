@@ -3,11 +3,12 @@
 // Spectator privacy (spec §8): live answers are NEVER pushed before lock; after lock
 // only aggregates (yes%/no%); individual answers only after settle.
 
-import type { Answer, Uuid } from "./enums.js";
+import type { Answer } from "./enums.js";
 import type {
   LeaderboardEntry,
   MatchState,
   PredictionRound,
+  Uuid,
 } from "./entities.js";
 
 // ---- Server -> Client -------------------------------------------------------

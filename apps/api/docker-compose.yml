@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: arena
+      POSTGRES_PASSWORD: arena
+      POSTGRES_DB: arena
+    ports:
+      - "5433:5432"
+    volumes:
+      - arena-postgres-data:/var/lib/postgresql/data
+
+volumes:
+  arena-postgres-data:

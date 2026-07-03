@@ -1,12 +1,7 @@
 // S2 — REST request/response DTOs (build plan §S2, P0.4).
 // The mock server and the real API both implement these shapes.
 
-import type {
-  Answer,
-  Uuid,
-  WalletAddress,
-  TxSignature,
-} from "./enums.js";
+import type { Answer } from "./enums.js";
 import type {
   Arena,
   ArenaPlayer,
@@ -14,7 +9,10 @@ import type {
   Match,
   MatchState,
   PredictionRound,
+  TxSignature,
   User,
+  Uuid,
+  WalletAddress,
 } from "./entities.js";
 
 /** POST /auth/wallet — sign-in with Solana (C5). */

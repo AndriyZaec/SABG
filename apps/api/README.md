@@ -1,27 +1,43 @@
-# @arena/api — Backend (placeholder)
+# @arena/api — Backend
 
-**Owner:** V. This slot is intentionally empty — drop the existing backend repo here.
+**Owner:** V. Ingestion, engines, realtime gateway, payout bridge (build plan B1–B8, C4–C5).
 
-## How to bring the backend in
+## Status
 
-The root `pnpm-workspace.yaml` globs `apps/*`, so this becomes a workspace package
-as soon as it has a `package.json`. To integrate:
+- **P0.3 — DB schema + migrations:** done. Postgres schema for spec v2 §13 via Drizzle ORM
+  (`src/db/schema.ts`), migrations under `src/db/migrations/`.
+- **P0.4 — REST + WS mock server:** done. `src/mock/` implements the S2 DTO + WS catalog
+  (`@arena/contracts`) against fixture data, so frontend (F3/F4) can develop without the real
+  backend. `openapi.yaml` documents the REST surface.
+- **B1–B8 engines, B7 real Realtime Gateway:** not started — `src/mock/` is a stand-in until then.
 
-1. Copy the backend source into `apps/api/` (keep its own `package.json`, `tsconfig`, etc.).
-2. Name the package `@arena/api` (or update root scripts `dev:api` / filters accordingly).
-3. Add the shared contracts as a dependency:
-   ```jsonc
-   // apps/api/package.json
-   "dependencies": {
-     "@arena/contracts": "workspace:*"
-   }
-   ```
-   Import shared types from `@arena/contracts` (entities, enums, DTOs, WS catalog,
-   settlement DSL) instead of redefining them locally — that package is the S1 seam.
-4. From the repo root: `pnpm install`, then `pnpm dev:api`.
+## Running the mock server
 
-## Scope (build plan B1–B8, C4–C5)
+```bash
+pnpm install                # from repo root
+pnpm dev:api                # boots the P0.4 mock: REST :4000/api, WS :4000/ws
+```
 
-Ingestion (B1), Match State (B2), Round (B3), Settlement (B4), Question Generator (B5),
-Leaderboard (B6), Realtime Gateway + REST (B7), Replay (B8), Payout bridge (C4),
-Wallet/Identity (C5). See `../../docs/` for spec v2 & build plan.
+`apps/web/vite.config.ts` proxies `/api` and `/ws` to `localhost:4000`, so `pnpm dev:web` talks
+to this mock automatically. `MOCK_LEAD_MS` env var shortens the round lead time (default 60s,
+per spec §5) for faster manual testing, e.g. `MOCK_LEAD_MS=2000 pnpm dev:api`.
+
+## Database
+
+```bash
+cp .env.example .env        # set DATABASE_URL (docker-compose default or your own Postgres)
+docker compose up -d        # optional: local Postgres on :5433 (see docker-compose.yml)
+pnpm db:generate             # emit a migration from src/db/schema.ts
+pnpm db:migrate              # apply migrations
+```
+
+Schema, enums and FKs mirror spec v2 §13 exactly; enum values are derived at runtime from
+`@arena/contracts` (`packages/contracts/src/enums.ts`) so the DB never drifts from the shared
+types. `created_at`/`updated_at` on every table, with a Postgres trigger keeping `updated_at`
+current on `UPDATE`.
+
+## Conventions
+
+Import shared types from `@arena/contracts` (entities, enums, DTOs, WS catalog, settlement
+DSL) instead of redefining them locally — that package is the S1 seam. See `../../docs/` for
+spec v2 & the build plan.

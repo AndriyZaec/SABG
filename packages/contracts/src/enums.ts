@@ -15,35 +15,47 @@ export const TARGET_EVENT_TYPES = [
 export type TargetEventType = (typeof TARGET_EVENT_TYPES)[number];
 
 /** Which side a question / event targets. */
-export type TeamSide = "home" | "away" | "any";
+export const TEAM_SIDES = ["home", "away", "any"] as const;
+export type TeamSide = (typeof TEAM_SIDES)[number];
 
 /** Match period lifecycle (spec §13 Match.period). */
-export type MatchPeriod =
-  | "pre"
-  | "first_half"
-  | "halftime"
-  | "second_half"
-  | "full_time";
+export const MATCH_PERIODS = [
+  "pre",
+  "first_half",
+  "halftime",
+  "second_half",
+  "full_time",
+] as const;
+export type MatchPeriod = (typeof MATCH_PERIODS)[number];
 
-export type MatchStatus = "scheduled" | "live" | "finished";
+export const MATCH_STATUSES = ["scheduled", "live", "finished"] as const;
+export type MatchStatus = (typeof MATCH_STATUSES)[number];
 
 /** Arena lifecycle (spec §13 Arena.status). */
-export type ArenaStatus = "lobby" | "live" | "finished";
+export const ARENA_STATUSES = ["lobby", "live", "finished"] as const;
+export type ArenaStatus = (typeof ARENA_STATUSES)[number];
 
 /** Per-player state within an arena (spec §13 ArenaPlayer.status). */
-export type ArenaPlayerStatus = "active" | "eliminated" | "winner";
+export const ARENA_PLAYER_STATUSES = ["active", "eliminated", "winner"] as const;
+export type ArenaPlayerStatus = (typeof ARENA_PLAYER_STATUSES)[number];
 
 /** Round lifecycle (spec §5, §13 PredictionRound.status). */
-export type RoundStatus = "pending" | "open" | "locked" | "settled";
+export const ROUND_STATUSES = ["pending", "open", "locked", "settled"] as const;
+export type RoundStatus = (typeof ROUND_STATUSES)[number];
 
 /** How a round was resolved (spec §6, §13 PredictionRound.settledBy). */
-export type SettledBy = "early" | "window_end";
+export const SETTLED_BY_VALUES = ["early", "window_end"] as const;
+export type SettledBy = (typeof SETTLED_BY_VALUES)[number];
 
-export type Answer = "yes" | "no";
+export const ANSWERS = ["yes", "no"] as const;
+export type Answer = (typeof ANSWERS)[number];
 
 /** Result of a player's prediction (spec §6, §13 Prediction.result). */
-export type PredictionResult = "correct" | "incorrect" | "missed";
+export const PREDICTION_RESULTS = ["correct", "incorrect", "missed"] as const;
+export type PredictionResult = (typeof PREDICTION_RESULTS)[number];
 
-export type EntryPassStatus = "paid" | "refunded";
+export const ENTRY_PASS_STATUSES = ["paid", "refunded"] as const;
+export type EntryPassStatus = (typeof ENTRY_PASS_STATUSES)[number];
 
-export type PayoutStatus = "pending" | "sent" | "failed";
+export const PAYOUT_STATUSES = ["pending", "sent", "failed"] as const;
+export type PayoutStatus = (typeof PAYOUT_STATUSES)[number];

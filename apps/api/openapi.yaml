@@ -1,0 +1,230 @@
+openapi: 3.1.0
+info:
+  title: SABG — Fan Battle Royale API
+  version: 0.0.1
+  description: >
+    REST surface for the S2 seam (build plan). The TypeScript DTOs in
+    @arena/contracts (packages/contracts/src/dto.ts) are the source of truth;
+    this document is a human-readable companion, not code-generated. The mock
+    server (apps/api/src/mock) implements exactly these routes with fixture
+    data until B7 (Realtime Gateway + REST API) lands.
+servers:
+  - url: http://localhost:4000/api
+    description: P0.4 mock / local dev
+
+paths:
+  /auth/wallet:
+    post:
+      summary: Sign in with Solana wallet signature (C5)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [walletAddress, signature, message]
+              properties:
+                walletAddress: { type: string }
+                signature: { type: string }
+                message: { type: string }
+      responses:
+        "200":
+          description: Session issued
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token, user]
+                properties:
+                  token: { type: string }
+                  user: { $ref: "#/components/schemas/User" }
+
+  /matches:
+    get:
+      summary: List matches
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [matches]
+                properties:
+                  matches:
+                    type: array
+                    items: { $ref: "#/components/schemas/Match" }
+
+  /matches/{id}:
+    get:
+      summary: Get a match by id
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Match" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /arenas/{id}:
+    get:
+      summary: Arena detail (arena + match + live match state + current round)
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [arena, match]
+                properties:
+                  arena: { $ref: "#/components/schemas/Arena" }
+                  match: { $ref: "#/components/schemas/Match" }
+                  matchState: { type: object }
+                  currentRound: { type: object }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /arenas/{id}/entry:
+    post:
+      summary: Confirm an on-chain entry pass purchase (C1 tx already submitted by FE)
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [txSignature]
+              properties:
+                txSignature: { type: string }
+      responses:
+        "200":
+          description: Entry recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [entryPassId, player, arena]
+                properties:
+                  entryPassId: { type: string, format: uuid }
+                  player: { type: object }
+                  arena: { $ref: "#/components/schemas/Arena" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /rounds/{id}/answer:
+    post:
+      summary: Submit/change an answer while a round is open (spec §5, §9)
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [answer]
+              properties:
+                answer: { type: string, enum: [yes, no] }
+      responses:
+        "200":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [roundId, answer, receivedAt]
+                properties:
+                  roundId: { type: string, format: uuid }
+                  answer: { type: string, enum: [yes, no] }
+                  receivedAt: { type: string, format: date-time }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /arenas/{id}/leaderboard:
+    get:
+      summary: Leaderboard snapshot
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [entries]
+                properties:
+                  entries:
+                    type: array
+                    items: { type: object }
+                  winners:
+                    type: array
+                    items: { type: string, format: uuid }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+components:
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  responses:
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ApiError" }
+  schemas:
+    ApiError:
+      type: object
+      required: [error, message]
+      properties:
+        error: { type: string }
+        message: { type: string }
+        details: {}
+    User:
+      type: object
+      required: [id, walletAddress, username]
+      properties:
+        id: { type: string, format: uuid }
+        walletAddress: { type: string }
+        username: { type: string }
+        avatar: { type: string }
+    Match:
+      type: object
+      required: [id, homeTeam, awayTeam, startTime, status, currentMinute, period, score]
+      properties:
+        id: { type: string, format: uuid }
+        homeTeam: { type: string }
+        awayTeam: { type: string }
+        startTime: { type: string, format: date-time }
+        status: { type: string, enum: [scheduled, live, finished] }
+        currentMinute: { type: integer }
+        period: { type: string, enum: [pre, first_half, halftime, second_half, full_time] }
+        score:
+          type: object
+          required: [home, away]
+          properties:
+            home: { type: integer }
+            away: { type: integer }
+    Arena:
+      type: object
+      required: [id, matchId, status, activePlayersCount, entryFeeLamports, prizePoolLamports, escrowAccount]
+      properties:
+        id: { type: string, format: uuid }
+        matchId: { type: string, format: uuid }
+        status: { type: string, enum: [lobby, live, finished] }
+        activePlayersCount: { type: integer }
+        entryFeeLamports: { type: integer }
+        prizePoolLamports: { type: integer }
+        escrowAccount: { type: string }

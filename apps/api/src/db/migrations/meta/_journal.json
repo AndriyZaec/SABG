@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1783082178590,
+      "tag": "0000_yummy_jane_foster",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1783082687466,
+      "tag": "0001_add_timestamps",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1783082694735,
+      "tag": "0002_add_updated_at_trigger",
+      "breakpoints": true
+    }
+  ]
+}
