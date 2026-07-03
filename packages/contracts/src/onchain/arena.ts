@@ -16,8 +16,8 @@ export type Arena = {
     {
       "name": "buyEntry",
       "docs": [
-        "C1 — buy an entry pass: move fixed lamports into escrow, register participation.",
-        "Double entry must be rejected."
+        "Buy an entry pass: move the fixed fee into escrow, register participation.",
+        "The EntryPass PDA `init` rejects a second entry by the same player."
       ],
       "discriminator": [
         238,
@@ -30,6 +30,78 @@ export type Arena = {
         81
       ],
       "accounts": [
+        {
+          "name": "arena",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  114,
+                  101,
+                  110,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "arena.arena_id",
+                "account": "arena"
+              }
+            ]
+          }
+        },
+        {
+          "name": "entryPass",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  110,
+                  116,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "arena"
+              },
+              {
+                "kind": "account",
+                "path": "player"
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "arena"
+              }
+            ]
+          }
+        },
         {
           "name": "player",
           "writable": true,
@@ -45,7 +117,7 @@ export type Arena = {
     {
       "name": "initArena",
       "docs": [
-        "C1 — create an arena PDA with a fixed entry fee (and optional platform fee, MVP 0%)."
+        "Create an arena with a fixed entry fee and a designated payout authority."
       ],
       "discriminator": [
         24,
@@ -59,6 +131,50 @@ export type Arena = {
       ],
       "accounts": [
         {
+          "name": "arena",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  114,
+                  101,
+                  110,
+                  97
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "arenaId"
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrow",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "arena"
+              }
+            ]
+          }
+        },
+        {
           "name": "authority",
           "writable": true,
           "signer": true
@@ -70,8 +186,20 @@ export type Arena = {
       ],
       "args": [
         {
+          "name": "arenaId",
+          "type": "u64"
+        },
+        {
           "name": "entryFeeLamports",
           "type": "u64"
+        },
+        {
+          "name": "payoutAuthority",
+          "type": "pubkey"
+        },
+        {
+          "name": "platformFeeBps",
+          "type": "u16"
         }
       ]
     },
@@ -144,8 +272,7 @@ export type Arena = {
     {
       "name": "settlePayout",
       "docs": [
-        "C2 — distribute escrow to winner(s): winner-takes-all, or equal split on shared win",
-        "(spec §7/§12). Backend payout authority (PDA-gated); must not run twice."
+        "C2 — distribute escrow to winner(s): winner-takes-all or equal split; run once."
       ],
       "discriminator": [
         245,
@@ -178,6 +305,34 @@ export type Arena = {
       ]
     }
   ],
+  "accounts": [
+    {
+      "name": "arena",
+      "discriminator": [
+        243,
+        215,
+        44,
+        44,
+        231,
+        211,
+        232,
+        168
+      ]
+    },
+    {
+      "name": "entryPass",
+      "discriminator": [
+        240,
+        252,
+        181,
+        23,
+        86,
+        34,
+        53,
+        219
+      ]
+    }
+  ],
   "errors": [
     {
       "code": 6000,
@@ -198,6 +353,115 @@ export type Arena = {
       "code": 6003,
       "name": "noWinners",
       "msg": "Empty winner list"
+    },
+    {
+      "code": 6004,
+      "name": "invalidEntryFee",
+      "msg": "Entry fee must be greater than zero"
+    },
+    {
+      "code": 6005,
+      "name": "invalidPlatformFee",
+      "msg": "Platform fee exceeds 100%"
+    }
+  ],
+  "types": [
+    {
+      "name": "arena",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "docs": [
+              "Creator; may init the arena."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "payoutAuthority",
+            "docs": [
+              "Key allowed to trigger payout (backend payout service)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "arenaId",
+            "docs": [
+              "Off-chain arena identifier, also part of the PDA seed."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "entryFeeLamports",
+            "docs": [
+              "Fixed entry fee each player pays into escrow."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "prizePoolLamports",
+            "docs": [
+              "Running total held in escrow."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "platformFeeBps",
+            "docs": [
+              "Optional platform fee in basis points (0 for MVP)."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "playerCount",
+            "type": "u32"
+          },
+          {
+            "name": "settled",
+            "docs": [
+              "Set once payout has run; blocks further entries/payouts."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "escrowBump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "entryPass",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "arena",
+            "type": "pubkey"
+          },
+          {
+            "name": "player",
+            "type": "pubkey"
+          },
+          {
+            "name": "amountLamports",
+            "type": "u64"
+          },
+          {
+            "name": "refunded",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
     }
   ]
 };

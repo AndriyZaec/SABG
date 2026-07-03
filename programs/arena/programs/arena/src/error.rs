@@ -10,4 +10,8 @@ pub enum ArenaError {
     Unauthorized,
     #[msg("Empty winner list")]
     NoWinners,
+    #[msg("Entry fee must be greater than zero")]
+    InvalidEntryFee,
+    #[msg("Platform fee exceeds 100%")]
+    InvalidPlatformFee,
 }
