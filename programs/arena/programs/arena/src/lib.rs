@@ -1,7 +1,7 @@
 // SABG arena program. On-chain layer: entry escrow, proof of participation, winner
 // payout, result hash / badge. Live game logic stays off-chain.
 //
-// Implemented: init_arena, buy_entry (C1). settle_payout / refund / record_result are stubs.
+// Implemented: init_arena, buy_entry. settle_payout / refund / record_result are stubs.
 
 use anchor_lang::prelude::*;
 use anchor_lang::system_program::{transfer, Transfer};
@@ -75,21 +75,21 @@ pub mod arena {
         Ok(())
     }
 
-    /// C2 — distribute escrow to winner(s): winner-takes-all or equal split; run once.
+    /// Distribute escrow to winner(s): winner-takes-all or equal split; run once.
     pub fn settle_payout(_ctx: Context<SettlePayout>, _winners: Vec<Pubkey>) -> Result<()> {
-        // TODO(C2): validate authority, split escrow, mark settled (idempotent).
+        // TODO: validate authority, split escrow, mark settled (idempotent).
         Ok(())
     }
 
-    /// C1 (optional) — refund an entry if the arena is cancelled / underfilled.
+    /// Refund an entry if the arena is cancelled / underfilled.
     pub fn refund(_ctx: Context<Refund>) -> Result<()> {
-        // TODO(C1 open item): return escrowed entry, mark EntryPass refunded.
+        // TODO: return escrowed entry, mark EntryPass refunded.
         Ok(())
     }
 
-    /// C3 — record final result hash (+ winner badge) on-chain for verification.
+    /// Record final result hash (+ winner badge) on-chain for verification.
     pub fn record_result(_ctx: Context<RecordResult>, _result_hash: [u8; 32]) -> Result<()> {
-        // TODO(C3): store leaderboard hash, issue winner badge.
+        // TODO: store leaderboard hash, issue winner badge.
         Ok(())
     }
 }
