@@ -75,9 +75,45 @@ pub mod arena {
         Ok(())
     }
 
-    /// Distribute escrow to winner(s): winner-takes-all or equal split; run once.
-    pub fn settle_payout(_ctx: Context<SettlePayout>, _winners: Vec<Pubkey>) -> Result<()> {
-        // TODO: validate authority, split escrow, mark settled (idempotent).
+    /// Distribute the escrow to winner(s), passed as writable remaining accounts.
+    /// Equal split with any remainder going to the first winner; runs once.
+    pub fn settle_payout<'info>(
+        ctx: Context<'_, '_, '_, 'info, SettlePayout<'info>>,
+    ) -> Result<()> {
+        let arena = &mut ctx.accounts.arena;
+        require!(!arena.settled, ArenaError::AlreadySettled);
+        require_keys_eq!(
+            ctx.accounts.payout_authority.key(),
+            arena.payout_authority,
+            ArenaError::Unauthorized,
+        );
+
+        let winners = ctx.remaining_accounts;
+        require!(!winners.is_empty(), ArenaError::NoWinners);
+
+        let escrow = ctx.accounts.escrow.to_account_info();
+        let pool = escrow.lamports();
+        let n = winners.len() as u64;
+        let share = pool / n;
+        let remainder = pool - share * n;
+
+        let arena_key = arena.key();
+        let escrow_seeds: &[&[u8]] = &[b"escrow", arena_key.as_ref(), &[arena.escrow_bump]];
+
+        for (i, winner) in winners.iter().enumerate() {
+            let amount = if i == 0 { share + remainder } else { share };
+            transfer(
+                CpiContext::new_with_signer(
+                    ctx.accounts.system_program.to_account_info(),
+                    Transfer { from: escrow.clone(), to: winner.clone() },
+                    &[escrow_seeds],
+                ),
+                amount,
+            )?;
+        }
+
+        arena.prize_pool_lamports = 0;
+        arena.settled = true;
         Ok(())
     }
 
@@ -142,7 +178,13 @@ pub struct BuyEntry<'info> {
 
 #[derive(Accounts)]
 pub struct SettlePayout<'info> {
-    #[account(mut)]
+    #[account(mut, seeds = [b"arena", arena.arena_id.to_le_bytes().as_ref()], bump = arena.bump)]
+    pub arena: Account<'info, Arena>,
+
+    /// CHECK: escrow PDA (system-owned) that the pooled lamports are paid out from.
+    #[account(mut, seeds = [b"escrow", arena.key().as_ref()], bump = arena.escrow_bump)]
+    pub escrow: SystemAccount<'info>,
+
     pub payout_authority: Signer<'info>,
     pub system_program: Program<'info, System>,
 }

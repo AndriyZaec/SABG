@@ -7,47 +7,63 @@ const { AnchorProvider, BN, setProvider, workspace, web3 } = anchor;
 const { PublicKey, Keypair, LAMPORTS_PER_SOL } = web3;
 const { assert } = chai;
 
+const provider = AnchorProvider.env();
+setProvider(provider);
+
+const program = workspace.Arena as Program<ArenaProgram>;
+const authority = provider.wallet as anchor.Wallet;
+const entryFee = new BN(0.1 * LAMPORTS_PER_SOL);
+
+let nextArenaId = Date.now();
+const freshArenaId = () => new BN(nextArenaId++);
+
+const deriveArena = (arenaId: anchor.BN) => {
+  const [arena] = PublicKey.findProgramAddressSync(
+    [Buffer.from("arena"), arenaId.toArrayLike(Buffer, "le", 8)],
+    program.programId,
+  );
+  const [escrow] = PublicKey.findProgramAddressSync(
+    [Buffer.from("escrow"), arena.toBuffer()],
+    program.programId,
+  );
+  return { arena, escrow };
+};
+
+const entryPassPda = (arena: web3.PublicKey, player: web3.PublicKey) =>
+  PublicKey.findProgramAddressSync(
+    [Buffer.from("entry"), arena.toBuffer(), player.toBuffer()],
+    program.programId,
+  )[0];
+
+const fundedPlayer = async (): Promise<web3.Keypair> => {
+  const kp = Keypair.generate();
+  const sig = await provider.connection.requestAirdrop(kp.publicKey, LAMPORTS_PER_SOL);
+  await provider.connection.confirmTransaction(sig, "confirmed");
+  return kp;
+};
+
+const initArena = async (arenaId: anchor.BN) =>
+  program.methods
+    .initArena(arenaId, entryFee, authority.publicKey, 0)
+    .accounts({ authority: authority.publicKey })
+    .rpc();
+
+const buyIn = async (arena: web3.PublicKey): Promise<web3.Keypair> => {
+  const player = await fundedPlayer();
+  await program.methods
+    .buyEntry()
+    .accounts({ arena, player: player.publicKey })
+    .signers([player])
+    .rpc();
+  return player;
+};
+
 describe("arena — escrow + entry pass", () => {
-  const provider = AnchorProvider.env();
-  setProvider(provider);
-
-  const program = workspace.Arena as Program<ArenaProgram>;
-  const authority = provider.wallet as anchor.Wallet;
-
-  const arenaId = new BN(Date.now());
-  const entryFee = new BN(0.1 * LAMPORTS_PER_SOL);
-
-  const arenaIdBuf = arenaId.toArrayLike(Buffer, "le", 8);
-  const [arenaPda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("arena"), arenaIdBuf],
-    program.programId,
-  );
-  const [escrowPda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("escrow"), arenaPda.toBuffer()],
-    program.programId,
-  );
-
-  const entryPassPda = (player: PublicKey) =>
-    PublicKey.findProgramAddressSync(
-      [Buffer.from("entry"), arenaPda.toBuffer(), player.toBuffer()],
-      program.programId,
-    )[0];
-
-  const fundedPlayer = async (): Promise<Keypair> => {
-    const kp = Keypair.generate();
-    const sig = await provider.connection.requestAirdrop(
-      kp.publicKey,
-      LAMPORTS_PER_SOL,
-    );
-    await provider.connection.confirmTransaction(sig, "confirmed");
-    return kp;
-  };
+  const arenaId = freshArenaId();
+  const { arena: arenaPda, escrow: escrowPda } = deriveArena(arenaId);
 
   it("init_arena creates the arena", async () => {
-    await program.methods
-      .initArena(arenaId, entryFee, authority.publicKey, 0)
-      .accounts({ authority: authority.publicKey })
-      .rpc();
+    await initArena(arenaId);
 
     const arena = await program.account.arena.fetch(arenaPda);
     assert.equal(arena.entryFeeLamports.toString(), entryFee.toString());
@@ -57,25 +73,17 @@ describe("arena — escrow + entry pass", () => {
   });
 
   it("buy_entry moves the fee into escrow and grows the pool", async () => {
-    const player = await fundedPlayer();
     const before = await provider.connection.getBalance(escrowPda);
-
-    await program.methods
-      .buyEntry()
-      .accounts({ arena: arenaPda, player: player.publicKey })
-      .signers([player])
-      .rpc();
-
+    const player = await buyIn(arenaPda);
     const after = await provider.connection.getBalance(escrowPda);
+
     assert.equal(after - before, entryFee.toNumber(), "escrow grew by the fee");
 
     const arena = await program.account.arena.fetch(arenaPda);
     assert.equal(arena.prizePoolLamports.toString(), entryFee.toString());
     assert.equal(arena.playerCount, 1);
 
-    const pass = await program.account.entryPass.fetch(
-      entryPassPda(player.publicKey),
-    );
+    const pass = await program.account.entryPass.fetch(entryPassPda(arenaPda, player.publicKey));
     assert.equal(pass.player.toBase58(), player.publicKey.toBase58());
     assert.equal(pass.amountLamports.toString(), entryFee.toString());
     assert.equal(pass.refunded, false);
@@ -83,23 +91,111 @@ describe("arena — escrow + entry pass", () => {
 
   it("rejects a double entry from the same player", async () => {
     const player = await fundedPlayer();
-
-    await program.methods
-      .buyEntry()
-      .accounts({ arena: arenaPda, player: player.publicKey })
-      .signers([player])
-      .rpc();
-
-    let threw = false;
-    try {
-      await program.methods
+    const buy = () =>
+      program.methods
         .buyEntry()
         .accounts({ arena: arenaPda, player: player.publicKey })
         .signers([player])
         .rpc();
+
+    await buy();
+    let threw = false;
+    try {
+      await buy();
     } catch (_e) {
       threw = true;
     }
     assert.isTrue(threw, "second entry by the same player must fail");
+  });
+});
+
+describe("arena — payout", () => {
+  const writableWinner = (pubkey: web3.PublicKey) => ({ pubkey, isWritable: true, isSigner: false });
+
+  it("pays the whole pool to a single winner and marks the arena settled", async () => {
+    const arenaId = freshArenaId();
+    const { arena, escrow } = deriveArena(arenaId);
+    await initArena(arenaId);
+    const p1 = await buyIn(arena);
+    await buyIn(arena);
+    const pool = entryFee.toNumber() * 2;
+
+    const before = await provider.connection.getBalance(p1.publicKey);
+    await program.methods
+      .settlePayout()
+      .accounts({ arena, escrow, payoutAuthority: authority.publicKey })
+      .remainingAccounts([writableWinner(p1.publicKey)])
+      .rpc();
+    const after = await provider.connection.getBalance(p1.publicKey);
+
+    assert.equal(after - before, pool, "winner receives the whole pool");
+    assert.equal(await provider.connection.getBalance(escrow), 0, "escrow drained");
+
+    const state = await program.account.arena.fetch(arena);
+    assert.equal(state.settled, true);
+    assert.equal(state.prizePoolLamports.toString(), "0");
+  });
+
+  it("splits the pool equally between winners", async () => {
+    const arenaId = freshArenaId();
+    const { arena, escrow } = deriveArena(arenaId);
+    await initArena(arenaId);
+    const p1 = await buyIn(arena);
+    const p2 = await buyIn(arena);
+
+    const b1 = await provider.connection.getBalance(p1.publicKey);
+    const b2 = await provider.connection.getBalance(p2.publicKey);
+    await program.methods
+      .settlePayout()
+      .accounts({ arena, escrow, payoutAuthority: authority.publicKey })
+      .remainingAccounts([writableWinner(p1.publicKey), writableWinner(p2.publicKey)])
+      .rpc();
+
+    assert.equal((await provider.connection.getBalance(p1.publicKey)) - b1, entryFee.toNumber());
+    assert.equal((await provider.connection.getBalance(p2.publicKey)) - b2, entryFee.toNumber());
+  });
+
+  it("rejects an unauthorized payout authority", async () => {
+    const arenaId = freshArenaId();
+    const { arena, escrow } = deriveArena(arenaId);
+    await initArena(arenaId);
+    const p1 = await buyIn(arena);
+    const impostor = await fundedPlayer();
+
+    let threw = false;
+    try {
+      await program.methods
+        .settlePayout()
+        .accounts({ arena, escrow, payoutAuthority: impostor.publicKey })
+        .remainingAccounts([writableWinner(p1.publicKey)])
+        .signers([impostor])
+        .rpc();
+    } catch (_e) {
+      threw = true;
+    }
+    assert.isTrue(threw, "only the payout authority may settle");
+  });
+
+  it("cannot settle twice", async () => {
+    const arenaId = freshArenaId();
+    const { arena, escrow } = deriveArena(arenaId);
+    await initArena(arenaId);
+    const p1 = await buyIn(arena);
+
+    const settle = () =>
+      program.methods
+        .settlePayout()
+        .accounts({ arena, escrow, payoutAuthority: authority.publicKey })
+        .remainingAccounts([writableWinner(p1.publicKey)])
+        .rpc();
+
+    await settle();
+    let threw = false;
+    try {
+      await settle();
+    } catch (_e) {
+      threw = true;
+    }
+    assert.isTrue(threw, "second settle must fail");
   });
 });
