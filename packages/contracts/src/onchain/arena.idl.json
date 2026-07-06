@@ -200,7 +200,7 @@
     {
       "name": "record_result",
       "docs": [
-        "C3 — record final result hash (+ winner badge) on-chain for verification."
+        "Record final result hash (+ winner badge) on-chain for verification."
       ],
       "discriminator": [
         208,
@@ -238,7 +238,7 @@
     {
       "name": "refund",
       "docs": [
-        "C1 (optional) — refund an entry if the arena is cancelled / underfilled."
+        "Refund an entry if the arena is cancelled / underfilled."
       ],
       "discriminator": [
         2,
@@ -266,7 +266,8 @@
     {
       "name": "settle_payout",
       "docs": [
-        "C2 — distribute escrow to winner(s): winner-takes-all or equal split; run once."
+        "Distribute the escrow to winner(s), passed as writable remaining accounts.",
+        "Equal split with any remainder going to the first winner; runs once."
       ],
       "discriminator": [
         245,
@@ -280,8 +281,53 @@
       ],
       "accounts": [
         {
-          "name": "payout_authority",
+          "name": "arena",
           "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  114,
+                  101,
+                  110,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "arena.arena_id",
+                "account": "Arena"
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "arena"
+              }
+            ]
+          }
+        },
+        {
+          "name": "payout_authority",
           "signer": true
         },
         {
@@ -289,14 +335,7 @@
           "address": "11111111111111111111111111111111"
         }
       ],
-      "args": [
-        {
-          "name": "_winners",
-          "type": {
-            "vec": "pubkey"
-          }
-        }
-      ]
+      "args": []
     }
   ],
   "accounts": [

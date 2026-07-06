@@ -206,7 +206,7 @@ export type Arena = {
     {
       "name": "recordResult",
       "docs": [
-        "C3 — record final result hash (+ winner badge) on-chain for verification."
+        "Record final result hash (+ winner badge) on-chain for verification."
       ],
       "discriminator": [
         208,
@@ -244,7 +244,7 @@ export type Arena = {
     {
       "name": "refund",
       "docs": [
-        "C1 (optional) — refund an entry if the arena is cancelled / underfilled."
+        "Refund an entry if the arena is cancelled / underfilled."
       ],
       "discriminator": [
         2,
@@ -272,7 +272,8 @@ export type Arena = {
     {
       "name": "settlePayout",
       "docs": [
-        "C2 — distribute escrow to winner(s): winner-takes-all or equal split; run once."
+        "Distribute the escrow to winner(s), passed as writable remaining accounts.",
+        "Equal split with any remainder going to the first winner; runs once."
       ],
       "discriminator": [
         245,
@@ -286,8 +287,53 @@ export type Arena = {
       ],
       "accounts": [
         {
-          "name": "payoutAuthority",
+          "name": "arena",
           "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  114,
+                  101,
+                  110,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "arena.arena_id",
+                "account": "arena"
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "arena"
+              }
+            ]
+          }
+        },
+        {
+          "name": "payoutAuthority",
           "signer": true
         },
         {
@@ -295,14 +341,7 @@ export type Arena = {
           "address": "11111111111111111111111111111111"
         }
       ],
-      "args": [
-        {
-          "name": "winners",
-          "type": {
-            "vec": "pubkey"
-          }
-        }
-      ]
+      "args": []
     }
   ],
   "accounts": [
