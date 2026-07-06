@@ -4,6 +4,8 @@ import react from "@vitejs/plugin-react";
 // Mobile-first PWA. Dev server proxies API + WS to the backend (P0.4 mock or real).
 export default defineConfig({
   plugins: [react()],
+  // Solana web3/wallet-adapter expect a Node-ish global in the browser.
+  define: { global: "globalThis" },
   server: {
     port: 5173,
     proxy: {

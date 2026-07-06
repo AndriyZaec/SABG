@@ -15,7 +15,15 @@ import type {
   WalletAddress,
 } from "./entities.js";
 
-/** POST /auth/wallet — sign-in with Solana (C5). */
+/** POST /auth/nonce — request a fresh nonce to embed in the sign-in message. */
+export interface WalletNonceRequest {
+  walletAddress: WalletAddress;
+}
+export interface WalletNonceResponse {
+  nonce: string;
+}
+
+/** POST /auth/wallet — sign-in with Solana. */
 export interface WalletSignInRequest {
   walletAddress: WalletAddress;
   /** Base-58 signature over the issued nonce/message. */

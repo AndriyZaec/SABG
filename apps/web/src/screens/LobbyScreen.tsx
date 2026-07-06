@@ -1,9 +1,11 @@
-// F2 — Match Lobby + Entry Pass purchase (A). Depends on C1 (buy_entry) + F1 wallet.
+import { SignInPanel } from "../auth/SignInPanel.js";
+
 export function LobbyScreen() {
   return (
-    <main>
+    <main style={{ padding: 24 }}>
       <h1>SABG — Lobby</h1>
-      <p>Match list, wallet connect, buy entry pass (Solana devnet).</p>
+      <SignInPanel />
+      <p>Match list, buy entry pass (Solana devnet).</p>
     </main>
   );
 }
