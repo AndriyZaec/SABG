@@ -4,7 +4,7 @@
 
 import { randomUUID } from "node:crypto";
 import { MIN_LEAD_TIME_SECONDS } from "@arena/contracts";
-import type { MatchSignal, MatchState, PredictionRound, Uuid } from "@arena/contracts";
+import type { Answer, MatchSignal, MatchState, PredictionRound, SettledBy, Uuid } from "@arena/contracts";
 import type { MatchSignalBus } from "../ingestion/event-bus.js";
 import { initialPlannerState, planRoundActions, type PlannerState } from "./planner.js";
 import { createStubQuestionProvider, type QuestionProvider } from "./question-provider.js";
@@ -43,9 +43,29 @@ export class RoundEngine {
     this.leadTimeSeconds = options.leadTimeSeconds ?? MIN_LEAD_TIME_SECONDS;
   }
 
-  /** Rounds created so far, keyed by windowStartMinute (open or locked; settled is B4's concern). */
+  /** Rounds created so far, keyed by windowStartMinute (open, locked, or settled). */
   get roundsByWindow(): ReadonlyMap<number, PredictionRound> {
     return this.rounds;
+  }
+
+  /**
+   * B4 seam: called by wiring once the Settlement Engine resolves a locked round, so
+   * `PredictionRound` stays the single source of truth for round state (no shadow copy inside
+   * the Settlement Engine). Mirrors the `handleLock` mutation pattern below.
+   */
+  markSettled(windowStartMinute: number, correctAnswer: Answer, settledBy: SettledBy): PredictionRound | undefined {
+    const round = this.rounds.get(windowStartMinute);
+    if (round === undefined) return undefined;
+
+    const settled: PredictionRound = {
+      ...round,
+      status: "settled",
+      correctAnswer,
+      settledAt: new Date().toISOString(),
+      settledBy,
+    };
+    this.rounds.set(windowStartMinute, settled);
+    return settled;
   }
 
   apply(signal: MatchSignal): void {

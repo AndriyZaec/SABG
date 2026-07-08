@@ -23,6 +23,24 @@ export function requiredPeriod(windowStart: number): Extract<MatchPeriod, "first
   return windowStart < HALFTIME_WINDOW_START ? "first_half" : "second_half";
 }
 
+/**
+ * True once `tick` has reached or passed `thresholdMinute` *within* `requiredPeriodOfThreshold`,
+ * or has moved past that period entirely (catch-up: we never saw the minute cross the threshold,
+ * but we're clearly past it now). Shared by lock detection here (`thresholdMinute` = a window's
+ * start) and by the Settlement Engine's window-end detection (`thresholdMinute` = a window's
+ * end) — both are "has the match clock reached minute X of period Y" checks (spec §5, §6).
+ */
+export function hasReachedMinute(
+  tick: ClockTick,
+  thresholdMinute: number,
+  requiredPeriodOfThreshold: MatchPeriod,
+): boolean {
+  return (
+    PERIOD_RANK[tick.period] > PERIOD_RANK[requiredPeriodOfThreshold] ||
+    (tick.period === requiredPeriodOfThreshold && tick.minute >= thresholdMinute)
+  );
+}
+
 export interface PlannerState {
   /** Index into TARGET_WINDOW_STARTS of the next window to open. */
   nextIndex: number;
@@ -61,10 +79,8 @@ export function planRoundActions(
 
     if (openWindow !== undefined) {
       const req = requiredPeriod(openWindow);
-      // Lock is always exactly at window start T (spec §5) — reached either by the minute
-      // catching up within the window's own period, or by the period having moved past it
-      // entirely (catch-up: we never saw the minute cross T, but we're clearly past it now).
-      const reachedLock = PERIOD_RANK[tick.period] > PERIOD_RANK[req] || (tick.period === req && tick.minute >= openWindow);
+      // Lock is always exactly at window start T (spec §5).
+      const reachedLock = hasReachedMinute(tick, openWindow, req);
       if (reachedLock) {
         actions.push({ kind: "lock", windowStart: openWindow });
         openWindow = undefined;
