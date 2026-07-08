@@ -65,6 +65,8 @@ export const users = pgTable("user", {
 
 export const matches = pgTable("match", {
   id: uuid("id").primaryKey().defaultRandom(),
+  /** TXODDS numeric fixture id — the join key to the /scores/stream feed (B1). */
+  txoddsFixtureId: integer("txodds_fixture_id").unique(),
   homeTeam: text("home_team").notNull(),
   awayTeam: text("away_team").notNull(),
   startTime: timestamp("start_time", { withTimezone: true }).notNull(),
@@ -74,7 +76,9 @@ export const matches = pgTable("match", {
   scoreHome: integer("score_home").notNull(),
   scoreAway: integer("score_away").notNull(),
   ...timestamps,
-});
+}, (t) => [
+  uniqueIndex("match_teams_start_time_idx").on(t.homeTeam, t.awayTeam, t.startTime),
+]);
 
 export const arenas = pgTable("arena", {
   id: uuid("id").primaryKey().defaultRandom(),
