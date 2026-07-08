@@ -4,17 +4,17 @@
 //    no-Redis decision for this port — a restart just starts the stream fresh rather than
 //    resuming exactly where it left off);
 //  - `handleMessage` both persists the raw message (StreamEventRepository, Mongo) and feeds it
-//    through the shared B1 incident-tracker, publishing a `LiveEvent` onto the S3 bus whenever
-//    an incident resolves to confirmed.
+//    through the shared B1 match-signal producer, publishing every `MatchSignal` (settlement
+//    events + clock/possession) onto the S3 bus.
 
-import type { LiveEvent } from "@arena/contracts";
+import type { MatchSignal } from "@arena/contracts";
 import { streamEvents, type StreamMessage } from "./sse-client.js";
 import { StreamEventRepository } from "./mongo/stream-event.repository.js";
 import { RateLimitState } from "./rate-limit.js";
 import { logger } from "./logger.js";
 import { isFinishedStatus, type ScoreSnapshot } from "../ingestion/score-snapshot.js";
-import { createLiveEventProcessor, type LiveEventProcessor } from "../ingestion/incident-tracker.js";
-import { LiveEventBus } from "../ingestion/event-bus.js";
+import { createMatchSignalProducer, type MatchSignalProducer } from "../ingestion/match-signal.js";
+import { MatchSignalBus } from "../ingestion/event-bus.js";
 
 /** How long to keep the stream open after `finished`, to catch trailing amend messages. */
 const SETTLE_MS = 15_000;
@@ -24,8 +24,8 @@ const RECONNECT_BACKOFF_MS = [1_000, 5_000, 10_000, 30_000];
 /**
  * Background worker: consumes the real-time `/scores/stream` SSE feed for one fixture over a
  * single long-lived connection (no polling interval — events are handled the instant each
- * frame arrives), persisting every raw message to Mongo and publishing normalized, confirmed,
- * deduped `LiveEvent`s onto a `LiveEventBus` (S3).
+ * frame arrives), persisting every raw message to Mongo and publishing `MatchSignal`s onto a
+ * `MatchSignalBus` (S3).
  */
 export class LiveIngestionWorker {
   private running = false;
@@ -35,13 +35,13 @@ export class LiveIngestionWorker {
   private abort: AbortController | undefined;
   private settleTimer: NodeJS.Timeout | undefined;
   private finished = false;
-  private readonly processor: LiveEventProcessor;
+  private readonly producer: MatchSignalProducer;
 
   constructor(
     private readonly matchId: string,
-    private readonly bus: LiveEventBus,
+    private readonly bus: MatchSignalBus,
   ) {
-    this.processor = createLiveEventProcessor(matchId);
+    this.producer = createMatchSignalProducer(matchId);
   }
 
   async start(fixtureId: number): Promise<void> {
@@ -124,9 +124,8 @@ export class LiveIngestionWorker {
 
     await StreamEventRepository.insert(fixtureId, event, msg.id);
 
-    const liveEvent = this.processor.process(event);
-    if (liveEvent !== null) {
-      this.publish(liveEvent);
+    for (const signal of this.producer.process(event)) {
+      this.publish(signal);
     }
 
     if (event.Seq !== undefined) this.lastSeq = event.Seq;
@@ -137,8 +136,8 @@ export class LiveIngestionWorker {
     }
   }
 
-  private publish(event: LiveEvent): void {
-    this.bus.publish(event);
+  private publish(signal: MatchSignal): void {
+    this.bus.publish(signal);
   }
 
   private armSettle(fixtureId: number): void {

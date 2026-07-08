@@ -4,6 +4,7 @@
 // `Action` values not in the current TXODDS doc revision.
 
 import { z } from "zod";
+import type { MatchPeriod } from "@arena/contracts";
 
 /**
  * Per TXODDS Scores Product API docs (Soccer v1.0): StatusId is the canonical
@@ -44,6 +45,38 @@ export function isClockedStatus(statusId: number | undefined): boolean {
   return statusId !== undefined && STATUS_ID_INFO[statusId]?.clocked === true;
 }
 
+/**
+ * Maps a `StatusId` onto spec §13's `MatchPeriod` (pre/first_half/halftime/second_half/full_time).
+ * `MatchPeriod` has no extra-time/shootout variants (out of MVP scope, spec §3) — extra-time
+ * play (ET1/ET2/PE) folds into `second_half`, and breaks around it (WET/HTET/WPE/Interrupted)
+ * fold into `halftime`, so an in-progress match is never reported as fully over early.
+ */
+const STATUS_ID_TO_PERIOD: Record<number, MatchPeriod> = {
+  1: "pre", // NS
+  2: "first_half", // H1
+  3: "halftime", // HT
+  4: "second_half", // H2
+  5: "full_time", // F
+  6: "halftime", // WET
+  7: "second_half", // ET1
+  8: "halftime", // HTET
+  9: "second_half", // ET2
+  10: "full_time", // FET
+  11: "halftime", // WPE
+  12: "second_half", // PE
+  13: "full_time", // FPE
+  14: "halftime", // Interrupted
+  15: "full_time", // A
+  16: "full_time", // C
+  17: "full_time", // TXCC
+  18: "full_time", // TXCS
+};
+
+export function periodForStatus(statusId: number | undefined): MatchPeriod | undefined {
+  if (statusId === undefined) return undefined;
+  return STATUS_ID_TO_PERIOD[statusId];
+}
+
 /** Game clock — Running flag + a raw seconds counter (semantics vary by period/build). */
 export const ClockSchema = z
   .object({
@@ -75,6 +108,7 @@ export const ScoreSnapshotSchema = z
 
     Clock: ClockSchema.optional(),
     Participant: z.number().optional(), // team ref (1|2) the action pertains to
+    Possession: z.number().optional(), // team ref (1|2) currently in possession
 
     Data: z.record(z.string(), z.unknown()).optional(),
   })

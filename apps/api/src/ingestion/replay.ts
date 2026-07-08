@@ -4,10 +4,10 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import type { LiveEvent } from "@arena/contracts";
+import type { MatchSignal } from "@arena/contracts";
 import { ScoreSnapshotSchema, type ScoreSnapshot } from "./score-snapshot.js";
-import { createLiveEventProcessor } from "./incident-tracker.js";
-import { LiveEventBus } from "./event-bus.js";
+import { createMatchSignalProducer } from "./match-signal.js";
+import { MatchSignalBus } from "./event-bus.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -26,24 +26,24 @@ export function defaultFixturePath(): string {
 
 /**
  * Feeds every raw message in `fixturePath` (already ordered by `Seq`/`Ts`) through a fresh
- * `LiveEventProcessor`, publishing one confirmed, deduped `LiveEvent` per incident onto `bus`
- * in order. Returns the emitted events for callers (tests, a replay CLI) that want the full
- * list.
+ * `MatchSignalProducer`, publishing every `MatchSignal` (settlement events + clock/possession)
+ * onto `bus` in order. Returns the emitted signals for callers (tests, a replay CLI, B2) that
+ * want the full list.
  */
 export function replayFixture(
-  bus: LiveEventBus,
+  bus: MatchSignalBus,
   matchId: string = FIXTURE_MATCH_ID,
   fixturePath: string = defaultFixturePath(),
-): LiveEvent[] {
+): MatchSignal[] {
   const raw = loadFixture(fixturePath);
-  const processor = createLiveEventProcessor(matchId);
-  const emitted: LiveEvent[] = [];
+  const producer = createMatchSignalProducer(matchId);
+  const emitted: MatchSignal[] = [];
 
   for (const message of raw) {
-    const event = processor.process(message);
-    if (event === null) continue;
-    bus.publish(event);
-    emitted.push(event);
+    for (const signal of producer.process(message)) {
+      bus.publish(signal);
+      emitted.push(signal);
+    }
   }
 
   return emitted;

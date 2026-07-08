@@ -6,6 +6,7 @@ export * from "./settlement.js";
 export * from "./entities.js";
 export * from "./dto.js";
 export * from "./ws.js";
+export * from "./signals.js";
 
 /** Fixed 5-minute regular-time windows (spec §3). Halftime window 45–50 skipped by default (§3.2). */
 export const MATCH_WINDOWS: ReadonlyArray<{ start: number; end: number }> =
