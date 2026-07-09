@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { SignInPanel } from "../auth/SignInPanel.js";
 import { useArenaPayout } from "../arena/useArenaPayout.js";
+import { Loading } from "../ui/Loading.js";
 
 export function PayoutScreen() {
   const { connected, publicKey } = useWallet();
@@ -19,7 +20,11 @@ export function PayoutScreen() {
 
       {!connected && <p>Connect a wallet.</p>}
 
-      {connected && !exists && <p>No arena yet — create one in the lobby first.</p>}
+      {connected && status === "loading" && <Loading label="Loading payout…" />}
+
+      {connected && status !== "loading" && !exists && (
+        <p>No arena yet — create one in the lobby first.</p>
+      )}
 
       {connected && exists && (
         <section style={{ border: "1px solid #ddd", borderRadius: 8, padding: 16 }}>

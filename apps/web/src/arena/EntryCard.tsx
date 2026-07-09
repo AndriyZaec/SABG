@@ -1,5 +1,6 @@
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useArenaEntry } from "./useArenaEntry.js";
+import { Loading } from "../ui/Loading.js";
 
 /** Shows the demo arena and lets a connected wallet create it / buy an entry pass. */
 export function EntryCard() {
@@ -8,6 +9,10 @@ export function EntryCard() {
 
   if (!connected) {
     return <p>Connect a wallet to join the arena.</p>;
+  }
+
+  if (status === "loading" && !info) {
+    return <Loading label="Loading arena…" />;
   }
 
   const busy = status === "working" || status === "loading";
