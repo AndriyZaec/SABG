@@ -40,6 +40,7 @@ pub mod arena {
         arena.platform_fee_bps = platform_fee_bps;
         arena.player_count = 0;
         arena.settled = false;
+        arena.result_hash = [0u8; 32];
         arena.bump = ctx.bumps.arena;
         arena.escrow_bump = ctx.bumps.escrow;
         Ok(())
@@ -123,9 +124,31 @@ pub mod arena {
         Ok(())
     }
 
-    /// Record final result hash (+ winner badge) on-chain for verification.
-    pub fn record_result(_ctx: Context<RecordResult>, _result_hash: [u8; 32]) -> Result<()> {
-        // TODO: store leaderboard hash, issue winner badge.
+    /// Record the final leaderboard hash on-chain after settlement, for verification.
+    pub fn record_result(ctx: Context<RecordResult>, result_hash: [u8; 32]) -> Result<()> {
+        let arena = &mut ctx.accounts.arena;
+        require!(arena.settled, ArenaError::NotSettled);
+        require_keys_eq!(
+            ctx.accounts.payout_authority.key(),
+            arena.payout_authority,
+            ArenaError::Unauthorized,
+        );
+        arena.result_hash = result_hash;
+        Ok(())
+    }
+
+    /// Issue a proof-of-win badge to a winning wallet. The badge PDA `init` prevents
+    /// awarding the same winner twice.
+    pub fn award_badge(ctx: Context<AwardBadge>) -> Result<()> {
+        require_keys_eq!(
+            ctx.accounts.payout_authority.key(),
+            ctx.accounts.arena.payout_authority,
+            ArenaError::Unauthorized,
+        );
+        let badge = &mut ctx.accounts.badge;
+        badge.arena = ctx.accounts.arena.key();
+        badge.winner = ctx.accounts.winner.key();
+        badge.bump = ctx.bumps.badge;
         Ok(())
     }
 }
@@ -198,6 +221,28 @@ pub struct Refund<'info> {
 
 #[derive(Accounts)]
 pub struct RecordResult<'info> {
+    #[account(mut, seeds = [b"arena", arena.arena_id.to_le_bytes().as_ref()], bump = arena.bump)]
+    pub arena: Account<'info, Arena>,
+    pub payout_authority: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct AwardBadge<'info> {
+    #[account(seeds = [b"arena", arena.arena_id.to_le_bytes().as_ref()], bump = arena.bump)]
+    pub arena: Account<'info, Arena>,
+
+    /// CHECK: the winning wallet the badge is issued to; only its address is stored.
+    pub winner: UncheckedAccount<'info>,
+
+    #[account(
+        init,
+        payer = payout_authority,
+        space = 8 + WinnerBadge::INIT_SPACE,
+        seeds = [b"badge", arena.key().as_ref(), winner.key().as_ref()],
+        bump,
+    )]
+    pub badge: Account<'info, WinnerBadge>,
+
     #[account(mut)]
     pub payout_authority: Signer<'info>,
     pub system_program: Program<'info, System>,

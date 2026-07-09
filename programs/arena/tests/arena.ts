@@ -199,3 +199,78 @@ describe("arena — payout", () => {
     assert.isTrue(threw, "second settle must fail");
   });
 });
+
+describe("arena — result + badge", () => {
+  const badgePda = (arena: web3.PublicKey, winner: web3.PublicKey) =>
+    PublicKey.findProgramAddressSync(
+      [Buffer.from("badge"), arena.toBuffer(), winner.toBuffer()],
+      program.programId,
+    )[0];
+
+  const settledArena = async () => {
+    const arenaId = freshArenaId();
+    const { arena, escrow } = deriveArena(arenaId);
+    await initArena(arenaId);
+    const winner = await buyIn(arena);
+    await program.methods
+      .settlePayout()
+      .accounts({ arena, escrow, payoutAuthority: authority.publicKey })
+      .remainingAccounts([{ pubkey: winner.publicKey, isWritable: true, isSigner: false }])
+      .rpc();
+    return { arena, winner };
+  };
+
+  it("records the result hash after settlement", async () => {
+    const { arena } = await settledArena();
+    const hash = Array.from({ length: 32 }, (_, i) => i);
+
+    await program.methods
+      .recordResult(hash)
+      .accounts({ arena, payoutAuthority: authority.publicKey })
+      .rpc();
+
+    const state = await program.account.arena.fetch(arena);
+    assert.deepEqual(Array.from(state.resultHash), hash);
+  });
+
+  it("awards a winner badge, and rejects a duplicate", async () => {
+    const { arena, winner } = await settledArena();
+
+    await program.methods
+      .awardBadge()
+      .accounts({ arena, winner: winner.publicKey, payoutAuthority: authority.publicKey })
+      .rpc();
+
+    const badge = await program.account.winnerBadge.fetch(badgePda(arena, winner.publicKey));
+    assert.equal(badge.winner.toBase58(), winner.publicKey.toBase58());
+    assert.equal(badge.arena.toBase58(), arena.toBase58());
+
+    let threw = false;
+    try {
+      await program.methods
+        .awardBadge()
+        .accounts({ arena, winner: winner.publicKey, payoutAuthority: authority.publicKey })
+        .rpc();
+    } catch (_e) {
+      threw = true;
+    }
+    assert.isTrue(threw, "cannot award the same winner twice");
+  });
+
+  it("rejects an unauthorized result record", async () => {
+    const { arena } = await settledArena();
+    const impostor = await fundedPlayer();
+
+    let threw = false;
+    try {
+      await program.methods
+        .recordResult(Array(32).fill(0))
+        .accounts({ arena, payoutAuthority: impostor.publicKey })
+        .signers([impostor])
+        .rpc();
+    } catch (_e) {
+      threw = true;
+    }
+    assert.isTrue(threw, "only the payout authority may record the result");
+  });
+});

@@ -20,8 +20,19 @@ pub struct Arena {
     pub player_count: u32,
     /// Set once payout has run; blocks further entries/payouts.
     pub settled: bool,
+    /// Hash of the final leaderboard, recorded after settlement (zeros until set).
+    pub result_hash: [u8; 32],
     pub bump: u8,
     pub escrow_bump: u8,
+}
+
+/// Proof-of-win issued to a winning wallet.
+#[account]
+#[derive(InitSpace)]
+pub struct WinnerBadge {
+    pub arena: Pubkey,
+    pub winner: Pubkey,
+    pub bump: u8,
 }
 
 #[account]
