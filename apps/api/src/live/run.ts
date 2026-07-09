@@ -16,6 +16,7 @@ import { SettlementEngine } from "../settlement/engine.js";
 import { createInMemoryArenaPlayerStore } from "../settlement/arena-player-store.js";
 import { createInMemoryPredictionStore } from "../settlement/prediction-store.js";
 import { createQuestionGenerator } from "../question-generator/engine.js";
+import { LeaderboardService } from "../leaderboard/service.js";
 
 /** Placeholder arena id for standalone runs (no real Arena row exists for this fixture yet). */
 const FIXTURE_ARENA_ID = "00000000-0000-0000-0000-000000000000";
@@ -48,11 +49,15 @@ try {
 }
 
 const bus = new MatchSignalBus();
+// B6 Leaderboard Service: forward-declared so B2's onSnapshot below can call finalize() once the
+// match reaches full time (spec §7 multi-survivor case).
+let leaderboardService: LeaderboardService;
 // B2 Match State Engine: keeps the aggregated match snapshot and logs it on every change, so
 // the worker is observable when run standalone (B7 will subscribe the same way to push WS
 // match.state instead of logging).
 const matchStateEngine = new MatchStateEngine(FIXTURE_MATCH_ID, (state) => {
   logger.info({ state }, "match state updated");
+  if (state.period === "full_time") leaderboardService.finalize();
 });
 matchStateEngine.subscribeTo(bus);
 
@@ -67,6 +72,21 @@ const arenaPlayerStore = createInMemoryArenaPlayerStore(FIXTURE_ARENA_ID, [
   FIXTURE_PLAYER_NEVER_ANSWERS,
 ]);
 let settlementEngine: SettlementEngine;
+
+// B6 Leaderboard Service: tracks the same fixture roster, accumulating score off B4's
+// per-player results and resolving the winner list (spec §7 — no tie-breakers, see rank.ts).
+leaderboardService = new LeaderboardService(
+  FIXTURE_ARENA_ID,
+  [
+    { userId: FIXTURE_PLAYER_ANSWERS_YES, username: "answers-yes", joinedAt: new Date().toISOString() },
+    { userId: FIXTURE_PLAYER_ANSWERS_NO, username: "answers-no", joinedAt: new Date().toISOString() },
+    { userId: FIXTURE_PLAYER_NEVER_ANSWERS, username: "never-answers", joinedAt: new Date().toISOString() },
+  ],
+  {
+    onSnapshot: (entries) => logger.info({ entries }, "leaderboard updated"),
+    onFinished: (winners) => logger.info({ winners }, "arena finished"),
+  },
+);
 
 // B5 Question Generator: rule/template-based, deterministic rotation across the whitelisted
 // target types/teams (spec §4.2). Subscribes to the same bus to track substitutions-per-team,
@@ -103,9 +123,11 @@ settlementEngine = new SettlementEngine(FIXTURE_ARENA_ID, {
   onSettled: (event) => {
     roundEngine.markSettled(event.windowStartMinute, event.correctAnswer, event.settledBy);
     logger.info({ event }, "round settled");
+    leaderboardService.onRoundSettled(event);
   },
   onPlayerResult: (event) => {
     logger.info({ event }, "player result");
+    leaderboardService.onPlayerResult(event);
   },
 });
 settlementEngine.subscribeTo(bus);
