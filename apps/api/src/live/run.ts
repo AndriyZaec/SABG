@@ -15,6 +15,7 @@ import { RoundEngine } from "../round-engine/engine.js";
 import { SettlementEngine } from "../settlement/engine.js";
 import { createInMemoryArenaPlayerStore } from "../settlement/arena-player-store.js";
 import { createInMemoryPredictionStore } from "../settlement/prediction-store.js";
+import { createQuestionGenerator } from "../question-generator/engine.js";
 
 /** Placeholder arena id for standalone runs (no real Arena row exists for this fixture yet). */
 const FIXTURE_ARENA_ID = "00000000-0000-0000-0000-000000000000";
@@ -67,11 +68,18 @@ const arenaPlayerStore = createInMemoryArenaPlayerStore(FIXTURE_ARENA_ID, [
 ]);
 let settlementEngine: SettlementEngine;
 
+// B5 Question Generator: rule/template-based, deterministic rotation across the whitelisted
+// target types/teams (spec §4.2). Subscribes to the same bus to track substitutions-per-team,
+// the one triviality input MatchState doesn't already carry.
+const questionGenerator = createQuestionGenerator();
+questionGenerator.subscribeTo(bus);
+
 // B3 Round Engine: drives round lifecycle (pending -> open -> locked) off the same match clock,
-// logging transitions for now (B7 will push these over WS instead). Stub question provider until
-// B5 lands; matchState context comes from the engine above.
+// logging transitions for now (B7 will push these over WS instead). matchState context and the
+// real question provider come from the engines above.
 const roundEngine = new RoundEngine(FIXTURE_MATCH_ID, FIXTURE_ARENA_ID, {
   getMatchState: () => matchStateEngine.snapshot,
+  questionProvider: questionGenerator,
   onTransition: (event) => {
     logger.info({ event }, "round lifecycle event");
     if (event.type === "open") {

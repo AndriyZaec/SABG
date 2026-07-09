@@ -107,7 +107,15 @@ export class SettlementEngine {
     const toSettle: { windowStart: number; answer: Answer }[] = [];
     for (const [windowStart, entry] of this.tracked) {
       const req = requiredPeriod(entry.round.windowStartMinute);
-      if (hasReachedMinute(tick, entry.round.windowEndMinute, req)) {
+      // Spec §6: window-end fires once match minute is *strictly greater than* windowEndMinute,
+      // not >=. A message confirming an event AT windowEndMinute can arrive after an earlier,
+      // still-provisional message has already ticked the clock to that same minute — confirmation
+      // is inherently a separate, sometimes-later message (found via the full-pipeline test:
+      // fixture 18179764 Seq 296 ticks minute 30 while provisional; Seq 297 confirms the same
+      // shot one message later). Settling "no" the instant minute==windowEndMinute would still
+      // beat that confirmation to the punch. hasReachedMinute is >=-based (correct for B3's
+      // inclusive "lock exactly at T"); express the strict ">" here via `windowEndMinute + 1`.
+      if (hasReachedMinute(tick, entry.round.windowEndMinute + 1, req)) {
         toSettle.push({ windowStart, answer: resolveSettlement(entry.round.settlementCondition, entry.events) });
       }
     }

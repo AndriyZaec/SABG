@@ -87,7 +87,12 @@ describe("SettlementEngine", () => {
     });
     expect(settled).toHaveLength(0);
 
+    // windowEndMinute is 25 — spec §6 requires minute *strictly greater* than that to end the
+    // window, so a tick at exactly 25 must not settle yet (see the dedicated boundary test below).
     engine.apply({ kind: "clock", period: "first_half", matchMinute: 25, running: true, timestamp: "t" });
+    expect(settled).toHaveLength(0);
+
+    engine.apply({ kind: "clock", period: "first_half", matchMinute: 26, running: true, timestamp: "t" });
 
     expect(settled).toEqual([
       { type: "settle", roundId: round.id, windowStartMinute: 20, correctAnswer: "no", settledBy: "window_end" },
@@ -101,10 +106,34 @@ describe("SettlementEngine", () => {
     const round = makeRound();
     // USER_1 and USER_2 both never answer.
     engine.onRoundLocked(round);
-    engine.apply({ kind: "clock", period: "first_half", matchMinute: 25, running: true, timestamp: "t" });
+    engine.apply({ kind: "clock", period: "first_half", matchMinute: 26, running: true, timestamp: "t" });
 
     expect(playerResults).toContainEqual({ roundId: round.id, userId: USER_1, answer: undefined, result: "missed", status: "eliminated" });
     expect(playerResults).toContainEqual({ roundId: round.id, userId: USER_2, answer: undefined, result: "missed", status: "eliminated" });
+  });
+
+  it("still settles yes on a confirmed event at exactly windowEndMinute, even after the clock already ticked to that minute", () => {
+    // Regression test for a real bug found by the full-pipeline fixture test: the raw feed's
+    // clock can tick to a window's end minute via a provisional (unconfirmed) message, with the
+    // matching event's *confirmation* arriving in a later message stamped with that same minute.
+    // Settling "no" the instant minute==windowEndMinute would beat that confirmation to the punch.
+    const { engine, settled } = setup();
+    const round = makeRound(); // windowEndMinute: 25
+
+    engine.onRoundLocked(round);
+    // Clock ticks to exactly windowEndMinute (e.g. from a provisional message) — must not settle.
+    engine.apply({ kind: "clock", period: "first_half", matchMinute: 25, running: true, timestamp: "t" });
+    expect(settled).toHaveLength(0);
+
+    // The confirming event arrives afterward, still stamped with minute 25 — must settle "yes".
+    engine.apply({
+      kind: "event",
+      event: { id: "e1", matchId: MATCH_ID, eventType: "shot", team: "home", matchMinute: 25, timestamp: "t", confirmed: true },
+    });
+
+    expect(settled).toEqual([
+      { type: "settle", roundId: round.id, windowStartMinute: 20, correctAnswer: "yes", settledBy: "early" },
+    ]);
   });
 
   it("is idempotent: a duplicate confirmed event or extra clock tick after settling produces no further transitions", () => {
