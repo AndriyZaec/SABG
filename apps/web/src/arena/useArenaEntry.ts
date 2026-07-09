@@ -109,7 +109,7 @@ export function useArenaEntry(): ArenaEntry {
     if (!program || !publicKey) return;
     const { arena } = deriveArenaPdas(program.programId, DEMO_ARENA_ID);
     await run(() =>
-      program.methods.buyEntry().accounts({ arena, player: publicKey }).rpc(),
+      program.methods.buyEntry().accountsPartial({ arena, player: publicKey }).rpc(),
     );
   }, [program, publicKey, run]);
 
