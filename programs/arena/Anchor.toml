@@ -14,8 +14,9 @@ arena = "84o7QQ3vkGkm3D6wfaqEHxFN93p3Q2b6SFtfazzxZuxH"
 url = "https://api.apr.dev"
 
 [provider]
-# localnet for `anchor test` (spins a validator); switch to devnet to deploy.
-cluster = "devnet"
+# Default to localnet so `anchor test` never touches devnet (rate limits).
+# Deploy to devnet explicitly: `anchor deploy --provider.cluster devnet`.
+cluster = "localnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]

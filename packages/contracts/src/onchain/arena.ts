@@ -14,6 +14,86 @@ export type Arena = {
   },
   "instructions": [
     {
+      "name": "awardBadge",
+      "docs": [
+        "Issue a proof-of-win badge to a winning wallet. The badge PDA `init` prevents",
+        "awarding the same winner twice."
+      ],
+      "discriminator": [
+        163,
+        255,
+        101,
+        118,
+        140,
+        5,
+        179,
+        99
+      ],
+      "accounts": [
+        {
+          "name": "arena",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  114,
+                  101,
+                  110,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "arena.arena_id",
+                "account": "arena"
+              }
+            ]
+          }
+        },
+        {
+          "name": "winner"
+        },
+        {
+          "name": "badge",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  100,
+                  103,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "arena"
+              },
+              {
+                "kind": "account",
+                "path": "winner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "payoutAuthority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "buyEntry",
       "docs": [
         "Buy an entry pass: move the fixed fee into escrow, register participation.",
@@ -206,7 +286,7 @@ export type Arena = {
     {
       "name": "recordResult",
       "docs": [
-        "Record final result hash (+ winner badge) on-chain for verification."
+        "Record the final leaderboard hash on-chain after settlement, for verification."
       ],
       "discriminator": [
         208,
@@ -220,13 +300,31 @@ export type Arena = {
       ],
       "accounts": [
         {
-          "name": "payoutAuthority",
+          "name": "arena",
           "writable": true,
-          "signer": true
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  114,
+                  101,
+                  110,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "arena.arena_id",
+                "account": "arena"
+              }
+            ]
+          }
         },
         {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
+          "name": "payoutAuthority",
+          "signer": true
         }
       ],
       "args": [
@@ -370,6 +468,19 @@ export type Arena = {
         53,
         219
       ]
+    },
+    {
+      "name": "winnerBadge",
+      "discriminator": [
+        137,
+        158,
+        104,
+        161,
+        177,
+        222,
+        154,
+        1
+      ]
     }
   ],
   "errors": [
@@ -380,26 +491,31 @@ export type Arena = {
     },
     {
       "code": 6001,
+      "name": "notSettled",
+      "msg": "Arena is not settled yet"
+    },
+    {
+      "code": 6002,
       "name": "doubleEntry",
       "msg": "Player already entered this arena"
     },
     {
-      "code": 6002,
+      "code": 6003,
       "name": "unauthorized",
       "msg": "Unauthorized payout authority"
     },
     {
-      "code": 6003,
+      "code": 6004,
       "name": "noWinners",
       "msg": "Empty winner list"
     },
     {
-      "code": 6004,
+      "code": 6005,
       "name": "invalidEntryFee",
       "msg": "Entry fee must be greater than zero"
     },
     {
-      "code": 6005,
+      "code": 6006,
       "name": "invalidPlatformFee",
       "msg": "Platform fee exceeds 100%"
     }
@@ -464,6 +580,18 @@ export type Arena = {
             "type": "bool"
           },
           {
+            "name": "resultHash",
+            "docs": [
+              "Hash of the final leaderboard, recorded after settlement (zeros until set)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
             "name": "bump",
             "type": "u8"
           },
@@ -494,6 +622,29 @@ export type Arena = {
           {
             "name": "refunded",
             "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "winnerBadge",
+      "docs": [
+        "Proof-of-win issued to a winning wallet."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "arena",
+            "type": "pubkey"
+          },
+          {
+            "name": "winner",
+            "type": "pubkey"
           },
           {
             "name": "bump",

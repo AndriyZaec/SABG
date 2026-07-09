@@ -5,7 +5,10 @@
   "type": "module",
   "description": "SABG Anchor program + TS tests (devnet).",
   "scripts": {
-    "test": "anchor test"
+    "test": "anchor test",
+    "test:novalidator": "anchor test --skip-local-validator",
+    "deploy:devnet": "anchor deploy --provider.cluster devnet",
+    "test:devnet": "anchor test --provider.cluster devnet --skip-deploy"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",
