@@ -1,29 +1,42 @@
+import { lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { SolanaProviders } from "./solana/WalletProvider.js";
 import { LobbyScreen } from "./screens/LobbyScreen.js";
-import { ArenaScreen } from "./screens/ArenaScreen.js";
-import { LeaderboardScreen } from "./screens/LeaderboardScreen.js";
-import { SpectatorScreen } from "./screens/SpectatorScreen.js";
-import { SummaryScreen } from "./screens/SummaryScreen.js";
-import { PayoutScreen } from "./screens/PayoutScreen.js";
+import { Loading } from "./ui/Loading.js";
 
-// Screen map -> build plan frontend tracks:
-//   F1 app shell + wallet connect (A)      -> this shell
-//   F2 Match Lobby + Entry Pass purchase (A)-> LobbyScreen
-//   F3 Live Arena + Prediction Card (V)     -> ArenaScreen
-//   F4 Leaderboard + Spectator + Summary (V)-> Leaderboard/Spectator/Summary
-//   F5 Winner / Payout (A)                  -> PayoutScreen
+// Landing (Lobby) loads eagerly; heavier in-arena screens are split out.
+const ArenaScreen = lazy(() =>
+  import("./screens/ArenaScreen.js").then((m) => ({ default: m.ArenaScreen })),
+);
+const LeaderboardScreen = lazy(() =>
+  import("./screens/LeaderboardScreen.js").then((m) => ({ default: m.LeaderboardScreen })),
+);
+const SpectatorScreen = lazy(() =>
+  import("./screens/SpectatorScreen.js").then((m) => ({ default: m.SpectatorScreen })),
+);
+const SummaryScreen = lazy(() =>
+  import("./screens/SummaryScreen.js").then((m) => ({ default: m.SummaryScreen })),
+);
+const PayoutScreen = lazy(() =>
+  import("./screens/PayoutScreen.js").then((m) => ({ default: m.PayoutScreen })),
+);
+
 export function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<LobbyScreen />} />
-        <Route path="/arena/:arenaId" element={<ArenaScreen />} />
-        <Route path="/arena/:arenaId/leaderboard" element={<LeaderboardScreen />} />
-        <Route path="/arena/:arenaId/spectate" element={<SpectatorScreen />} />
-        <Route path="/arena/:arenaId/summary" element={<SummaryScreen />} />
-        <Route path="/arena/:arenaId/payout" element={<PayoutScreen />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </BrowserRouter>
+    <SolanaProviders>
+      <BrowserRouter>
+        <Suspense fallback={<Loading />}>
+          <Routes>
+            <Route path="/" element={<LobbyScreen />} />
+            <Route path="/arena/:arenaId" element={<ArenaScreen />} />
+            <Route path="/arena/:arenaId/leaderboard" element={<LeaderboardScreen />} />
+            <Route path="/arena/:arenaId/spectate" element={<SpectatorScreen />} />
+            <Route path="/arena/:arenaId/summary" element={<SummaryScreen />} />
+            <Route path="/arena/:arenaId/payout" element={<PayoutScreen />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </Suspense>
+      </BrowserRouter>
+    </SolanaProviders>
   );
 }

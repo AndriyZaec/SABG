@@ -16,7 +16,8 @@
     "dev:api": "pnpm --filter @arena/api dev",
     "dev:web": "pnpm --filter @arena/web dev",
     "contracts:build": "pnpm --filter @arena/contracts build",
-    "anchor:build": "cd programs/arena && anchor build"
+    "anchor:build": "cd programs/arena && anchor build",
+    "idl:sync": "pnpm --filter @arena/contracts idl:sync"
   },
   "devDependencies": {
     "typescript": "^5.4.0"

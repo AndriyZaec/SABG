@@ -4,15 +4,20 @@
 resolution = true
 skip-lint = false
 
+[programs.localnet]
+arena = "84o7QQ3vkGkm3D6wfaqEHxFN93p3Q2b6SFtfazzxZuxH"
+
 [programs.devnet]
-arena = "Arena111111111111111111111111111111111111111"
+arena = "84o7QQ3vkGkm3D6wfaqEHxFN93p3Q2b6SFtfazzxZuxH"
 
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "devnet"
+# Default to localnet so `anchor test` never touches devnet (rate limits).
+# Deploy to devnet explicitly: `anchor deploy --provider.cluster devnet`.
+cluster = "localnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]
-test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
+test = "pnpm exec mocha 'tests/**/*.ts'"

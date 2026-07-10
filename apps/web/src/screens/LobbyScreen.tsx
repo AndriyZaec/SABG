@@ -1,9 +1,14 @@
-// F2 — Match Lobby + Entry Pass purchase (A). Depends on C1 (buy_entry) + F1 wallet.
+import { Link } from "react-router-dom";
+import { SignInPanel } from "../auth/SignInPanel.js";
+import { EntryCard } from "../arena/EntryCard.js";
+
 export function LobbyScreen() {
   return (
-    <main>
+    <main style={{ padding: 24, display: "grid", gap: 20 }}>
       <h1>SABG — Lobby</h1>
-      <p>Match list, wallet connect, buy entry pass (Solana devnet).</p>
+      <SignInPanel />
+      <EntryCard />
+      <Link to="/arena/demo/payout">Winner / Payout →</Link>
     </main>
   );
 }

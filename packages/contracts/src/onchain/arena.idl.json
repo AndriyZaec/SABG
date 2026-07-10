@@ -1,0 +1,651 @@
+{
+  "address": "84o7QQ3vkGkm3D6wfaqEHxFN93p3Q2b6SFtfazzxZuxH",
+  "metadata": {
+    "name": "arena",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "SABG arena escrow, entry pass and payout program (Solana devnet)."
+  },
+  "instructions": [
+    {
+      "name": "award_badge",
+      "docs": [
+        "Issue a proof-of-win badge to a winning wallet. The badge PDA `init` prevents",
+        "awarding the same winner twice."
+      ],
+      "discriminator": [
+        163,
+        255,
+        101,
+        118,
+        140,
+        5,
+        179,
+        99
+      ],
+      "accounts": [
+        {
+          "name": "arena",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  114,
+                  101,
+                  110,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "arena.arena_id",
+                "account": "Arena"
+              }
+            ]
+          }
+        },
+        {
+          "name": "winner"
+        },
+        {
+          "name": "badge",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  97,
+                  100,
+                  103,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "arena"
+              },
+              {
+                "kind": "account",
+                "path": "winner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "payout_authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "buy_entry",
+      "docs": [
+        "Buy an entry pass: move the fixed fee into escrow, register participation.",
+        "The EntryPass PDA `init` rejects a second entry by the same player."
+      ],
+      "discriminator": [
+        238,
+        105,
+        42,
+        125,
+        75,
+        50,
+        52,
+        81
+      ],
+      "accounts": [
+        {
+          "name": "arena",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  114,
+                  101,
+                  110,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "arena.arena_id",
+                "account": "Arena"
+              }
+            ]
+          }
+        },
+        {
+          "name": "entry_pass",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  110,
+                  116,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "arena"
+              },
+              {
+                "kind": "account",
+                "path": "player"
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "arena"
+              }
+            ]
+          }
+        },
+        {
+          "name": "player",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "init_arena",
+      "docs": [
+        "Create an arena with a fixed entry fee and a designated payout authority."
+      ],
+      "discriminator": [
+        24,
+        246,
+        252,
+        176,
+        155,
+        175,
+        123,
+        124
+      ],
+      "accounts": [
+        {
+          "name": "arena",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  114,
+                  101,
+                  110,
+                  97
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "arena_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrow",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "arena"
+              }
+            ]
+          }
+        },
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "arena_id",
+          "type": "u64"
+        },
+        {
+          "name": "entry_fee_lamports",
+          "type": "u64"
+        },
+        {
+          "name": "payout_authority",
+          "type": "pubkey"
+        },
+        {
+          "name": "platform_fee_bps",
+          "type": "u16"
+        }
+      ]
+    },
+    {
+      "name": "record_result",
+      "docs": [
+        "Record the final leaderboard hash on-chain after settlement, for verification."
+      ],
+      "discriminator": [
+        208,
+        243,
+        63,
+        218,
+        63,
+        116,
+        76,
+        80
+      ],
+      "accounts": [
+        {
+          "name": "arena",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  114,
+                  101,
+                  110,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "arena.arena_id",
+                "account": "Arena"
+              }
+            ]
+          }
+        },
+        {
+          "name": "payout_authority",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "result_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "refund",
+      "docs": [
+        "Refund an entry if the arena is cancelled / underfilled."
+      ],
+      "discriminator": [
+        2,
+        96,
+        183,
+        251,
+        63,
+        208,
+        46,
+        46
+      ],
+      "accounts": [
+        {
+          "name": "player",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "settle_payout",
+      "docs": [
+        "Distribute the escrow to winner(s), passed as writable remaining accounts.",
+        "Equal split with any remainder going to the first winner; runs once."
+      ],
+      "discriminator": [
+        245,
+        141,
+        29,
+        81,
+        209,
+        73,
+        180,
+        155
+      ],
+      "accounts": [
+        {
+          "name": "arena",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  114,
+                  101,
+                  110,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "arena.arena_id",
+                "account": "Arena"
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "arena"
+              }
+            ]
+          }
+        },
+        {
+          "name": "payout_authority",
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Arena",
+      "discriminator": [
+        243,
+        215,
+        44,
+        44,
+        231,
+        211,
+        232,
+        168
+      ]
+    },
+    {
+      "name": "EntryPass",
+      "discriminator": [
+        240,
+        252,
+        181,
+        23,
+        86,
+        34,
+        53,
+        219
+      ]
+    },
+    {
+      "name": "WinnerBadge",
+      "discriminator": [
+        137,
+        158,
+        104,
+        161,
+        177,
+        222,
+        154,
+        1
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "AlreadySettled",
+      "msg": "Arena already settled"
+    },
+    {
+      "code": 6001,
+      "name": "NotSettled",
+      "msg": "Arena is not settled yet"
+    },
+    {
+      "code": 6002,
+      "name": "DoubleEntry",
+      "msg": "Player already entered this arena"
+    },
+    {
+      "code": 6003,
+      "name": "Unauthorized",
+      "msg": "Unauthorized payout authority"
+    },
+    {
+      "code": 6004,
+      "name": "NoWinners",
+      "msg": "Empty winner list"
+    },
+    {
+      "code": 6005,
+      "name": "InvalidEntryFee",
+      "msg": "Entry fee must be greater than zero"
+    },
+    {
+      "code": 6006,
+      "name": "InvalidPlatformFee",
+      "msg": "Platform fee exceeds 100%"
+    }
+  ],
+  "types": [
+    {
+      "name": "Arena",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "docs": [
+              "Creator; may init the arena."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "payout_authority",
+            "docs": [
+              "Key allowed to trigger payout (backend payout service)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "arena_id",
+            "docs": [
+              "Off-chain arena identifier, also part of the PDA seed."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "entry_fee_lamports",
+            "docs": [
+              "Fixed entry fee each player pays into escrow."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "prize_pool_lamports",
+            "docs": [
+              "Running total held in escrow."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "platform_fee_bps",
+            "docs": [
+              "Optional platform fee in basis points (0 for MVP)."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "player_count",
+            "type": "u32"
+          },
+          {
+            "name": "settled",
+            "docs": [
+              "Set once payout has run; blocks further entries/payouts."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "result_hash",
+            "docs": [
+              "Hash of the final leaderboard, recorded after settlement (zeros until set)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "escrow_bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EntryPass",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "arena",
+            "type": "pubkey"
+          },
+          {
+            "name": "player",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "refunded",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "WinnerBadge",
+      "docs": [
+        "Proof-of-win issued to a winning wallet."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "arena",
+            "type": "pubkey"
+          },
+          {
+            "name": "winner",
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    }
+  ]
+}
