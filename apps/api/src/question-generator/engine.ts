@@ -15,7 +15,6 @@ export class QuestionGenerator implements QuestionProvider {
 
   generate(ctx: QuestionContext): GeneratedQuestion {
     const { targetEventType, targetTeam } = pickCandidate({
-      windowStartMinute: ctx.windowStartMinute,
       substitutionCounts: this.substitutionCounts,
       previousTargetEventType: this.previousTargetEventType,
     });

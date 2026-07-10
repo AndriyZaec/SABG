@@ -13,8 +13,21 @@ export type RoundLifecycleEvent =
   | {
       type: "open";
       round: PredictionRound;
-      /** Estimate for client countdown only — NOT authoritative. The real lock fires off the
-       *  match clock crossing windowStartMinute (spec §5.1), never off this wall-clock guess. */
+      /**
+       * Estimate for client countdown only — NOT authoritative. The real lock fires off the
+       * match clock crossing windowStartMinute (spec §5.1), never off this wall-clock guess.
+       *
+       * The guess assumes 1 match-minute of remaining lead time takes ~60 real seconds (true for
+       * a live feed). `leadTimeSeconds` (RoundEngineOptions) is only a floor on this estimate, not
+       * an override of that assumption — for every round after the first, `handleOpen` computes
+       * ~5 real minutes remaining (windows are 5 match-minutes apart, and each round opens the
+       * instant its predecessor locks), which dwarfs any small `leadTimeSeconds` value. A caller
+       * that replays match-clock ticks faster or slower than real time (e.g. gateway/run.ts's
+       * GATEWAY_REPLAY_DELAY_MS-paced demo) will therefore see this estimate badly mismatch the
+       * real lock time for rounds 2+; only `leadTimeSeconds` alone can't fix that. Don't build a
+       * precise countdown off this field under non-real-time playback — only round.lock/settle
+       * are ever authoritative.
+       */
       lockAt: string;
     }
   | { type: "lock"; roundId: Uuid; windowStartMinute: number };

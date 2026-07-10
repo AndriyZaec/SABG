@@ -8,6 +8,7 @@ import type {
   LeaderboardEntry,
   Match,
   MatchState,
+  Prediction,
   PredictionRound,
   TxSignature,
   User,
@@ -38,6 +39,11 @@ export interface WalletSignInResponse {
 /** GET /matches, GET /matches/:id */
 export interface MatchListResponse {
   matches: Match[];
+}
+
+/** GET /arenas?matchId= — list the arena(s) running against a match (lobby discovery). */
+export interface ArenaListResponse {
+  arenas: Arena[];
 }
 
 /** GET /arenas/:id */
@@ -76,6 +82,20 @@ export interface SubmitAnswerResponse {
 export interface LeaderboardResponse {
   entries: LeaderboardEntry[];
   winners?: Uuid[];
+}
+
+/**
+ * GET /arenas/:id/rounds (history/summary — F4 Match Summary). One entry per round created for
+ * the arena, in window order. `predictions` is only ever populated for a `settled` round — open
+ * or locked rounds report an empty array, since individual answers are never revealed before
+ * settle (spec §8).
+ */
+export interface RoundWithPredictions {
+  round: PredictionRound;
+  predictions: Prediction[];
+}
+export interface ArenaRoundsResponse {
+  rounds: RoundWithPredictions[];
 }
 
 export interface ApiError {

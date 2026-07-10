@@ -55,4 +55,13 @@ describe("resolveSettlement", () => {
     const events = [event({ eventType: "corner" }), event({ matchMinute: 5 }), event({ matchMinute: 22 })];
     expect(resolveSettlement(CONDITION, events)).toBe("yes");
   });
+
+  it("credits an ambiguous-team (team: 'any') event for an any-team condition — the question doesn't care which team", () => {
+    const anyCondition: SettlementCondition = { ...CONDITION, targetTeam: "any" };
+    expect(resolveSettlement(anyCondition, [event({ team: "any" })])).toBe("yes");
+  });
+
+  it("does not credit an ambiguous-team event for a specific-team condition — can't confirm that side did it", () => {
+    expect(resolveSettlement(CONDITION, [event({ team: "any" })])).toBe("no");
+  });
 });

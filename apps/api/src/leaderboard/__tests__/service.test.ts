@@ -41,6 +41,45 @@ function settleRound(
   });
 }
 
+describe("LeaderboardService.addPlayer", () => {
+  it("adds a new player as active with score 0, appearing in the next snapshot", () => {
+    const { service } = setup(["a"]);
+
+    service.addPlayer({ userId: "b", username: "user-b", joinedAt: "2024-01-01T00:00:05.000Z" });
+
+    const entry = service.snapshot().find((e) => e.userId === "b");
+    expect(entry).toMatchObject({ status: "active", score: 0, missedCount: 0 });
+  });
+
+  it("is a no-op for a userId already tracked (does not reset an existing player's accumulated state)", () => {
+    // Three players so eliminating one doesn't trigger an early one-survivor finish.
+    const { service } = setup(["a", "b", "c"]);
+    settleRound(service, "r1", [
+      { userId: "a", answer: "yes", result: "correct", status: "active" },
+      { userId: "b", answer: "no", result: "incorrect", status: "eliminated" },
+      { userId: "c", answer: "yes", result: "correct", status: "active" },
+    ]);
+
+    service.addPlayer({ userId: "a", username: "impostor", joinedAt: "2099-01-01T00:00:00.000Z" });
+
+    const entry = service.snapshot().find((e) => e.userId === "a");
+    expect(entry).toMatchObject({ score: 1, username: "user-0", joinedAt: "2024-01-01T00:00:00.000Z" });
+  });
+
+  it("is a no-op once the arena has already finished", () => {
+    const { service, finishedCalls } = setup(["a", "b"]);
+    settleRound(service, "r1", [
+      { userId: "a", answer: "no", result: "incorrect", status: "eliminated" },
+      { userId: "b", answer: "no", result: "incorrect", status: "eliminated" },
+    ]);
+    expect(finishedCalls).toHaveLength(1);
+
+    service.addPlayer({ userId: "late", username: "latecomer", joinedAt: "2024-01-01T00:05:00.000Z" });
+
+    expect(service.snapshot().some((e) => e.userId === "late")).toBe(false);
+  });
+});
+
 describe("LeaderboardService", () => {
   it("one-survivor: eliminating everyone but one finishes the arena early with that sole winner", () => {
     const { service, finishedCalls } = setup(["a", "b", "c"]);

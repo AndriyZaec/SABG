@@ -1,6 +1,23 @@
-// B5 — Question Generator: pure candidate selection (spec §4.2). No I/O, no bus, no clock —
-// deterministic given (windowStartMinute, substitutionCounts, previousTargetEventType), so the
-// same inputs always produce the same pick (build_plan: "детерміновано й дешево").
+// B5 — Question Generator: candidate selection (spec §4.2).
+//
+// Split in two on purpose:
+//  - `eligibleCandidates` is pure and fully deterministic — filtering (substitution cap, anti-repeat)
+//    never depends on randomness, only on `substitutionCounts`/`previousTargetEventType`, so it's
+//    exhaustively unit-testable without any flakiness.
+//  - `pickCandidate` adds the one non-deterministic step: a uniformly random pick from that pool.
+//
+// This used to be entirely deterministic, keyed off `windowStartMinute` (`windowStartMinute %
+// pool.length`) — every match ever replayed asked literally the same question for the same window,
+// forever, since nothing seeded the pick by match/arena/time. That's a real product problem (not
+// just a testing artifact of restarting the same fixture repeatedly): players who see more than one
+// match would learn "window N always asks about Y" outright, since the sequence was 100%
+// predictable across every match, not just within one. Knowing the question *type* in advance
+// doesn't let you cheat the yes/no outcome (that still depends on real match events), but it made
+// the questions feel scripted/robotic rather than "context-aware" (spec §4.2). Product decision:
+// true per-run randomness — even replaying the identical arena twice can produce a different
+// sequence — chosen over seeding by matchId/arenaId (which would have kept a given arena/match
+// reproducible across restarts, at the cost of only fixing the "same match" case, not "same arena,
+// same run" case).
 
 import { TARGET_EVENT_TYPES, TEAM_SIDES } from "@arena/contracts";
 import type { TargetEventType, TeamSide } from "@arena/contracts";
@@ -9,8 +26,6 @@ import type { TargetEventType, TeamSide } from "@arena/contracts";
 const MAX_SUBSTITUTIONS_PER_TEAM = 5;
 
 export interface CandidatePickInput {
-  /** Seeds the deterministic pick — the round's own window start minute. */
-  windowStartMinute: number;
   substitutionCounts: { home: number; away: number };
   /** The target event type asked in the immediately-preceding round, if any (anti-repeat). */
   previousTargetEventType: TargetEventType | undefined;
@@ -33,17 +48,20 @@ function isTrivial(candidate: Candidate, substitutionCounts: { home: number; awa
 }
 
 /**
- * Picks the next question's (targetEventType, targetTeam), deterministically seeded by
- * `windowStartMinute`. Filters out trivially-impossible candidates (substitution cap) and, for
- * variety, the immediately-previous round's target type — falling back to the cap-only-filtered
- * pool if that would otherwise leave nothing (never returns an empty candidate set).
+ * The pool `pickCandidate` may randomly choose from: every whitelisted (type, team) pair, minus
+ * trivially-impossible ones (substitution cap) and, for variety, the immediately-previous round's
+ * target type — falling back to the cap-only-filtered pool if that would otherwise leave nothing
+ * (never returns an empty pool). Pure and deterministic — exhaustively testable on its own.
  */
-export function pickCandidate(input: CandidatePickInput): Candidate {
+export function eligibleCandidates(input: CandidatePickInput): Candidate[] {
   const nonTrivial = ALL_CANDIDATES.filter((c) => !isTrivial(c, input.substitutionCounts));
-
   const varied = nonTrivial.filter((c) => c.targetEventType !== input.previousTargetEventType);
-  const pool = varied.length > 0 ? varied : nonTrivial;
+  return varied.length > 0 ? varied : nonTrivial;
+}
 
-  const index = ((input.windowStartMinute % pool.length) + pool.length) % pool.length;
+/** Uniformly random pick from `eligibleCandidates(input)` — true per-run randomness (see file header). */
+export function pickCandidate(input: CandidatePickInput): Candidate {
+  const pool = eligibleCandidates(input);
+  const index = Math.floor(Math.random() * pool.length);
   return pool[index]!;
 }

@@ -159,6 +159,45 @@ describe("SettlementEngine", () => {
     expect(playerResults).toHaveLength(resultsAfterFirstSettle); // no additional player results
   });
 
+  it("settles yes for an any-team round when the only matching event has ambiguous team attribution (team: 'any')", () => {
+    // Regression test: found via full-pipeline.test.ts intermittently failing once question
+    // generation stopped being deterministic (see candidates.ts) and finally exercised a
+    // targetTeam:"any" round against a real ambiguous-team event in fixture 18179764 (window
+    // 75-80, a substitution normalize.ts couldn't attribute to a side). handleEvent used to drop
+    // every team:"any" LiveEvent outright, so an any-team question could never be credited by an
+    // event whose team attribution was merely ambiguous — even though the question doesn't care
+    // which team, only that the event happened.
+    const { engine, settled } = setup();
+    const round = makeRound({ targetTeam: "any", settlementCondition: { targetEventType: "shot", targetTeam: "any", windowStartMinute: 20, windowEndMinute: 25, resolve: "event_in_window" } });
+
+    engine.onRoundLocked(round);
+    engine.apply({
+      kind: "event",
+      event: { id: "e1", matchId: MATCH_ID, eventType: "shot", team: "any", matchMinute: 22, timestamp: "t", confirmed: true },
+    });
+
+    expect(settled).toEqual([
+      { type: "settle", roundId: round.id, windowStartMinute: 20, correctAnswer: "yes", settledBy: "early" },
+    ]);
+  });
+
+  it("does not settle a specific-team round early on an ambiguous-team event — still settles no at window end", () => {
+    const { engine, settled } = setup();
+    const round = makeRound(); // targetTeam: "home"
+
+    engine.onRoundLocked(round);
+    engine.apply({
+      kind: "event",
+      event: { id: "e1", matchId: MATCH_ID, eventType: "shot", team: "any", matchMinute: 22, timestamp: "t", confirmed: true },
+    });
+    expect(settled).toHaveLength(0); // not credited — can't confirm "home" did it
+
+    engine.apply({ kind: "clock", period: "first_half", matchMinute: 26, running: true, timestamp: "t" });
+    expect(settled).toEqual([
+      { type: "settle", roundId: round.id, windowStartMinute: 20, correctAnswer: "no", settledBy: "window_end" },
+    ]);
+  });
+
   it("replaying fixture 18179764 through Ingestion -> RoundEngine -> SettlementEngine settles all 17 rounds", () => {
     const bus = new MatchSignalBus();
 

@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "tsx watch src/mock/server.ts",
     "live:dev": "tsx watch src/live/run.ts",
+    "gateway:dev": "tsx watch src/gateway/run.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",

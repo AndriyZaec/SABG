@@ -80,12 +80,13 @@ export class SettlementEngine {
   }
 
   private handleEvent(rawEvent: LiveEvent): void {
-    // LiveEvent.team is typed TeamSide (includes "any"), but SettleableEvent.team excludes it.
-    // normalize.ts's participantToSide does fall back to "any" for an unattributable raw
-    // message, so this is a real case — treated as *not* settlement evidence at all, even for a
-    // targetTeam:"any" condition, since we don't actually know a team performed it.
-    if (rawEvent.team === "any") return;
-
+    // rawEvent.team can be "any" — normalize.ts's participantToSide falls back to it for a raw
+    // message it can't attribute to a specific side. Whether that's real settlement evidence
+    // depends on *which round's* condition it's being checked against, not on this event alone:
+    // resolveSettlement already correctly credits it for a targetTeam:"any" condition (the
+    // question doesn't care which team) while still rejecting it for a specific-team one (we
+    // genuinely can't confirm that side did it) — see SettleableEvent's doc comment. So this
+    // event is always forwarded; the per-condition decision happens downstream.
     const event: SettleableEvent = {
       eventType: rawEvent.eventType,
       team: rawEvent.team,

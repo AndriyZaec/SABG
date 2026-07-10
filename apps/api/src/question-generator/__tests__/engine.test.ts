@@ -13,13 +13,16 @@ function ctx(windowStartMinute: number) {
 
 /**
  * Drives `generate()` the way RoundEngine actually does — once per round, at the real match
- * window starts (0,5,...,40,50,...,85), not a dense run of consecutive integers. Reachability of
- * a given (type, team) combo is path-dependent on the anti-repeat filter's call history, so a
- * dense synthetic sweep (e.g. windowStartMinute 0..49) can land in an unrealistic cycle that
- * never revisits a reachable combo — repeating several realistic "matches" worth of calls avoids
- * that without asserting on an input shape the engine is never actually driven with.
+ * window starts (0,5,...,40,50,...,85), not a dense run of consecutive integers.
+ *
+ * `matches` defaults to 40 (680 draws), not a handful: since candidates.ts's pick is now
+ * genuinely random (no windowStartMinute seed — see its file header), several of this file's
+ * assertions are "some draw among many produced X" rather than a guaranteed pool-membership
+ * check. With a ~20-candidate pool, a small sample (e.g. 5 matches = 85 draws) has a ~1% chance
+ * per assertion of never drawing a specific reachable candidate — too flaky for CI. 680 draws
+ * drops that below 1e-15.
  */
-function realisticPicks(generator: QuestionGenerator, matches = 5) {
+function realisticPicks(generator: QuestionGenerator, matches = 40) {
   const picks = [];
   for (let m = 0; m < matches; m++) {
     for (const windowStart of TARGET_WINDOW_STARTS) picks.push(generator.generate(ctx(windowStart)));

@@ -43,6 +43,23 @@ export class LeaderboardService {
     }
   }
 
+  /**
+   * B7 addition: adds a newly-joined player mid-lobby (spec §9 — join only pre-kickoff; enforced
+   * by the caller, e.g. arena-runtime.ts's `join`, not here). No-op once the arena has finished or
+   * for a userId already tracked, so a duplicate/late join call is harmless.
+   */
+  addPlayer(player: LeaderboardRosterEntry): void {
+    if (this.finished || this.rows.has(player.userId)) return;
+    this.rows.set(player.userId, {
+      userId: player.userId,
+      username: player.username,
+      status: "active",
+      score: 0,
+      missedCount: 0,
+      joinedAt: player.joinedAt,
+    });
+  }
+
   /** Buffers one player's outcome for a round; applied once that round's onRoundSettled fires. */
   onPlayerResult(event: PlayerResultEvent): void {
     let pending = this.pendingByRound.get(event.roundId);
