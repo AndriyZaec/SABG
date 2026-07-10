@@ -146,7 +146,7 @@ export class ArenaRuntime {
       predictionStore: this.predictionStore,
       arenaPlayerStore: this.arenaPlayerStore,
       onSettled: (event) => this.onSettled(event),
-      onPlayerResult: (event) => this.pendingPlayerStatus.push(event),
+      onPlayerResult: (event) => this.onPlayerResult(event),
     });
     this.settlementEngine.subscribeTo(this.bus);
   }
@@ -251,6 +251,18 @@ export class ArenaRuntime {
 
     this.flushPendingPlayerStatus(event.roundId);
     this.flushFinishIfPending();
+  }
+
+  /**
+   * The two consumers of a settled player's outcome, owned in one place so neither can be added
+   * later without the other: the personal WS notification (buffered until this round's
+   * round.settle) and the leaderboard's own score/status bookkeeping (live/run.ts wires the same
+   * pair by hand at its composition root; here it's a single method on the one object that
+   * already holds both).
+   */
+  private onPlayerResult(event: PlayerResultEvent): void {
+    this.pendingPlayerStatus.push(event);
+    this.leaderboardService.onPlayerResult(event);
   }
 
   private onLeaderboardSnapshot(entries: LeaderboardEntry[]): void {

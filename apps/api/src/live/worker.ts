@@ -15,6 +15,7 @@ import { logger } from "./logger.js";
 import { isFinishedStatus, type ScoreSnapshot } from "../ingestion/score-snapshot.js";
 import { createMatchSignalProducer, type MatchSignalProducer } from "../ingestion/match-signal.js";
 import { MatchSignalBus } from "../ingestion/event-bus.js";
+import { sleep } from "../shared/sleep.js";
 
 /** How long to keep the stream open after `finished`, to catch trailing amend messages. */
 const SETTLE_MS = 15_000;
@@ -148,10 +149,6 @@ export class LiveIngestionWorker {
       this.stop();
     }, SETTLE_MS);
   }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function isMatchFinished(event: ScoreSnapshot): boolean {

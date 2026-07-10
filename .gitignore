@@ -31,3 +31,4 @@ TASK.md
 .vscode/*
 !.vscode/extensions.json
 *.log
+progress.md

@@ -8,54 +8,13 @@ import { describe, expect, it } from "vitest";
 import type { Answer, ArenaPlayerStatus, ServerMessage, Uuid } from "@arena/contracts";
 import { MatchSignalBus } from "../../ingestion/event-bus.js";
 import { replayFixture, FIXTURE_MATCH_ID } from "../../ingestion/replay.js";
-import { createInMemoryPredictionStore } from "../../settlement/prediction-store.js";
-import { createInMemoryArenaPlayerStore } from "../../settlement/arena-player-store.js";
-import {
-  ArenaRuntime,
-  type GatewayBroadcaster,
-  type RuntimeArenaPlayerStore,
-  type RuntimePredictionStore,
-} from "../arena-runtime.js";
+import { createInMemoryRuntimeStores } from "../stores/in-memory-stores.js";
+import { ArenaRuntime, type GatewayBroadcaster } from "../arena-runtime.js";
 
 const ARENA_ID = "00000000-0000-0000-0000-0000000000aa";
 const PLAYER_ANSWERS_YES: Uuid = "00000000-0000-0000-0000-000000000001";
 const PLAYER_ANSWERS_NO: Uuid = "00000000-0000-0000-0000-000000000002";
 const PLAYER_NEVER_ANSWERS: Uuid = "00000000-0000-0000-0000-000000000003";
-
-/** Wraps the existing B4 in-memory doubles to satisfy the runtime's slightly wider interfaces,
- *  without touching settlement/*.ts (which stays exactly as B4 left it). */
-function createTestStores(): { predictionStore: RuntimePredictionStore; arenaPlayerStore: RuntimeArenaPlayerStore } {
-  const innerPredictions = createInMemoryPredictionStore();
-  const innerPlayers = createInMemoryArenaPlayerStore(ARENA_ID, [
-    PLAYER_ANSWERS_YES,
-    PLAYER_ANSWERS_NO,
-    PLAYER_NEVER_ANSWERS,
-  ]);
-
-  const predictionStore: RuntimePredictionStore = {
-    getAnswers: innerPredictions.getAnswers,
-    recordResult: innerPredictions.recordResult,
-    getResult: innerPredictions.getResult,
-    recordAnswer(roundId, userId, answer, _receivedAt) {
-      innerPredictions.recordAnswer(roundId, userId, answer);
-    },
-  };
-
-  const activeIds = new Set([PLAYER_ANSWERS_YES, PLAYER_ANSWERS_NO, PLAYER_NEVER_ANSWERS]);
-  const arenaPlayerStore: RuntimeArenaPlayerStore = {
-    getActivePlayerIds: innerPlayers.getActivePlayerIds,
-    getStatus: innerPlayers.getStatus,
-    setStatus(userId, status) {
-      innerPlayers.setStatus(userId, status);
-    },
-    addPlayer(userId) {
-      activeIds.add(userId);
-      innerPlayers.setStatus(userId, "active");
-    },
-  };
-
-  return { predictionStore, arenaPlayerStore };
-}
 
 /** Records every broadcast/personal message, and — on round.open — answers as a real client
  *  would (synchronously, matching a WS message handler reacting to the open push). */
@@ -80,7 +39,11 @@ function createRecordingBroadcaster(scriptAnswers: (roundId: Uuid) => void): {
 
 function buildRuntime() {
   const bus = new MatchSignalBus();
-  const { predictionStore, arenaPlayerStore } = createTestStores();
+  const { predictionStore, arenaPlayerStore } = createInMemoryRuntimeStores(ARENA_ID, [
+    PLAYER_ANSWERS_YES,
+    PLAYER_ANSWERS_NO,
+    PLAYER_NEVER_ANSWERS,
+  ]);
 
   let runtime!: ArenaRuntime;
   const scriptAnswers = (roundId: Uuid): void => {

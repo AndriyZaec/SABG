@@ -23,14 +23,11 @@ import { ArenaRuntime, type ArenaPersistence } from "./arena-runtime.js";
 import { WriteQueue } from "./stores/write-queue.js";
 import { createPgPredictionStore } from "./stores/pg-prediction-store.js";
 import { createPgArenaPlayerStore } from "./stores/pg-arena-player-store.js";
+import { sleep } from "../shared/sleep.js";
 
 /** Same recorded fixture the engine test suites replay — see ingestion/replay.ts. */
 const DEMO_FIXTURE_ID = 18179764;
 const DEMO_ENTRY_FEE_LAMPORTS = 10_000_000;
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 /**
  * Like `replayFixture` (ingestion/replay.ts), but spread over wall-clock time via `delayMs`
