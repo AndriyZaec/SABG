@@ -11,5 +11,16 @@ services:
     volumes:
       - arena-postgres-data:/var/lib/postgresql/data
 
+  # Raw TXODDS SSE stream storage for the live worker (src/live/**). Mapped to 27018 —
+  # deliberately not 27017 — so it never collides with an unrelated local Mongo instance.
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - "27018:27017"
+    volumes:
+      - arena-mongo-data:/data/db
+
 volumes:
   arena-postgres-data:
+  arena-mongo-data:

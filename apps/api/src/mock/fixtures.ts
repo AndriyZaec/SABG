@@ -1,6 +1,6 @@
-// P0.4 mock fixtures — canned data conforming to @arena/contracts entity types.
+// Mock fixtures — canned data conforming to @arena/contracts entity types.
 // Stable UUIDs so REST responses and WS pushes reference the same match/arena/user
-// across requests, letting FE (F3/F4) develop against a consistent world.
+// across requests, letting the frontend develop against a consistent world.
 
 import { MATCH_WINDOWS } from "@arena/contracts";
 import type {

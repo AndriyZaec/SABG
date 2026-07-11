@@ -1,14 +1,17 @@
 // Enums & string-literal unions shared across backend, frontend and on-chain client.
 // Source of truth: spec v2 §4.1, §5, §7, §13.
 
-/** Whitelisted, deterministically-detectable settlement target events (spec §4.1). */
+/**
+ * Whitelisted, deterministically-detectable settlement target events (spec §4.1).
+ * `free_kick` is deliberately excluded: it occurs too often per match to make a
+ * non-trivial round target (spec §4.2 — avoid trivially-resolved questions).
+ */
 export const TARGET_EVENT_TYPES = [
   "shot",
   "shot_on_target",
   "corner",
   "card",
   "goal",
-  "free_kick",
   "penalty",
   "substitution",
 ] as const;

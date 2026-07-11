@@ -1,5 +1,5 @@
-// P0.4 mock REST routes — implements the S2 DTO contract (@arena/contracts dto.ts)
-// against fixture data. Real implementation lands with B7 (Realtime Gateway + REST API).
+// Mock REST routes — implements the DTO contract (@arena/contracts dto.ts)
+// against fixture data. Real implementation lands with the Realtime Gateway + REST API.
 
 import { Router } from "express";
 import type { Router as RouterType, Response } from "express";
@@ -113,7 +113,7 @@ mockRouter.get<{ id: string }, LeaderboardResponse | ApiError>(
   },
 );
 
-// Fallthrough — matches the ApiError shape (spec S2) for anything not implemented above.
+// Fallthrough — matches the ApiError shape for anything not implemented above.
 mockRouter.use((req, res) => {
   const error: ApiError = {
     error: "not_found",

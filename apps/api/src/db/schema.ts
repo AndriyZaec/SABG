@@ -1,7 +1,7 @@
-// Postgres schema for spec v2 §13 Data Models (build plan P0.3).
+// Postgres schema for spec v2 §13 Data Models.
 // Persisted entities only — MatchState / LeaderboardEntry are in-memory engine
-// aggregates (B2 / B6), not tables. Enum values are derived from @arena/contracts
-// so the DB stays in lockstep with the S1 shared-type source of truth.
+// aggregates, not tables. Enum values are derived from @arena/contracts
+// so the DB stays in lockstep with that shared-type source of truth.
 
 import {
   ANSWERS,
@@ -65,6 +65,8 @@ export const users = pgTable("user", {
 
 export const matches = pgTable("match", {
   id: uuid("id").primaryKey().defaultRandom(),
+  /** TXODDS numeric fixture id — the join key to the /scores/stream feed. */
+  txoddsFixtureId: integer("txodds_fixture_id").unique(),
   homeTeam: text("home_team").notNull(),
   awayTeam: text("away_team").notNull(),
   startTime: timestamp("start_time", { withTimezone: true }).notNull(),
@@ -74,7 +76,9 @@ export const matches = pgTable("match", {
   scoreHome: integer("score_home").notNull(),
   scoreAway: integer("score_away").notNull(),
   ...timestamps,
-});
+}, (t) => [
+  uniqueIndex("match_teams_start_time_idx").on(t.homeTeam, t.awayTeam, t.startTime),
+]);
 
 export const arenas = pgTable("arena", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -123,7 +127,7 @@ export const predictionRounds = pgTable("prediction_round", {
   question: text("question").notNull(),
   targetEventType: targetEventTypeEnum("target_event_type").notNull(),
   targetTeam: teamSideEnum("target_team").notNull(),
-  /** S5 machine-readable settlement condition (SettlementCondition from @arena/contracts). */
+  /** Machine-readable settlement condition (SettlementCondition from @arena/contracts). */
   settlementCondition: jsonb("settlement_condition").notNull(),
   status: roundStatusEnum("status").notNull(),
   correctAnswer: answerEnum("correct_answer"),

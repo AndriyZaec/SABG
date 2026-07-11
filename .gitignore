@@ -20,6 +20,7 @@ test-ledger/
 *.pem
 keypair*.json
 wallet*.json
+.txline-cache.json
 
 # Local task scratchpad (per-dev, not shared)
 TASK.md
@@ -30,3 +31,4 @@ TASK.md
 .vscode/*
 !.vscode/extensions.json
 *.log
+progress.md

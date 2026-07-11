@@ -1,7 +1,16 @@
+import dotenv from "dotenv";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 
 import * as schema from "./schema.js";
+
+// Load .env here too (idempotent, same as every other config module in this repo) — this file is
+// imported directly by the repositories (db/repositories/*.ts), which gateway/run.ts imports
+// before gateway/config.ts's own dotenv.config() call runs; without this, whichever config module
+// happens to import first "wins" the dotenv load, which is exactly the kind of import-order
+// fragility this repo's other config modules (live/config/env.ts, gateway/config.ts) already
+// avoid by each loading .env themselves.
+dotenv.config();
 
 const databaseUrl = process.env["DATABASE_URL"];
 if (!databaseUrl) {

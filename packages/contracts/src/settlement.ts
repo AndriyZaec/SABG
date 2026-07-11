@@ -19,10 +19,19 @@ export interface SettlementCondition {
   resolve: "event_in_window";
 }
 
-/** Minimal event shape the pure settlement function needs (subset of LiveEvent). */
+/**
+ * Minimal event shape the pure settlement function needs (subset of LiveEvent).
+ *
+ * `team` includes `"any"` — normalize.ts's `participantToSide` falls back to `"any"` for a raw
+ * message it can't attribute to a specific side. That's still real settlement evidence for an
+ * `"any"`-team condition (the question doesn't care which team), just not for a specific-team one
+ * (home/away) where an unattributable event genuinely can't confirm that side did it. `resolve.ts`
+ * already encodes exactly that distinction (`condition.targetTeam === "any" || e.team ===
+ * condition.targetTeam`) — this type only needs to stop rejecting the "any" case outright.
+ */
 export interface SettleableEvent {
   eventType: TargetEventType;
-  team: Exclude<TeamSide, "any">;
+  team: TeamSide;
   /** Match minute incl. stoppage (e.g. 45 for 45+2 folded into 40–45 window). */
   matchMinute: number;
   confirmed: boolean;
