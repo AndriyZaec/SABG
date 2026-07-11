@@ -1,5 +1,5 @@
-// B7 — real REST handlers, replacing the P0.4 mock (apps/api/src/mock/routes.ts) against
-// Postgres + the arena runtime registry instead of fixtures. Deliberately preserves the mock's
+// Real REST handlers, replacing the mock (apps/api/src/mock/routes.ts) against Postgres + the
+// arena runtime registry instead of fixtures. Deliberately preserves the mock's
 // documented quirks: GET /matches/:id returns a bare `Match` (not `{match}`), uniform `ApiError`
 // shape, and a 404 fallthrough for unmatched routes.
 
@@ -39,9 +39,9 @@ export function createRestRouter(runtimeLookup: ArenaRuntimeLookup): RouterType 
 
   /**
    * POST /auth/wallet — minimal session-token auth (scope decision, see auth.ts's doc comment):
-   * upserts a User by the reported wallet address and issues a session token. C5 seam: real
-   * `tweetnacl` signature verification over a server-issued nonce slots in right here, before the
-   * upsert; this handler trusts the reported walletAddress until that lands.
+   * upserts a User by the reported wallet address and issues a session token. Seam for later:
+   * real `tweetnacl` signature verification over a server-issued nonce slots in right here,
+   * before the upsert; this handler trusts the reported walletAddress until that lands.
    */
   router.post<Record<string, never>, WalletSignInResponse | ApiError, WalletSignInRequest>(
     "/auth/wallet",
@@ -73,7 +73,7 @@ export function createRestRouter(runtimeLookup: ArenaRuntimeLookup): RouterType 
     res.json(match);
   });
 
-  /** GET /arenas?matchId= — lobby discovery (F2): find the arena(s) running against a match. */
+  /** GET /arenas?matchId= — lobby discovery: find the arena(s) running against a match. */
   router.get<Record<string, never>, ArenaListResponse | ApiError>("/arenas", async (req, res) => {
     const matchId = req.query["matchId"];
     if (typeof matchId !== "string" || matchId.length === 0) {
@@ -107,8 +107,8 @@ export function createRestRouter(runtimeLookup: ArenaRuntimeLookup): RouterType 
 
   /**
    * POST /arenas/:id/entry — confirm an on-chain entry purchase (records the reported
-   * txSignature without on-chain verification — C1/C2 are out of B7's scope, see the plan's
-   * non-goals) and joins the arena (spec §9: pre-kickoff only).
+   * txSignature without on-chain verification — out of scope here, see the plan's non-goals)
+   * and joins the arena (spec §9: pre-kickoff only).
    */
   router.post<{ id: string }, BuyEntryResponse | ApiError, BuyEntryRequest>(
     "/arenas/:id/entry",
@@ -207,7 +207,7 @@ export function createRestRouter(runtimeLookup: ArenaRuntimeLookup): RouterType 
   });
 
   /**
-   * GET /arenas/:id/rounds — round history (F4 Match Summary). Every round the arena has created,
+   * GET /arenas/:id/rounds — round history. Every round the arena has created,
    * each carrying every player's Prediction — but only once that round is `settled`; an open or
    * locked round reports an empty `predictions` array, since individual answers are never
    * revealed before settle (spec §8).
@@ -229,7 +229,7 @@ export function createRestRouter(runtimeLookup: ArenaRuntimeLookup): RouterType 
     res.json({ rounds: withPredictions });
   });
 
-  // Fallthrough — matches the ApiError shape (spec S2) for anything not implemented above.
+  // Fallthrough — matches the ApiError shape for anything not implemented above.
   router.use((req, res) => {
     notFound(res, `No route for ${req.method} ${req.path}`);
   });

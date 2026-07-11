@@ -1,6 +1,5 @@
-// B2 — Match State Engine core: a pure, unit-testable reducer over the S3 `MatchSignal`
-// stream (build plan §S3/B2). No I/O, no raw feed knowledge — CLAUDE.md "pure functions at
-// the core, side effects at the edges".
+// Match State Engine core: a pure, unit-testable reducer over the `MatchSignal` stream. No I/O,
+// no raw feed knowledge — CLAUDE.md "pure functions at the core, side effects at the edges".
 
 import type { MatchSignal, MatchState, Score, TargetEventType, Uuid } from "@arena/contracts";
 
@@ -18,8 +17,8 @@ export function initialMatchState(matchId: Uuid): MatchState {
 
 /**
  * Floors a match minute to its 5-minute window boundary, capped to the last regular-time
- * window (spec §3: 18 fixed windows, 00:00–90:00). Informational context only — B3 owns
- * authoritative round windowing, lead time and halftime skip.
+ * window (spec §3: 18 fixed windows, 00:00–90:00). Informational context only — the round
+ * engine owns authoritative round windowing, lead time and halftime skip.
  */
 export function windowStartForMinute(minute: number): number {
   const clamped = Math.min(Math.max(minute, 0), 85);

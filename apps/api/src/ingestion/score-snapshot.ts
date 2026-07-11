@@ -1,6 +1,6 @@
 // Raw TXODDS Soccer Scores feed shape (ported from the world-cup draft project's
-// scores-stream connector). This is the wire format B1 normalizes into @arena/contracts
-// LiveEvent — see normalize.ts. Kept loose/passthrough because real payloads have included
+// scores-stream connector). This is the wire format normalize.ts normalizes into @arena/contracts
+// LiveEvent. Kept loose/passthrough because real payloads have included
 // `Action` values not in the current TXODDS doc revision.
 
 import { z } from "zod";

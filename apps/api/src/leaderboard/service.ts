@@ -1,9 +1,9 @@
-// B6 — Leaderboard Service's side-effecting edge: consumes B4 Settlement Engine output
+// Leaderboard Service's side-effecting edge: consumes Settlement Engine output
 // (`PlayerResultEvent` per active player, `SettlementEvent` once per round) to maintain a
-// per-player score/status accumulator, and decides when the arena is finished (build plan §B6,
-// spec §7). Persistence and the WS push (`leaderboard.update` / `arena.finished`) are deferred to
-// B7 — this module only emits snapshots/winners through injected callbacks, same pattern as the
-// other engines (see settlement/engine.ts).
+// per-player score/status accumulator, and decides when the arena is finished (spec §7).
+// Persistence and the WS push (`leaderboard.update` / `arena.finished`) are deferred to the
+// gateway — this module only emits snapshots/winners through injected callbacks, same pattern as
+// the other engines (see settlement/engine.ts).
 
 import type { IsoDateTime, PredictionResult, Uuid, LeaderboardEntry } from "@arena/contracts";
 import type { PlayerResultEvent, SettlementEvent } from "../settlement/engine.js";
@@ -44,9 +44,9 @@ export class LeaderboardService {
   }
 
   /**
-   * B7 addition: adds a newly-joined player mid-lobby (spec §9 — join only pre-kickoff; enforced
-   * by the caller, e.g. arena-runtime.ts's `join`, not here). No-op once the arena has finished or
-   * for a userId already tracked, so a duplicate/late join call is harmless.
+   * Adds a newly-joined player mid-lobby (spec §9 — join only pre-kickoff; enforced by the
+   * caller, e.g. arena-runtime.ts's `join`, not here). No-op once the arena has finished or for a
+   * userId already tracked, so a duplicate/late join call is harmless.
    */
   addPlayer(player: LeaderboardRosterEntry): void {
     if (this.finished || this.rows.has(player.userId)) return;

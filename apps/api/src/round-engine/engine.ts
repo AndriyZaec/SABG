@@ -1,6 +1,7 @@
-// B3 — Round Engine's side-effecting edge: turns planner actions into real `PredictionRound`s
-// (in-memory, spec §13), driven by the S3 MatchSignalBus like B2's MatchStateEngine. Persistence
-// to Postgres and the WS push are deferred to B7 — this module only emits `RoundLifecycleEvent`s.
+// Round Engine's side-effecting edge: turns planner actions into real `PredictionRound`s
+// (in-memory, spec §13), driven by the MatchSignalBus like MatchStateEngine. Persistence to
+// Postgres and the WS push are deferred to the gateway — this module only emits
+// `RoundLifecycleEvent`s.
 
 import { randomUUID } from "node:crypto";
 import { MIN_LEAD_TIME_SECONDS } from "@arena/contracts";
@@ -62,9 +63,9 @@ export class RoundEngine {
   }
 
   /**
-   * B4 seam: called by wiring once the Settlement Engine resolves a locked round, so
-   * `PredictionRound` stays the single source of truth for round state (no shadow copy inside
-   * the Settlement Engine). Mirrors the `handleLock` mutation pattern below.
+   * Called by wiring once the Settlement Engine resolves a locked round, so `PredictionRound`
+   * stays the single source of truth for round state (no shadow copy inside the Settlement
+   * Engine). Mirrors the `handleLock` mutation pattern below.
    */
   markSettled(windowStartMinute: number, correctAnswer: Answer, settledBy: SettledBy): PredictionRound | undefined {
     const round = this.rounds.get(windowStartMinute);
@@ -82,7 +83,7 @@ export class RoundEngine {
   }
 
   apply(signal: MatchSignal): void {
-    if (signal.kind !== "clock") return; // B3 only reacts to the match clock (spec §5.1)
+    if (signal.kind !== "clock") return; // only reacts to the match clock (spec §5.1)
 
     const { state, actions } = planRoundActions(this.plannerState, {
       period: signal.period,

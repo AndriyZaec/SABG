@@ -1,4 +1,4 @@
-// B7 — Postgres-backed ArenaPlayerStore (settlement/arena-player-store.ts's B4 seam). Same
+// Postgres-backed ArenaPlayerStore (settlement/arena-player-store.ts's seam). Same
 // write-through-cache shape as pg-prediction-store.ts: a synchronous in-memory status map backs
 // the engine-facing interface, hydrated on load, mutated immediately, and mirrored to Postgres
 // through the shared per-arena WriteQueue.

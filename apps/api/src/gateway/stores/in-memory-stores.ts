@@ -1,5 +1,6 @@
-// Shared dev/test adapter: wraps B4's in-memory doubles (settlement/prediction-store.ts,
-// settlement/arena-player-store.ts) to satisfy ArenaRuntime's slightly wider store interfaces —
+// Shared dev/test adapter: wraps the settlement engine's in-memory doubles
+// (settlement/prediction-store.ts, settlement/arena-player-store.ts) to satisfy ArenaRuntime's
+// slightly wider store interfaces —
 // no Postgres needed. Sits alongside this directory's pg-*-store.ts siblings (the real,
 // Postgres-backed adapters for the same interfaces). Used by both the headless replay demo
 // (replay/run.ts) and gateway/__tests__/arena-runtime.test.ts, which previously carried two

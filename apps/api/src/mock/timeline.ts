@@ -1,6 +1,5 @@
-// P0.4 mock WS scripted round lifecycle — implements the S2 WS catalog
-// (@arena/contracts ws.ts) so FE (F3 Live Arena, F4 Leaderboard) can develop against a
-// realistic push sequence. Real implementation lands with B7 (Realtime Gateway).
+// Mock WS scripted round lifecycle — implements the WS catalog (@arena/contracts ws.ts) so the
+// frontend can develop against a realistic push sequence. Replaced by the real Realtime Gateway.
 //
 // Spectator privacy (spec §8): round.lock only ever carries an aggregate, never
 // individual answers — mirrored here even though it's fixture data.
@@ -189,7 +188,7 @@ export function handleClientMessage(socket: WebSocket, raw: string): void {
       // Timeline is already started on connection in this mock (single-arena fixture).
       break;
     case "answer":
-      // Mock just acks via logging; real answer flow is REST POST /rounds/:id/answer or B7.
+      // Mock just acks via logging; real answer flow is REST POST /rounds/:id/answer or WS.
       console.log(`[mock ws] answer received: round=${message.roundId} answer=${message.answer}`);
       break;
   }

@@ -1,5 +1,5 @@
-// Replays a recorded TXODDS fixture through the normalizer onto the S3 bus. Satisfies B1's
-// DoD (no live feed needed yet) and is the seed of the B8 Replay Engine.
+// Replays a recorded TXODDS fixture through the normalizer onto the bus (no live feed needed
+// yet) and is the seed of the Replay Engine.
 
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -27,8 +27,8 @@ export function defaultFixturePath(): string {
 /**
  * Feeds every raw message in `fixturePath` (already ordered by `Seq`/`Ts`) through a fresh
  * `MatchSignalProducer`, publishing every `MatchSignal` (settlement events + clock/possession)
- * onto `bus` in order. Returns the emitted signals for callers (tests, a replay CLI, B2) that
- * want the full list.
+ * onto `bus` in order. Returns the emitted signals for callers (tests, a replay CLI, the Match
+ * State Engine) that want the full list.
  */
 export function replayFixture(
   bus: MatchSignalBus,

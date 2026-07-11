@@ -1,6 +1,6 @@
-// B7 DAL — arena roster persistence, backing the pg-arena-player-store write-through cache
+// Arena roster persistence, backing the pg-arena-player-store write-through cache
 // (gateway/stores/pg-arena-player-store.ts), which implements settlement/arena-player-store.ts's
-// `ArenaPlayerStore` seam for B4.
+// `ArenaPlayerStore` seam.
 
 import { and, eq } from "drizzle-orm";
 import type { ArenaPlayer, ArenaPlayerStatus, Uuid } from "@arena/contracts";

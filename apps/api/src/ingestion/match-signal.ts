@@ -1,8 +1,8 @@
-// B2 input seam: wraps the B1 incident-tracker (settlement events, unchanged) and additionally
-// derives clock/period and possession signals from the same raw feed message, so the Match
-// State Engine never has to see the raw TXODDS wire format (CLAUDE.md: isolate raw feed at the
-// edges). Emits change-only signals — the feed sends several messages per second, most of
-// which don't move period/minute/possession, so no-ops are dropped rather than flooding the bus.
+// Wraps the incident-tracker (settlement events, unchanged) and additionally derives
+// clock/period and possession signals from the same raw feed message, so the Match State Engine
+// never has to see the raw TXODDS wire format (CLAUDE.md: isolate raw feed at the edges). Emits
+// change-only signals — the feed sends several messages per second, most of which don't move
+// period/minute/possession, so no-ops are dropped rather than flooding the bus.
 
 import type { MatchPeriod, MatchSignal, TeamSide } from "@arena/contracts";
 import { deriveMinute, participantToSide } from "./normalize.js";

@@ -82,7 +82,7 @@ describe("replayFixture", () => {
     // The derived minute is monotonic *within* a period, but deliberately resets across the
     // H1 -> H2 boundary: the feed's elapsed clock climbs into first-half stoppage (~52' in this
     // fixture) then the second-half clock restarts at 45:00 and counts back up past it. Callers
-    // must key window logic off (period, matchMinute) together, never matchMinute alone (B3).
+    // must key window logic off (period, matchMinute) together, never matchMinute alone.
     const ticks = clockSignals.filter((s): s is Extract<typeof s, { kind: "clock" }> => s.kind === "clock");
     const byPeriod = new Map<string, number[]>();
     for (const tick of ticks) {

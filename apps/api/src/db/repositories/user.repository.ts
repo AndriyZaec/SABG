@@ -1,4 +1,4 @@
-// B7 DAL — user persistence. `upsertByWallet` backs POST /auth/wallet (gateway/auth.ts): a wallet
+// User persistence. `upsertByWallet` backs POST /auth/wallet (gateway/auth.ts): a wallet
 // address always maps to the same User row, created on first sign-in.
 
 import { eq } from "drizzle-orm";

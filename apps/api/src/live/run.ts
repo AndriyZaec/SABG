@@ -1,6 +1,3 @@
-// Entrypoint for the live TXODDS SSE worker (mirrors world-cup's src/worker.ts). Run via
-// `pnpm live:dev` (apps/api) or `pnpm --filter @arena/api live:dev`.
-
 import { GuestJwtService } from "./auth/guest-jwt.service.js";
 import { TxLineService } from "./auth/txline.service.js";
 import { MongoService } from "./mongo/mongo.service.js";
@@ -21,7 +18,7 @@ import { LeaderboardService } from "../leaderboard/service.js";
 /** Placeholder arena id for standalone runs (no real Arena row exists for this fixture yet). */
 const FIXTURE_ARENA_ID = "00000000-0000-0000-0000-000000000000";
 
-/** Placeholder players for standalone runs (no real join flow exists yet) — see B4 seeding below. */
+/** Placeholder players for standalone runs (no real join flow exists yet). */
 const FIXTURE_PLAYER_ANSWERS_YES = "00000000-0000-0000-0000-000000000001";
 const FIXTURE_PLAYER_ANSWERS_NO = "00000000-0000-0000-0000-000000000002";
 const FIXTURE_PLAYER_NEVER_ANSWERS = "00000000-0000-0000-0000-000000000003";
@@ -49,22 +46,19 @@ try {
 }
 
 const bus = new MatchSignalBus();
-// B6 Leaderboard Service: forward-declared so B2's onSnapshot below can call finalize() once the
-// match reaches full time (spec §7 multi-survivor case).
+// Forward-declared so onSnapshot below can call finalize() once the match reaches full time
+// (spec §7 multi-survivor case).
 let leaderboardService: LeaderboardService;
-// B2 Match State Engine: keeps the aggregated match snapshot and logs it on every change, so
-// the worker is observable when run standalone (B7 will subscribe the same way to push WS
-// match.state instead of logging).
 const matchStateEngine = new MatchStateEngine(FIXTURE_MATCH_ID, (state) => {
   logger.info({ state }, "match state updated");
   if (state.period === "full_time") leaderboardService.finalize();
 });
 matchStateEngine.subscribeTo(bus);
 
-// B4 Settlement Engine seams: no real answer-submission/join API exists yet, so seed a few
-// scripted players (one always correct-ish, one always wrong-ish, one who never answers) purely
-// to exercise correct/incorrect/missed when run standalone. Forward-declared so RoundEngine's
-// onTransition can bridge "lock" -> settlementEngine.onRoundLocked (B3 -> B4).
+// No real answer-submission/join API exists yet, so seed a few scripted players (one always
+// correct-ish, one always wrong-ish, one who never answers) purely to exercise
+// correct/incorrect/missed when run standalone. Forward-declared so RoundEngine's onTransition
+// can bridge "lock" -> settlementEngine.onRoundLocked.
 const predictionStore = createInMemoryPredictionStore();
 const arenaPlayerStore = createInMemoryArenaPlayerStore(FIXTURE_ARENA_ID, [
   FIXTURE_PLAYER_ANSWERS_YES,
@@ -73,8 +67,8 @@ const arenaPlayerStore = createInMemoryArenaPlayerStore(FIXTURE_ARENA_ID, [
 ]);
 let settlementEngine: SettlementEngine;
 
-// B6 Leaderboard Service: tracks the same fixture roster, accumulating score off B4's
-// per-player results and resolving the winner list (spec §7 — no tie-breakers, see rank.ts).
+// Tracks the same fixture roster, accumulating score off settlement's per-player results and
+// resolving the winner list (spec §7 — no tie-breakers, see rank.ts).
 leaderboardService = new LeaderboardService(
   FIXTURE_ARENA_ID,
   [
@@ -88,15 +82,15 @@ leaderboardService = new LeaderboardService(
   },
 );
 
-// B5 Question Generator: rule/template-based, deterministic rotation across the whitelisted
-// target types/teams (spec §4.2). Subscribes to the same bus to track substitutions-per-team,
-// the one triviality input MatchState doesn't already carry.
+// Rule/template-based, deterministic rotation across the whitelisted target types/teams (spec
+// §4.2). Subscribes to the same bus to track substitutions-per-team, the one triviality input
+// MatchState doesn't already carry.
 const questionGenerator = createQuestionGenerator();
 questionGenerator.subscribeTo(bus);
 
-// B3 Round Engine: drives round lifecycle (pending -> open -> locked) off the same match clock,
-// logging transitions for now (B7 will push these over WS instead). matchState context and the
-// real question provider come from the engines above.
+// Drives round lifecycle (pending -> open -> locked) off the same match clock, logging
+// transitions for now. matchState context and the real question provider come from the engines
+// above.
 const roundEngine = new RoundEngine(FIXTURE_MATCH_ID, FIXTURE_ARENA_ID, {
   getMatchState: () => matchStateEngine.snapshot,
   questionProvider: questionGenerator,
@@ -114,9 +108,9 @@ const roundEngine = new RoundEngine(FIXTURE_MATCH_ID, FIXTURE_ARENA_ID, {
 });
 roundEngine.subscribeTo(bus);
 
-// B4 Settlement Engine: resolves each locked round (early on a confirmed matching event,
-// window-end otherwise, spec §6), logs the outcome, and updates the round back through B3's
-// single source of truth (RoundEngine.markSettled) so PredictionRound stays authoritative.
+// Resolves each locked round (early on a confirmed matching event, window-end otherwise, spec
+// §6), logs the outcome, and updates the round back through RoundEngine's single source of
+// truth (markSettled) so PredictionRound stays authoritative.
 settlementEngine = new SettlementEngine(FIXTURE_ARENA_ID, {
   predictionStore,
   arenaPlayerStore,

@@ -1,11 +1,11 @@
-// B6 — Leaderboard Service core: pure ranking/winner-resolution logic (build plan §B6, spec §7).
-// No I/O, no engine state — `service.ts` owns the accumulator map and decides *when* to call these.
+// Leaderboard Service core: pure ranking/winner-resolution logic (spec §7). No I/O, no engine
+// state — `service.ts` owns the accumulator map and decides *when* to call these.
 //
-// Scope note (product decision, see build_plan.md B6 / TASK.md at the time): spec §7's speed ->
-// missed -> joinedAt tie-break chain is deliberately NOT implemented. Winners are simply
-// "everyone still standing when the arena ends" (one survivor, all full-time survivors, or —
-// if a round eliminates the last active players simultaneously — all pre-round finalists);
-// equal split among them is the payout service's (C4) concern, not this module's.
+// Scope note (product decision): spec §7's speed -> missed -> joinedAt tie-break chain is
+// deliberately NOT implemented. Winners are simply "everyone still standing when the arena ends"
+// (one survivor, all full-time survivors, or — if a round eliminates the last active players
+// simultaneously — all pre-round finalists); equal split among them is the payout service's
+// concern, not this module's.
 
 import type { ArenaPlayerStatus, IsoDateTime, LeaderboardEntry, Uuid } from "@arena/contracts";
 
@@ -23,7 +23,7 @@ export interface LeaderboardAccumulator {
  * Produces a display-ordered, ranked snapshot: active/winner rows before eliminated ones, then
  * score descending, ties broken by earlier `joinedAt` for stable ordering only (not a spec §7
  * tie-break — it never changes who wins). Equal score within the same status band shares a rank
- * (1-based), matching the "full tie -> shared" DoD case.
+ * (1-based), matching the "full tie -> shared" case.
  */
 export function rankLeaderboard(rows: LeaderboardAccumulator[]): LeaderboardEntry[] {
   const statusBand = (status: ArenaPlayerStatus): number => (status === "eliminated" ? 1 : 0);

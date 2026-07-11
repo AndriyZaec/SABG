@@ -1,4 +1,4 @@
-// B7 — Realtime Gateway config. Scoped to src/gateway/** only, mirrors the src/live/config/env.ts
+// Realtime Gateway config. Scoped to src/gateway/** only, mirrors the src/live/config/env.ts
 // pattern (each track validates its own env slice with zod) rather than overloading that
 // worker-specific module. `DATABASE_URL` itself is read by db/client.ts; this only adds the
 // gateway-specific knobs.

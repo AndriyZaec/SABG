@@ -1,6 +1,6 @@
-// B3 — Round Engine core: a pure, unit-testable planner over match clock ticks (build plan §B3,
-// spec §5). Decides which window opens/locks next; no I/O, no wall-clock, no question text —
-// CLAUDE.md "pure functions at the core, side effects at the edges" (engine.ts is the edge).
+// Round Engine core: a pure, unit-testable planner over match clock ticks (spec §5). Decides
+// which window opens/locks next; no I/O, no wall-clock, no question text — CLAUDE.md "pure
+// functions at the core, side effects at the edges" (engine.ts is the edge).
 
 import { HALFTIME_WINDOW_START, MATCH_WINDOWS, type MatchPeriod } from "@arena/contracts";
 

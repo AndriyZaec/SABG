@@ -1,7 +1,7 @@
-// B8 — Replay Engine: paces the recorded TxODDS fixture onto the S3 bus with configurable ×N
-// speed, so a full match can be demoed kickoff -> winner without a live feed. Reuses B1's
-// normalizer (`createMatchSignalProducer`) and fixture loader (`ingestion/replay.ts`) unchanged —
-// this module only adds pacing on top of the existing synchronous `replayFixture`.
+// Replay Engine: paces the recorded TxODDS fixture onto the bus with configurable ×N speed, so a
+// full match can be demoed kickoff -> winner without a live feed. Reuses the existing normalizer
+// (`createMatchSignalProducer`) and fixture loader (`ingestion/replay.ts`) unchanged — this
+// module only adds pacing on top of the existing synchronous `replayFixture`.
 //
 // The match clock is derived purely from feed pacing (ingestion/match-signal.ts's `clock`
 // signals) — no engine anywhere uses a wall-clock timer (see round-engine/engine.ts's doc comment

@@ -1,4 +1,4 @@
-// B8 DoD test: "a full match from kickoff to winner in accelerated mode" — drives the headless
+// Test: "a full match from kickoff to winner in accelerated mode" — drives the headless
 // replay demo (bots + ArenaRuntime + ReplayEngine) to completion with a spy broadcaster, no
 // process/DB/WS involved, mirroring gateway/__tests__/arena-runtime.test.ts's pattern but with
 // the scripted bot roster standing in for real WS clients.

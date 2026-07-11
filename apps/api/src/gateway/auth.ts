@@ -1,12 +1,13 @@
-// B7 — minimal session-token auth (scope decision: no wallet-signature verification yet — that's
-// C5's charter). POST /auth/wallet (rest.ts) upserts a User by wallet address and issues a token
-// here; REST middleware and the WS connection handler both call `verifyToken` to identify the
-// player. No JWT library — an HMAC-SHA256-signed `userId.expiry` payload needs nothing more and
-// adds no dependency.
+// Minimal session-token auth (scope decision: no wallet-signature verification yet). POST
+// /auth/wallet (rest.ts) upserts a User by wallet address and issues a token here; REST
+// middleware and the WS connection handler both call `verifyToken` to identify the player. No
+// JWT library — an HMAC-SHA256-signed `userId.expiry` payload needs nothing more and adds no
+// dependency.
 //
-// C5 seam: real wallet sign-in verifies a `tweetnacl` signature over a server-issued nonce before
-// ever calling `issueToken` — that check slots in ahead of the `userRepository.upsertByWallet`
-// call in rest.ts's `/auth/wallet` handler; nothing here needs to change when it lands.
+// Seam for later: real wallet sign-in verifies a `tweetnacl` signature over a server-issued nonce
+// before ever calling `issueToken` — that check slots in ahead of the
+// `userRepository.upsertByWallet` call in rest.ts's `/auth/wallet` handler; nothing here needs to
+// change when it lands.
 
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";

@@ -1,6 +1,6 @@
-// P0.4 mock server entrypoint — Express (REST, /api/*) + ws (WS, /ws), matching the
+// Mock server entrypoint — Express (REST, /api/*) + ws (WS, /ws), matching the
 // contract pinned by apps/web/vite.config.ts. Run via `pnpm dev:api` (root) or
-// `pnpm --filter @arena/api dev`. Stand-in for B7 (Realtime Gateway + REST API).
+// `pnpm --filter @arena/api dev`. Stand-in for the real Realtime Gateway + REST API.
 
 import { createServer } from "node:http";
 

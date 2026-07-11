@@ -1,5 +1,5 @@
-// B7 DAL — Prediction (answer) persistence, backing the pg-prediction-store write-through cache,
-// which implements settlement/prediction-store.ts's `PredictionStore` seam for B4.
+// Prediction (answer) persistence, backing the pg-prediction-store write-through cache,
+// which implements settlement/prediction-store.ts's `PredictionStore` seam.
 
 import { and, eq } from "drizzle-orm";
 import type { Answer, Prediction, PredictionResult, Uuid } from "@arena/contracts";

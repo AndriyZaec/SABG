@@ -1,4 +1,4 @@
-// B7 DB integration test — the one place the repositories + write-through PG stores are
+// DB integration test — the one place the repositories + write-through PG stores are
 // exercised against a real Postgres. Gated on DATABASE_URL so the rest of the suite (and CI by
 // default) stays DB-free; run locally (or in a DB-enabled job) with DATABASE_URL set.
 //
@@ -89,7 +89,7 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
     expect(found?.walletAddress).toBe(walletAddress);
   });
 
-  it("match.repository: upsertByTxoddsFixtureId is idempotent, and updateLive mirrors B2 snapshots", async () => {
+  it("match.repository: upsertByTxoddsFixtureId is idempotent, and updateLive mirrors live snapshots", async () => {
     const fixtureId = Number(`9${Date.now()}`.slice(0, 9)); // unique-enough per run
     const startTime = new Date();
     const first = await matchRepository.upsertByTxoddsFixtureId(fixtureId, { homeTeam, awayTeam, startTime });

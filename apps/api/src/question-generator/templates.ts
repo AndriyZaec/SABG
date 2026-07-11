@@ -1,4 +1,4 @@
-// B5 — Question Generator: pure question-text rendering (spec §4.2). Two phrasing variants per
+// Question Generator: pure question-text rendering (spec §4.2). Two phrasing variants per
 // target event type, matching spec's own examples: team-specific ("Will Team A have a shot...")
 // and generic ("Will there be a corner...") when targetTeam is "any".
 

@@ -1,4 +1,4 @@
-// B7 gateway logger — same pino setup as src/live/logger.ts, but scoped to gatewayConfig so
+// Gateway logger — same pino setup as src/live/logger.ts, but scoped to gatewayConfig so
 // booting the gateway never requires the live worker's Mongo/TXODDS env vars.
 
 import pino from "pino";

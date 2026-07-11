@@ -1,6 +1,6 @@
 // Ported from world-cup's services/wallet.service.ts. Loads the devnet keypair used to sign
 // the TxLine on-chain `subscribe()` call (see txline.service.ts) — unrelated to SABG's own
-// `programs/arena` wallet/identity flow (C5).
+// `programs/arena` wallet/identity flow.
 
 import * as anchor from "@coral-xyz/anchor";
 import { Keypair, Connection } from "@solana/web3.js";

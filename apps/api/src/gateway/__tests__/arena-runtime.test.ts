@@ -1,7 +1,7 @@
-// B7 DoD test: "a real client passes a full round over WS; contract = the P0.4 mock." No WS
+// Test: "a real client passes a full round over WS; contract = the mock." No WS
 // server or database is involved — the runtime is source-agnostic (driven by a MatchSignalBus)
 // and its persistence/broadcast ports are both injectable, so this drives the *real* engine
-// pipeline (B2-B6, unchanged) over the same recorded fixture the other engine tests use, via a
+// pipeline (unchanged) over the same recorded fixture the other engine tests use, via a
 // broadcaster spy standing in for a real WS client, and in-memory stores standing in for Postgres.
 
 import { describe, expect, it } from "vitest";
@@ -65,7 +65,7 @@ function buildRuntime() {
       { userId: PLAYER_NEVER_ANSWERS, username: "never-answers", joinedAt: "2024-01-01T00:00:02.000Z" },
     ],
     broadcaster,
-    // No persistence — the DoD is DB-free.
+    // No persistence — kept DB-free.
   });
 
   return { runtime, bus, broadcasts, personal };
@@ -77,7 +77,7 @@ describe("ArenaRuntime — B7 DoD: a real client passes full rounds over the bro
 
     replayFixture(bus, FIXTURE_MATCH_ID);
 
-    // 1. match.state arrives at least once (B2 snapshots).
+    // 1. match.state arrives at least once.
     expect(broadcasts.some((m) => m.type === "match.state")).toBe(true);
 
     // 2. Every round follows the documented per-round order: settle -> leaderboard.update ->
@@ -114,9 +114,10 @@ describe("ArenaRuntime — B7 DoD: a real client passes full rounds over the bro
 
       // IF this round's settle produced a leaderboard change, it's ordered leaderboard.update
       // after settle (before the next round's open, if any). Not every round produces one: once
-      // the arena has already finished, B3/B4 mechanically keep opening/settling the fixture's
-      // remaining fixed windows with zero active players left, and the leaderboard rightly emits
-      // nothing for those (nothing changed) — so existence isn't asserted here, only ordering.
+      // the arena has already finished, the round/settlement engines mechanically keep
+      // opening/settling the fixture's remaining fixed windows with zero active players left,
+      // and the leaderboard rightly emits nothing for those (nothing changed) — so existence
+      // isn't asserted here, only ordering.
       const nextOpenIdx = broadcasts.findIndex((m, i) => i > settleIdx && m.type === "round.open");
       const leaderboardAfterSettle = broadcasts.findIndex(
         (m, i) => i > settleIdx && m.type === "leaderboard.update" && (nextOpenIdx === -1 || i < nextOpenIdx),

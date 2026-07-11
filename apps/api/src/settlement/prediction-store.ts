@@ -1,6 +1,6 @@
-// B4 seam: B7's real answer-submission API (POST /rounds/:id/answer) doesn't exist yet, so the
-// Settlement Engine depends only on this interface (mirrors spec §13 Prediction). B7 swaps in a
-// Postgres-backed implementation later without the engine changing.
+// Seam: the real answer-submission API (POST /rounds/:id/answer) doesn't exist yet, so the
+// Settlement Engine depends only on this interface (mirrors spec §13 Prediction). The gateway
+// swaps in a Postgres-backed implementation later without the engine changing.
 
 import type { Answer, PredictionResult, Uuid } from "@arena/contracts";
 
@@ -11,7 +11,7 @@ export interface PredictionStore {
   recordResult(roundId: Uuid, userId: Uuid, result: PredictionResult): void;
 }
 
-/** In-memory dev/test double. Real persistence lands with B7. */
+/** In-memory dev/test double. Real persistence lands with the gateway. */
 export function createInMemoryPredictionStore(): PredictionStore & {
   recordAnswer(roundId: Uuid, userId: Uuid, answer: Answer): void;
   getResult(roundId: Uuid, userId: Uuid): PredictionResult | undefined;

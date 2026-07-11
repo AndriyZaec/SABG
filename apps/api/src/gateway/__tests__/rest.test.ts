@@ -1,4 +1,4 @@
-// B7 REST handler tests — DB-free: the repository modules are mocked (vi.mock) so this exercises
+// REST handler tests — DB-free: the repository modules are mocked (vi.mock) so this exercises
 // routing, status codes, auth gating, and the mock's documented quirks (bare Match from
 // /matches/:id, uniform ApiError, 404 fallthrough) without touching Postgres. The DB layer itself
 // is covered separately by db/__tests__/repositories.int.test.ts (DATABASE_URL-gated).

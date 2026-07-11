@@ -1,4 +1,4 @@
-// B7 — Realtime Gateway's WS server. Implements `GatewayBroadcaster` (arena-runtime.ts) so it can
+// Realtime Gateway's WS server. Implements `GatewayBroadcaster` (arena-runtime.ts) so it can
 // be constructed *before* any ArenaRuntime (the runtime is handed `this` as its broadcaster);
 // looks runtimes up by arenaId to route inbound `ClientMessage`s (subscribe/answer).
 //
@@ -136,8 +136,6 @@ export class GatewayWebSocketServer implements GatewayBroadcaster, ArenaRuntimeL
       conn.socket.send(JSON.stringify(message));
     }
   }
-
-  // ---- GatewayBroadcaster --------------------------------------------------
 
   broadcast(arenaId: Uuid, message: ServerMessage): void {
     this.updateCache(arenaId, message);

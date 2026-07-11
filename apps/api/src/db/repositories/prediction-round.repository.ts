@@ -1,4 +1,4 @@
-// B7 DAL — PredictionRound persistence. `upsert` is called from arena-runtime.ts on every B3/B4
+// PredictionRound persistence. `upsert` is called from arena-runtime.ts on every round/settlement
 // lifecycle transition (open/lock/settle) with the full current round shape, so one write path
 // covers create-on-open and update-on-lock/settle.
 

@@ -1,7 +1,7 @@
-// B8 — Replay Engine headless demo entrypoint. Run via `pnpm replay:dev` (apps/api) or
+// Replay Engine headless demo entrypoint. Run via `pnpm replay:dev` (apps/api) or
 // `pnpm --filter @arena/api replay:dev`.
 //
-// Drives the real engine pipeline (B2-B6, unchanged, via ArenaRuntime — the same source-agnostic
+// Drives the real engine pipeline (unchanged, via ArenaRuntime — the same source-agnostic
 // composition root gateway/run.ts uses) with a scripted bot roster and a console broadcaster —
 // no Postgres/WS server needed, so the whole game loop (kickoff -> winner) is provable with a
 // single process and no external dependencies. Speed is configurable via REPLAY_SPEED (default
@@ -53,7 +53,7 @@ export interface ReplayDemo {
 }
 
 /**
- * Wires one headless replay demo: bot roster + in-memory stores + `ArenaRuntime` (unchanged B2-B6
+ * Wires one headless replay demo: bot roster + in-memory stores + `ArenaRuntime` (unchanged
  * pipeline) + a `ReplayEngine` driving it over the recorded fixture. Exported standalone (rather
  * than only reachable via `main()`) so `demo.test.ts` can drive it with a spy broadcaster and no
  * process, mirroring gateway/__tests__/arena-runtime.test.ts's pattern.
@@ -96,7 +96,7 @@ export function createReplayDemo(options: ReplayDemoOptions = {}): ReplayDemo {
     arenaPlayerStore,
     roster: bots.map((b) => ({ userId: b.userId, username: b.username, joinedAt: b.joinedAt })),
     broadcaster: answeringBroadcaster,
-    // No persistence — the DoD is DB-free, mirroring arena-runtime.test.ts.
+    // No persistence — kept DB-free, mirroring arena-runtime.test.ts.
     ...(leadTimeSeconds !== undefined ? { leadTimeSeconds } : {}),
   });
 

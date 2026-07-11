@@ -1,4 +1,4 @@
-// B8 — Replay Engine config. Scoped to src/replay/** only, mirrors gateway/config.ts's pattern
+// Replay Engine config. Scoped to src/replay/** only, mirrors gateway/config.ts's pattern
 // (each track validates its own env slice with zod) rather than overloading gateway's module.
 
 import dotenv from "dotenv";
@@ -11,7 +11,7 @@ const envSchema = z.object({
   REPLAY_SPEED: z.coerce.number().positive().default(60),
   /** Clamp on any single inter-message wait (real ms, pre-speed) — bounds idle gaps like halftime. */
   REPLAY_MAX_GAP_MS: z.coerce.number().int().nonnegative().default(2_000),
-  /** Overrides B3's default (spec §5 minimum 60s) so rounds open/lock promptly under the sped-up clock. */
+  /** Overrides RoundEngine's default (spec §5 minimum 60s) so rounds open/lock promptly under the sped-up clock. */
   REPLAY_LEAD_TIME_SECONDS: z.coerce.number().int().positive().optional(),
   /** Number of scripted bot players in the headless demo. */
   REPLAY_BOT_COUNT: z.coerce.number().int().positive().default(8),

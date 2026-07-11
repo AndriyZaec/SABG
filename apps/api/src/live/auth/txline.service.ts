@@ -72,7 +72,6 @@ export class TxLineService {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const program = new anchor.Program(txoracleIdl, provider) as any;
 
-    // === Subscribe on-chain ===
     const [tokenTreasuryPda] = PublicKey.findProgramAddressSync(
       [Buffer.from("token_treasury_v2")],
       program.programId,
@@ -133,7 +132,6 @@ export class TxLineService {
 
     logger.info({ txSig }, "subscription transaction submitted");
 
-    // === Activate ===
     const guestJwtService = GuestJwtService.getInstance();
     const jwt = await guestJwtService.getJwt();
     logger.debug("guest JWT obtained for activation");

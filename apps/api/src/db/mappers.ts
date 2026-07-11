@@ -1,4 +1,4 @@
-// B7 — pure row <-> @arena/contracts entity mappers. No I/O; unit-testable in isolation
+// Pure row <-> @arena/contracts entity mappers. No I/O; unit-testable in isolation
 // (db/__tests__/mappers.test.ts). Keeps the Drizzle row shape (snake_case columns, split
 // scoreHome/scoreAway, Date objects) from leaking into the engines/gateway, which only ever see
 // @arena/contracts entity shapes.

@@ -1,6 +1,6 @@
-// B8 — ReplayEngine tests: pacing math in isolation, then signal-parity against the existing
+// ReplayEngine tests: pacing math in isolation, then signal-parity against the existing
 // synchronous `replayFixture` (ingestion/replay.ts) — the Replay Engine must emit exactly the
-// same ordered signals, just paced differently, since it reuses the same B1 normalizer.
+// same ordered signals, just paced differently, since it reuses the same normalizer.
 
 import { describe, expect, it } from "vitest";
 import type { MatchSignal } from "@arena/contracts";

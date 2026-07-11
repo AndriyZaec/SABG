@@ -1,6 +1,6 @@
-// B2 — Match State Engine's side-effecting edge: holds the current `MatchState`, applies
+// Match State Engine's side-effecting edge: holds the current `MatchState`, applies
 // incoming `MatchSignal`s through the pure reducer, and notifies subscribers only when the
-// state actually changed (feeds B3 round timing, B7 WS `match.state`, the frontend).
+// state actually changed (feeds round timing, the WS `match.state` push, the frontend).
 
 import type { MatchSignal, MatchState, Uuid } from "@arena/contracts";
 import type { MatchSignalBus } from "../ingestion/event-bus.js";

@@ -1,4 +1,4 @@
-// B5 — Question Generator: candidate selection (spec §4.2).
+// Candidate selection (spec §4.2).
 //
 // Split in two on purpose:
 //  - `eligibleCandidates` is pure and fully deterministic — filtering (substitution cap, anti-repeat)

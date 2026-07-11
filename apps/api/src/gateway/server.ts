@@ -1,4 +1,4 @@
-// B7 — the real Realtime Gateway + REST API server, replacing the P0.4 mock
+// The real Realtime Gateway + REST API server, replacing the mock
 // (apps/api/src/mock/server.ts). Same stack/shape as the mock (express + cors + ws on one
 // node:http server) so the wire contract pinned by apps/web/vite.config.ts (REST at /api, WS at
 // /ws) is unchanged — only what's behind it is now real.

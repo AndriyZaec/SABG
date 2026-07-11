@@ -1,4 +1,4 @@
-// B7 — per-key serialized write queue. The write-through PG stores (pg-prediction-store.ts,
+// Per-key serialized write queue. The write-through PG stores (pg-prediction-store.ts,
 // pg-arena-player-store.ts) and arena-runtime.ts's persistence calls all enqueue their async
 // Postgres writes here rather than firing them independently, so that ordered mutations (a
 // round's open -> lock -> settle, a player's active -> eliminated/winner transition) always

@@ -1,4 +1,4 @@
-// B7 — Postgres-backed PredictionStore (settlement/prediction-store.ts's B4 seam). The interface
+// Postgres-backed PredictionStore (settlement/prediction-store.ts's seam). The interface
 // is synchronous (called inside SettlementEngine's sync signal handling), but Postgres writes are
 // async — so this is a write-through cache: an in-memory Map is the synchronous source of truth,
 // hydrated per round, and every mutation both updates the cache immediately and enqueues a

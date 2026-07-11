@@ -1,7 +1,7 @@
-// B5 — Question Generator's side-effecting edge: implements the `QuestionProvider` seam B3
-// already depends on (round-engine/question-provider.ts), and separately subscribes to the S3
+// Question Generator's side-effecting edge: implements the `QuestionProvider` seam the round
+// engine depends on (round-engine/question-provider.ts), and separately subscribes to the
 // MatchSignalBus purely to track substitutions-per-team — the one triviality-rule input
-// `MatchState` (B2) doesn't already carry.
+// `MatchState` doesn't already carry.
 
 import type { MatchSignal, TargetEventType } from "@arena/contracts";
 import type { MatchSignalBus } from "../ingestion/event-bus.js";

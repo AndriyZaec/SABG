@@ -1,8 +1,8 @@
-// B5 seam (build plan §Backend, spec §4.2): B3 needs a question + settlement condition for
-// every round it opens, but the real Question Generator (context-aware, rule/template-based)
-// isn't built yet. This is the injected interface B5 will implement — B3 only ever depends on
-// `QuestionProvider`, never on how questions are produced, so B5 drops in later without B3
-// changing.
+// Seam (spec §4.2): the round engine needs a question + settlement condition for every round it
+// opens, but the real Question Generator (context-aware, rule/template-based) isn't built yet.
+// This is the injected interface the real generator implements — the round engine only ever
+// depends on `QuestionProvider`, never on how questions are produced, so the real generator drops
+// in later without the round engine changing.
 
 import type { MatchState, SettlementCondition, TargetEventType, TeamSide } from "@arena/contracts";
 
@@ -28,8 +28,8 @@ export interface QuestionProvider {
 
 /**
  * Deterministic placeholder: always asks about a shot by either team in the window. Good enough
- * to exercise B3's lifecycle end-to-end; not a stand-in for B5's context-aware generation policy
- * (natural questions, avoid trivially-resolved — spec §4.2).
+ * to exercise the round engine's lifecycle end-to-end; not a stand-in for the real generator's
+ * context-aware generation policy (natural questions, avoid trivially-resolved — spec §4.2).
  */
 export function createStubQuestionProvider(): QuestionProvider {
   return {

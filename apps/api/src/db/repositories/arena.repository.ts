@@ -1,12 +1,10 @@
-// B7 DAL — arena persistence.
-
 import { eq, sql } from "drizzle-orm";
 import type { Arena, Uuid, WalletAddress } from "@arena/contracts";
 import { db } from "../client.js";
 import { arenas } from "../schema.js";
 import { arenaRowToEntity } from "../mappers.js";
 
-/** Devnet-only placeholder escrow address until C1 mints a real PDA per arena. */
+/** Devnet-only placeholder escrow address until the on-chain program mints a real PDA per arena. */
 const PLACEHOLDER_ESCROW: WalletAddress = "ArEnAEscrowPDA11111111111111111111111111";
 
 export const arenaRepository = {
@@ -21,7 +19,7 @@ export const arenaRepository = {
   },
 
   /**
-   * GET /arenas?matchId= (lobby discovery — F2). The schema has no uniqueness constraint on
+   * GET /arenas?matchId= (lobby discovery). The schema has no uniqueness constraint on
    * matchId, so this is a genuine list query, not just `findByMatchId` wrapped in an array —
    * today's demo bootstrap only ever creates one arena per match, but the query doesn't assume it.
    */

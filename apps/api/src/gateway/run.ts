@@ -1,4 +1,4 @@
-// B7 — gateway entrypoint. Run via `pnpm gateway:dev` (apps/api) or
+// Gateway entrypoint. Run via `pnpm gateway:dev` (apps/api) or
 // `pnpm --filter @arena/api gateway:dev`.
 //
 // Demo driver (scope decision): drives the real engine pipeline via `replayFixture` over the same
@@ -31,9 +31,9 @@ const DEMO_ENTRY_FEE_LAMPORTS = 10_000_000;
 
 /**
  * Like `replayFixture` (ingestion/replay.ts), but spread over wall-clock time via `delayMs`
- * between messages — reuses the same B1 helpers (`loadFixture`, `createMatchSignalProducer`)
- * rather than duplicating their logic, just with an async pacing loop instead of a tight
- * synchronous one, so a manual WS walkthrough is actually watchable.
+ * between messages — reuses the same helpers (`loadFixture`, `createMatchSignalProducer`) rather
+ * than duplicating their logic, just with an async pacing loop instead of a tight synchronous
+ * one, so a manual WS walkthrough is actually watchable.
  */
 async function replayFixturePaced(bus: MatchSignalBus, matchId: string, delayMs: number): Promise<void> {
   const raw = loadFixture(defaultFixturePath());

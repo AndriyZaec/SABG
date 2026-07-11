@@ -1,6 +1,6 @@
-// B7 DAL — EntryPass persistence, backing POST /arenas/:id/entry. Records the client-reported
-// on-chain tx signature without chain verification (C1/C2 on-chain verification is out of scope
-// for B7 — see the plan's non-goals).
+// EntryPass persistence, backing POST /arenas/:id/entry. Records the client-reported
+// on-chain tx signature without chain verification (out of scope here — see the plan's
+// non-goals).
 
 import type { EntryPass, Uuid, WalletAddress } from "@arena/contracts";
 import { db } from "../client.js";

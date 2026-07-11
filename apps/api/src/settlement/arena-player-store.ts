@@ -1,5 +1,5 @@
-// B4 seam: no ArenaPlayer roster/join API exists yet, so the Settlement Engine depends only on
-// this interface (mirrors spec §13 ArenaPlayer). B7/the arena-join flow swaps in a Postgres-backed
+// Seam: no ArenaPlayer roster/join API exists yet, so the Settlement Engine depends only on
+// this interface (mirrors spec §13 ArenaPlayer). The arena-join flow swaps in a Postgres-backed
 // implementation later without the engine changing.
 
 import type { ArenaPlayerStatus, Uuid } from "@arena/contracts";
@@ -11,7 +11,7 @@ export interface ArenaPlayerStore {
   setStatus(userId: Uuid, status: ArenaPlayerStatus): void;
 }
 
-/** In-memory dev/test double. Real persistence lands with the arena-join flow / B7. */
+/** In-memory dev/test double. Real persistence lands with the arena-join flow / gateway. */
 export function createInMemoryArenaPlayerStore(
   arenaId: Uuid,
   initialActivePlayerIds: Uuid[],

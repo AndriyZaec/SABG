@@ -1,4 +1,4 @@
-// B8 replay logger — same pino setup as gateway/logger.ts, scoped to replayConfig so running the
+// Replay logger — same pino setup as gateway/logger.ts, scoped to replayConfig so running the
 // headless demo never requires the gateway's DB/CORS/auth env vars.
 
 import pino from "pino";

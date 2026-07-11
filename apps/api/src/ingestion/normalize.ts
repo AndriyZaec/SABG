@@ -1,4 +1,4 @@
-// Raw TXODDS ScoreSnapshot -> @arena/contracts LiveEvent (B1, build plan §S3).
+// Raw TXODDS ScoreSnapshot -> @arena/contracts LiveEvent.
 // Pure function per CLAUDE.md: no I/O, fully unit-testable on fixtures.
 
 import { randomUUID } from "node:crypto";

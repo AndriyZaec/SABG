@@ -1,7 +1,7 @@
-// B4 — Settlement Engine's side-effecting edge: watches locked rounds (from B3) against the S3
-// MatchSignalBus, calling the pure resolveSettlement (spec §6: early on a confirmed matching
-// event, window-end otherwise) and marking each active player's Prediction/ArenaPlayer outcome
-// through injected seams (B7 supplies real, persisted implementations later).
+// Settlement Engine's side-effecting edge: watches locked rounds against the MatchSignalBus,
+// calling the pure resolveSettlement (spec §6: early on a confirmed matching event, window-end
+// otherwise) and marking each active player's Prediction/ArenaPlayer outcome through injected
+// seams (real, persisted implementations are supplied later).
 
 import type {
   Answer,
@@ -62,7 +62,7 @@ export class SettlementEngine {
     this.arenaPlayerStore = options.arenaPlayerStore ?? createInMemoryArenaPlayerStore(arenaId, []);
   }
 
-  /** Starts tracking a round B3 just locked. Idempotent — a repeat call for the same window is a no-op. */
+  /** Starts tracking a round that was just locked. Idempotent — a repeat call for the same window is a no-op. */
   onRoundLocked(round: PredictionRound): void {
     if (this.tracked.has(round.windowStartMinute)) return;
     this.tracked.set(round.windowStartMinute, { round, events: [] });
@@ -114,8 +114,8 @@ export class SettlementEngine {
       // is inherently a separate, sometimes-later message (found via the full-pipeline test:
       // fixture 18179764 Seq 296 ticks minute 30 while provisional; Seq 297 confirms the same
       // shot one message later). Settling "no" the instant minute==windowEndMinute would still
-      // beat that confirmation to the punch. hasReachedMinute is >=-based (correct for B3's
-      // inclusive "lock exactly at T"); express the strict ">" here via `windowEndMinute + 1`.
+      // beat that confirmation to the punch. hasReachedMinute is >=-based (correct for the round
+      // engine's inclusive "lock exactly at T"); express the strict ">" here via `windowEndMinute + 1`.
       if (hasReachedMinute(tick, entry.round.windowEndMinute + 1, req)) {
         toSettle.push({ windowStart, answer: resolveSettlement(entry.round.settlementCondition, entry.events) });
       }
@@ -125,7 +125,7 @@ export class SettlementEngine {
 
   private settle(windowStart: number, correctAnswer: Answer, settledBy: SettledBy): void {
     const entry = this.tracked.get(windowStart);
-    if (entry === undefined) return; // already settled — idempotency guard (DoD)
+    if (entry === undefined) return; // already settled — idempotency guard
     this.tracked.delete(windowStart);
 
     const { round } = entry;

@@ -4,8 +4,8 @@
 //    no-Redis decision for this port — a restart just starts the stream fresh rather than
 //    resuming exactly where it left off);
 //  - `handleMessage` both persists the raw message (StreamEventRepository, Mongo) and feeds it
-//    through the shared B1 match-signal producer, publishing every `MatchSignal` (settlement
-//    events + clock/possession) onto the S3 bus.
+//    through the shared match-signal producer, publishing every `MatchSignal` (settlement
+//    events + clock/possession) onto the shared bus.
 
 import type { MatchSignal } from "@arena/contracts";
 import { streamEvents, type StreamMessage } from "./sse-client.js";
@@ -26,7 +26,7 @@ const RECONNECT_BACKOFF_MS = [1_000, 5_000, 10_000, 30_000];
  * Background worker: consumes the real-time `/scores/stream` SSE feed for one fixture over a
  * single long-lived connection (no polling interval — events are handled the instant each
  * frame arrives), persisting every raw message to Mongo and publishing `MatchSignal`s onto a
- * `MatchSignalBus` (S3).
+ * `MatchSignalBus`.
  */
 export class LiveIngestionWorker {
   private running = false;

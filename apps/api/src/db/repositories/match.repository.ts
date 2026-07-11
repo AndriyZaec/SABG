@@ -1,4 +1,4 @@
-// B7 DAL — match persistence. `updateLive` is how B2's MatchState snapshots land in Postgres
+// Match persistence. `updateLive` is how MatchState snapshots land in Postgres
 // (arena-runtime.ts's matchState onSnapshot callback); `upsertByTxoddsFixtureId` backs the
 // gateway's self-contained demo bootstrap (gateway/run.ts) — independent of db:seed, which seeds a
 // different fixture than the replay uses.
@@ -59,7 +59,7 @@ export const matchRepository = {
     return matchRowToEntity(row);
   },
 
-  /** Mirrors B2 MatchState snapshots (spec §13 Match.currentMinute/period/score). */
+  /** Mirrors MatchState snapshots (spec §13 Match.currentMinute/period/score). */
   async updateLive(
     id: Uuid,
     live: { currentMinute: number; period: MatchPeriod; score: Score; status?: Match["status"] },

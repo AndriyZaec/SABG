@@ -1,6 +1,6 @@
-// B4 — Settlement Engine core: the pure, idempotent S5 function (build plan §S5, spec §6).
-// No I/O, no clock, no early/window-end distinction — the engine (engine.ts) decides *when* to
-// call this; this only decides *what* the answer is given whatever events it's handed.
+// Settlement Engine core: the pure, idempotent settlement function (spec §6). No I/O, no clock,
+// no early/window-end distinction — the engine (engine.ts) decides *when* to call this; this
+// only decides *what* the answer is given whatever events it's handed.
 
 import type { SettleFn } from "@arena/contracts";
 

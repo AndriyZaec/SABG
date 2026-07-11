@@ -201,8 +201,8 @@ describe("SettlementEngine", () => {
   it("replaying fixture 18179764 through Ingestion -> RoundEngine -> SettlementEngine settles all 17 rounds", () => {
     const bus = new MatchSignalBus();
 
-    // Bridge B3 <-> B4 exactly as live/run.ts wires it: forward-declare so each engine's
-    // callback can reference the other.
+    // Bridge round engine <-> settlement engine exactly as live/run.ts wires it: forward-declare
+    // so each engine's callback can reference the other.
     let settlementEngine: SettlementEngine;
     const roundEngine = new RoundEngine(FIXTURE_MATCH_ID, ARENA_ID, {
       onTransition: (event) => {
