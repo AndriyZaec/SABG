@@ -8,6 +8,7 @@ import type {
   ArenaPlayer,
   EntryPass,
   Match,
+  Payout,
   Prediction,
   PredictionRound,
   SettlementCondition,
@@ -18,6 +19,7 @@ import type {
   arenas,
   entryPasses,
   matches,
+  payouts,
   predictionRounds,
   predictions,
   users,
@@ -30,6 +32,7 @@ type EntryPassRow = typeof entryPasses.$inferSelect;
 type PredictionRoundRow = typeof predictionRounds.$inferSelect;
 type ArenaPlayerRow = typeof arenaPlayers.$inferSelect;
 type PredictionRow = typeof predictions.$inferSelect;
+type PayoutRow = typeof payouts.$inferSelect;
 
 export function userRowToEntity(row: UserRow): User {
   return {
@@ -63,6 +66,17 @@ export function arenaRowToEntity(row: ArenaRow): Arena {
     prizePoolLamports: row.prizePoolLamports,
     escrowAccount: row.escrowAccount,
     ...(row.onchainArenaId != null ? { onchainArenaId: row.onchainArenaId } : {}),
+  };
+}
+
+export function payoutRowToEntity(row: PayoutRow): Payout {
+  return {
+    id: row.id,
+    arenaId: row.arenaId,
+    userId: row.userId,
+    amountLamports: row.amountLamports,
+    ...(row.txSignature != null ? { txSignature: row.txSignature } : {}),
+    status: row.status,
   };
 }
 

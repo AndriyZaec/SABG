@@ -17,3 +17,12 @@ export async function maybeProvisionArena(
   const { onchainArenaId, escrowAccount } = await provisionArena(entryFeeLamports);
   return { onchainArenaId, escrowAccount };
 }
+
+/** Sign + send `settle_payout` for an arena. Dynamic import keeps Solana off the default path. */
+export async function settleArenaPayoutOnchain(
+  onchainArenaId: number,
+  winnerWallets: string[],
+): Promise<string> {
+  const { settlePayoutOnchain } = await import("./arena-program.js");
+  return settlePayoutOnchain(onchainArenaId, winnerWallets);
+}
