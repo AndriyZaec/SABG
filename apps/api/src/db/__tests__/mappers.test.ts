@@ -75,6 +75,7 @@ describe("arenaRowToEntity", () => {
       entryFeeLamports: 1000,
       prizePoolLamports: 5000,
       escrowAccount: "Escrow111",
+      onchainArenaId: 42,
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -86,6 +87,7 @@ describe("arenaRowToEntity", () => {
       entryFeeLamports: 1000,
       prizePoolLamports: 5000,
       escrowAccount: "Escrow111",
+      onchainArenaId: 42,
     });
   });
 });

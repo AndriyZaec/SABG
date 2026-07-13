@@ -16,6 +16,9 @@ export function EntryCard() {
   }
 
   const busy = status === "working" || status === "loading";
+  // Players don't create arenas in prod — the backend provisions them as on-chain authority.
+  // Kept as a dev/demo affordance; set VITE_ALLOW_CLIENT_ARENA=false to hide it.
+  const allowClientCreate = import.meta.env.VITE_ALLOW_CLIENT_ARENA !== "false";
 
   return (
     <section style={{ border: "1px solid #ddd", borderRadius: 8, padding: 16, maxWidth: 360 }}>
@@ -33,11 +36,13 @@ export function EntryCard() {
       )}
 
       <div style={{ marginTop: 12 }}>
-        {info && !info.exists && (
+        {info && !info.exists && allowClientCreate && (
           <button onClick={createArena} disabled={busy}>
             {status === "working" ? "Creating…" : "Create arena"}
           </button>
         )}
+
+        {info && !info.exists && !allowClientCreate && <p>Waiting for an arena to open…</p>}
 
         {info?.exists && !hasEntry && !info.settled && (
           <button onClick={buyEntry} disabled={busy}>

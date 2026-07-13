@@ -62,6 +62,7 @@ export function arenaRowToEntity(row: ArenaRow): Arena {
     entryFeeLamports: row.entryFeeLamports,
     prizePoolLamports: row.prizePoolLamports,
     escrowAccount: row.escrowAccount,
+    ...(row.onchainArenaId != null ? { onchainArenaId: row.onchainArenaId } : {}),
   };
 }
 

@@ -3,6 +3,7 @@ import type { Arena, Uuid, WalletAddress } from "@arena/contracts";
 import { db } from "../client.js";
 import { arenas } from "../schema.js";
 import { arenaRowToEntity } from "../mappers.js";
+import { maybeProvisionArena } from "../../onchain/index.js";
 
 /** Devnet-only placeholder escrow address until the on-chain program mints a real PDA per arena. */
 const PLACEHOLDER_ESCROW: WalletAddress = "ArEnAEscrowPDA11111111111111111111111111";
@@ -39,6 +40,9 @@ export const arenaRepository = {
     const existing = await this.findByMatchId(matchId);
     if (existing) return existing;
 
+    // Real escrow + on-chain id when provisioning is enabled; placeholder otherwise (demo path).
+    const onchain = await maybeProvisionArena(defaults.entryFeeLamports);
+
     const [row] = await db
       .insert(arenas)
       .values({
@@ -47,7 +51,8 @@ export const arenaRepository = {
         activePlayersCount: 0,
         entryFeeLamports: defaults.entryFeeLamports,
         prizePoolLamports: defaults.prizePoolLamports,
-        escrowAccount: PLACEHOLDER_ESCROW,
+        escrowAccount: onchain?.escrowAccount ?? PLACEHOLDER_ESCROW,
+        onchainArenaId: onchain?.onchainArenaId ?? null,
       })
       .returning();
     if (!row) throw new Error(`upsertForMatch(${matchId}) returned no row`);

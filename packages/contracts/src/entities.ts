@@ -58,6 +58,8 @@ export interface Arena {
   prizePoolLamports: number;
   /** On-chain escrow PDA address. */
   escrowAccount: WalletAddress;
+  /** Numeric id used as the on-chain program's `arena_id` PDA seed. Absent until provisioned. */
+  onchainArenaId?: number;
 }
 
 export interface EntryPass {

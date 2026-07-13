@@ -90,6 +90,8 @@ export const arenas = pgTable("arena", {
   entryFeeLamports: bigint("entry_fee_lamports", { mode: "number" }).notNull(),
   prizePoolLamports: bigint("prize_pool_lamports", { mode: "number" }).notNull(),
   escrowAccount: text("escrow_account").notNull(),
+  /** On-chain program `arena_id` PDA seed. Null until the arena is provisioned on-chain. */
+  onchainArenaId: bigint("onchain_arena_id", { mode: "number" }),
   ...timestamps,
 }, (t) => [
   index("arena_match_id_idx").on(t.matchId),
