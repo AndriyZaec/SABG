@@ -1,7 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
+import { BN } from "@coral-xyz/anchor";
 import { PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { DEMO_ARENA_ID, deriveArenaPdas, useArenaProgram } from "../solana/program.js";
+
+export interface ArenaPayoutOptions {
+  onchainArenaId?: number;
+}
 
 type Status = "loading" | "idle" | "working" | "error";
 
@@ -21,9 +26,14 @@ export interface PayoutState {
 }
 
 /** Reads the demo arena's payout state and lets the payout authority settle it. */
-export function useArenaPayout(): PayoutState {
+export function useArenaPayout(options: ArenaPayoutOptions = {}): PayoutState {
   const program = useArenaProgram();
   const { publicKey } = useWallet();
+  const { onchainArenaId } = options;
+  const arenaId = useMemo(
+    () => (onchainArenaId != null ? new BN(onchainArenaId) : DEMO_ARENA_ID),
+    [onchainArenaId],
+  );
 
   const [status, setStatus] = useState<Status>("loading");
   const [error, setError] = useState<string | undefined>();
@@ -37,7 +47,7 @@ export function useArenaPayout(): PayoutState {
     setStatus("loading");
     setError(undefined);
     try {
-      const { arena } = deriveArenaPdas(program.programId, DEMO_ARENA_ID);
+      const { arena } = deriveArenaPdas(program.programId, arenaId);
       const account = await program.account.arena.fetchNullable(arena);
       if (!account) {
         setExists(false);
@@ -55,7 +65,7 @@ export function useArenaPayout(): PayoutState {
       setStatus("error");
       setError(errorMessage(e));
     }
-  }, [program, publicKey]);
+  }, [program, publicKey, arenaId]);
 
   useEffect(() => {
     void refresh();
@@ -67,7 +77,7 @@ export function useArenaPayout(): PayoutState {
       setStatus("working");
       setError(undefined);
       try {
-        const { arena, escrow } = deriveArenaPdas(program.programId, DEMO_ARENA_ID);
+        const { arena, escrow } = deriveArenaPdas(program.programId, arenaId);
         const remainingAccounts = winners.map((w) => ({
           pubkey: new PublicKey(w),
           isWritable: true,
@@ -84,7 +94,7 @@ export function useArenaPayout(): PayoutState {
         setError(errorMessage(e));
       }
     },
-    [program, publicKey, refresh],
+    [program, publicKey, arenaId, refresh],
   );
 
   return {

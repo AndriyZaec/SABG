@@ -2,12 +2,15 @@ import { useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { SignInPanel } from "../auth/SignInPanel.js";
 import { useArenaPayout } from "../arena/useArenaPayout.js";
+import { useBackendArena } from "../arena/useBackendArena.js";
 import { Loading } from "../ui/Loading.js";
 
 export function PayoutScreen() {
   const { connected, publicKey } = useWallet();
-  const { status, error, exists, prizePoolSol, settled, isPayoutAuthority, settle } =
-    useArenaPayout();
+  const { arena: backendArena } = useBackendArena();
+  const { status, error, exists, prizePoolSol, settled, isPayoutAuthority, settle } = useArenaPayout(
+    backendArena?.onchainArenaId != null ? { onchainArenaId: backendArena.onchainArenaId } : {},
+  );
   const [winners, setWinners] = useState("");
 
   const selfAddress = publicKey?.toBase58() ?? "";

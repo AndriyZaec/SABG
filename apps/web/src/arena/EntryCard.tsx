@@ -1,11 +1,16 @@
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useArenaEntry } from "./useArenaEntry.js";
+import { useBackendArena } from "./useBackendArena.js";
 import { Loading } from "../ui/Loading.js";
 
-/** Shows the demo arena and lets a connected wallet create it / buy an entry pass. */
+/** Shows the target arena and lets a connected wallet create it (demo) / buy an entry pass. */
 export function EntryCard() {
   const { connected } = useWallet();
-  const { status, error, info, hasEntry, createArena, buyEntry } = useArenaEntry();
+  const { arena: backendArena } = useBackendArena();
+  const { status, error, info, hasEntry, createArena, buyEntry } = useArenaEntry({
+    ...(backendArena?.onchainArenaId != null ? { onchainArenaId: backendArena.onchainArenaId } : {}),
+    ...(backendArena ? { backendArenaId: backendArena.id } : {}),
+  });
 
   if (!connected) {
     return <p>Connect a wallet to join the arena.</p>;
