@@ -6,7 +6,10 @@
 import { createServer, type Server as HttpServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import express from "express";
+import nacl from "tweetnacl";
+import bs58 from "bs58";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { buildSignInMessage } from "@arena/auth";
 import type { Arena, ArenaPlayer, EntryPass, Match, Prediction, PredictionRound, User } from "@arena/contracts";
 
 vi.mock("../../db/repositories/user.repository.js", () => ({
@@ -115,21 +118,58 @@ describe("REST gateway routes", () => {
     await new Promise<void>((resolve) => httpServer.close(() => resolve()));
   });
 
-  describe("POST /auth/wallet", () => {
-    it("upserts a user by wallet address and returns a session token", async () => {
-      const user: User = { id: "u1", walletAddress: "wallet1", username: "fan_wallet" };
-      vi.mocked(userRepository.upsertByWallet).mockResolvedValue(user);
-
-      const res = await fetch(`${baseUrl}/auth/wallet`, {
+  describe("POST /auth/nonce + /auth/wallet", () => {
+    // Real sign-in flow: fetch a nonce, sign the canonical message, verify server-side.
+    const signIn = async (secretKey: Uint8Array, walletAddress: string, message: string) => {
+      const signature = bs58.encode(nacl.sign.detached(new TextEncoder().encode(message), secretKey));
+      return fetch(`${baseUrl}/auth/wallet`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ walletAddress: "wallet1", signature: "sig", message: "msg" }),
+        body: JSON.stringify({ walletAddress, message, signature }),
       });
+    };
+
+    const nonceFor = async (walletAddress: string): Promise<string> => {
+      const res = await fetch(`${baseUrl}/auth/nonce`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ walletAddress }),
+      });
+      return ((await res.json()) as { nonce: string }).nonce;
+    };
+
+    it("verifies a signed nonce, upserts the user, and returns a token", async () => {
+      const kp = nacl.sign.keyPair();
+      const walletAddress = bs58.encode(kp.publicKey);
+      const user: User = { id: "u1", walletAddress, username: "fan_wallet" };
+      vi.mocked(userRepository.upsertByWallet).mockResolvedValue(user);
+
+      const nonce = await nonceFor(walletAddress);
+      const message = buildSignInMessage({ domain: "test", address: walletAddress, nonce });
+      const res = await signIn(kp.secretKey, walletAddress, message);
 
       expect(res.status).toBe(200);
       const body = (await res.json()) as { token: string; user: User };
       expect(body.user).toEqual(user);
       expect(typeof body.token).toBe("string");
+    });
+
+    it("401s on a signature from a different wallet", async () => {
+      const kp = nacl.sign.keyPair();
+      const other = nacl.sign.keyPair();
+      const walletAddress = bs58.encode(kp.publicKey);
+      const nonce = await nonceFor(walletAddress);
+      const message = buildSignInMessage({ domain: "test", address: walletAddress, nonce });
+      const res = await signIn(other.secretKey, walletAddress, message);
+      expect(res.status).toBe(401);
+    });
+
+    it("401s when no nonce was issued (replay/forgery)", async () => {
+      const kp = nacl.sign.keyPair();
+      const walletAddress = bs58.encode(kp.publicKey);
+      const message = buildSignInMessage({ domain: "test", address: walletAddress, nonce: "never-issued" });
+      const res = await signIn(kp.secretKey, walletAddress, message);
+      expect(res.status).toBe(401);
     });
 
     it("400s when walletAddress is missing", async () => {
