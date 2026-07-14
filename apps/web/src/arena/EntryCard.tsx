@@ -1,7 +1,19 @@
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useArenaEntry } from "./useArenaEntry.js";
 import { useBackendArena } from "./useBackendArena.js";
+import { Panel } from "../ui/Panel.js";
+import { Button } from "../ui/Button.js";
+import { Badge } from "../ui/Badge.js";
 import { Loading } from "../ui/Loading.js";
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ border: "var(--bw) solid var(--ink)", background: "var(--paper)", padding: "10px 12px" }}>
+      <div className="nb-label">{label}</div>
+      <div className="nb-stat" style={{ fontSize: "1.6rem" }}>{value}</div>
+    </div>
+  );
+}
 
 /** Shows the target arena and lets a connected wallet create it (demo) / buy an entry pass. */
 export function EntryCard() {
@@ -13,57 +25,77 @@ export function EntryCard() {
   });
 
   if (!connected) {
-    return <p>Connect a wallet to join the arena.</p>;
+    return (
+      <Panel title="Match Arena" accent="yellow">
+        <p className="nb-mono">Connect a wallet in the top bar to join the arena.</p>
+      </Panel>
+    );
   }
 
   if (status === "loading" && !info) {
-    return <Loading label="Loading arena…" />;
+    return (
+      <Panel title="Match Arena" accent="yellow">
+        <Loading label="Loading arena…" />
+      </Panel>
+    );
   }
 
   const busy = status === "working" || status === "loading";
   // Players don't create arenas in prod — the backend provisions them as on-chain authority.
-  // Kept as a dev/demo affordance; set VITE_ALLOW_CLIENT_ARENA=false to hide it.
   const allowClientCreate = import.meta.env.VITE_ALLOW_CLIENT_ARENA !== "false";
 
   return (
-    <section style={{ border: "1px solid #ddd", borderRadius: 8, padding: 16, maxWidth: 360 }}>
-      <h2>Demo Arena</h2>
-
+    <Panel title="Match Arena" accent="yellow" className="nb-rise">
       {info && (
-        <dl style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "4px 12px", margin: 0 }}>
-          <dt>Entry fee</dt>
-          <dd style={{ margin: 0 }}>{info.entryFeeSol} SOL</dd>
-          <dt>Prize pool</dt>
-          <dd style={{ margin: 0 }}>{info.prizePoolSol} SOL</dd>
-          <dt>Players</dt>
-          <dd style={{ margin: 0 }}>{info.playerCount}</dd>
-        </dl>
+        <div
+          className="nb-grid"
+          style={{ gridTemplateColumns: "repeat(auto-fit,minmax(96px,1fr))", marginBottom: 16 }}
+        >
+          <Stat label="Entry" value={`${info.entryFeeSol} SOL`} />
+          <Stat label="Prize pool" value={`${info.prizePoolSol} SOL`} />
+          <Stat label="Players" value={String(info.playerCount)} />
+        </div>
       )}
 
-      <div style={{ marginTop: 12 }}>
-        {info && !info.exists && allowClientCreate && (
-          <button onClick={createArena} disabled={busy}>
-            {status === "working" ? "Creating…" : "Create arena"}
-          </button>
-        )}
+      {info && !info.exists && allowClientCreate && (
+        <Button variant="primary" block onClick={createArena} disabled={busy}>
+          {status === "working" ? "Creating…" : "Create arena"}
+        </Button>
+      )}
 
-        {info && !info.exists && !allowClientCreate && <p>Waiting for an arena to open…</p>}
+      {info && !info.exists && !allowClientCreate && (
+        <Badge tone="neutral">Waiting for an arena to open…</Badge>
+      )}
 
-        {info?.exists && !hasEntry && !info.settled && (
-          <button onClick={buyEntry} disabled={busy}>
-            {status === "working" ? "Buying…" : `Buy entry (${info.entryFeeSol} SOL)`}
-          </button>
-        )}
+      {info?.exists && !hasEntry && !info.settled && (
+        <Button variant="survive" lg block onClick={buyEntry} disabled={busy}>
+          {status === "working" ? "Buying…" : `Buy entry — ${info.entryFeeSol} SOL`}
+        </Button>
+      )}
 
-        {hasEntry && <p>✅ You're in. Waiting for kickoff.</p>}
-        {info?.settled && <p>Arena settled.</p>}
-      </div>
+      {hasEntry && (
+        <div
+          className="nb-bg--green"
+          style={{
+            border: "var(--bw) solid var(--ink)",
+            padding: "14px",
+            textAlign: "center",
+            fontFamily: "var(--font-display)",
+            textTransform: "uppercase",
+            fontSize: "1.4rem",
+          }}
+        >
+          ✔ You&apos;re in — wait for kickoff
+        </div>
+      )}
+
+      {info?.settled && <Badge tone="neutral">Arena settled</Badge>}
 
       {error && (
-        <p role="alert" style={{ color: "crimson" }}>
-          {error}
-        </p>
+        <div style={{ marginTop: 12 }}>
+          <Badge tone="eliminated">{error}</Badge>
+        </div>
       )}
-    </section>
+    </Panel>
   );
 }
