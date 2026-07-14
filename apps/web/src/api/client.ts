@@ -1,5 +1,6 @@
 import type {
   Arena,
+  ArenaDetailResponse,
   ArenaListResponse,
   BuyEntryResponse,
   MatchListResponse,
@@ -18,6 +19,9 @@ const USE_MOCK = (import.meta.env.VITE_MOCK_API ?? "true") !== "false";
 let authToken: string | null = null;
 export function setAuthToken(token: string | null): void {
   authToken = token;
+}
+export function getAuthToken(): string | null {
+  return authToken;
 }
 
 async function get<TRes>(path: string): Promise<TRes> {
@@ -71,6 +75,11 @@ export async function fetchPrimaryArena(): Promise<Arena | null> {
   if (!match) return null;
   const { arenas } = await get<ArenaListResponse>(`/arenas?matchId=${match.id}`);
   return arenas[0] ?? null;
+}
+
+/** Full arena detail (match + current state + round) for the live arena. */
+export async function fetchArenaDetail(arenaId: string): Promise<ArenaDetailResponse> {
+  return get<ArenaDetailResponse>(`/arenas/${arenaId}`);
 }
 
 /** Register an on-chain entry with the backend (joins the player to the arena game). */

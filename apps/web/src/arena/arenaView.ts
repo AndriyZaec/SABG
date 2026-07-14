@@ -2,6 +2,7 @@ import type { Answer, MatchPeriod, RoundStatus } from "@arena/contracts";
 
 /** The current prediction round as the arena screen needs it. */
 export interface RoundView {
+  roundId: string;
   question: string;
   windowStartMinute: number;
   windowEndMinute: number;
@@ -70,6 +71,7 @@ export function makeDemoView(): ArenaView {
   return {
     ...DEMO_VIEW,
     round: {
+      roundId: "demo-round",
       question: "Will Arsenal have a shot between 25:00 and 30:00?",
       windowStartMinute: 25,
       windowEndMinute: 30,
