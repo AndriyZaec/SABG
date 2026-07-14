@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Answer, ArenaDetailResponse, ServerMessage } from "@arena/contracts";
-import { fetchArenaDetail, getAuthToken } from "../../api/client.js";
+import { fetchArenaDetail } from "../../api/client.js";
+import { useAuth } from "../../auth/AuthContext.js";
 import type { ArenaView, FeedItem } from "../arenaView.js";
 import { makeDemoView } from "../arenaView.js";
 
-function buildWsUrl(): string {
+function buildWsUrl(token: string | null): string {
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const token = getAuthToken();
   const query = token ? `?token=${encodeURIComponent(token)}` : "";
   return `${proto}//${window.location.host}/ws${query}`;
 }
@@ -107,19 +107,27 @@ export interface ArenaSocket {
 /** Live arena state over WebSocket. `arenaId === "demo"` returns the seeded view (no socket). */
 export function useArenaSocket(arenaId: string): ArenaSocket {
   const isDemo = arenaId === "demo";
+  const { token } = useAuth();
   const [view, setView] = useState<ArenaView | null>(() => (isDemo ? makeDemoView() : null));
   const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
 
+  // Initial snapshot over REST (no auth) so the scoreboard shows immediately.
   useEffect(() => {
     if (isDemo) return;
     let cancelled = false;
-
     void fetchArenaDetail(arenaId)
       .then((detail) => !cancelled && setView((v) => v ?? initialView(detail)))
       .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [arenaId, isDemo]);
 
-    const ws = new WebSocket(buildWsUrl());
+  // Live updates over WS — the gateway requires auth, so (re)connect once a token arrives.
+  useEffect(() => {
+    if (isDemo || !token) return;
+    const ws = new WebSocket(buildWsUrl(token));
     wsRef.current = ws;
     ws.onopen = () => {
       setConnected(true);
@@ -134,13 +142,11 @@ export function useArenaSocket(arenaId: string): ArenaSocket {
         /* ignore malformed frames */
       }
     };
-
     return () => {
-      cancelled = true;
       ws.close();
       wsRef.current = null;
     };
-  }, [arenaId, isDemo]);
+  }, [arenaId, isDemo, token]);
 
   const submitAnswer = useCallback(
     (answer: Answer) => {

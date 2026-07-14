@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { SolanaProviders } from "./solana/WalletProvider.js";
+import { AuthProvider } from "./auth/AuthContext.js";
 import { LobbyScreen } from "./screens/LobbyScreen.js";
 import { StyleScreen } from "./screens/StyleScreen.js";
 import { Masthead } from "./ui/Masthead.js";
@@ -26,8 +27,9 @@ const PayoutScreen = lazy(() =>
 export function App() {
   return (
     <SolanaProviders>
-      <BrowserRouter>
-        <div className="nb-shell">
+      <AuthProvider>
+        <BrowserRouter>
+          <div className="nb-shell">
           <Masthead />
           <main className="nb-main">
             <Suspense fallback={<Loading />}>
@@ -43,8 +45,9 @@ export function App() {
               </Routes>
             </Suspense>
           </main>
-        </div>
-      </BrowserRouter>
+          </div>
+        </BrowserRouter>
+      </AuthProvider>
     </SolanaProviders>
   );
 }

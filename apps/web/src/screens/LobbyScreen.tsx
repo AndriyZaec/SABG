@@ -1,9 +1,13 @@
 import { Link } from "react-router-dom";
 import { EntryCard } from "../arena/EntryCard.js";
+import { useBackendArena } from "../arena/useBackendArena.js";
 
 const STEPS = ["Buy in", "Answer Yes / No", "Survive", "Take the pool"];
 
 export function LobbyScreen() {
+  const { arena } = useBackendArena();
+  const arenaId = arena?.id ?? "demo";
+
   return (
     <div className="nb-container" style={{ display: "grid", gap: 26 }}>
       <section className="nb-rise">
@@ -30,10 +34,10 @@ export function LobbyScreen() {
       </div>
 
       <div className="nb-row">
-        <Link to="/arena/demo" className="nb-btn nb-btn--plain">
+        <Link to={`/arena/${arenaId}`} className="nb-btn nb-btn--plain">
           Enter live arena →
         </Link>
-        <Link to="/arena/demo/payout" className="nb-btn nb-btn--plain">
+        <Link to={`/arena/${arenaId}/payout`} className="nb-btn nb-btn--plain">
           Winner / Payout
         </Link>
       </div>
