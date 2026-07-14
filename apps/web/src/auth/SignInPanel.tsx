@@ -5,15 +5,16 @@ import { Badge } from "../ui/Badge.js";
 
 /** Wallet connect + sign-in control (lives in the masthead). */
 export function SignInPanel() {
-  const { connected, user, status, error, signIn, signOut } = useAuth();
+  const { connected, user, status, signIn, signOut } = useAuth();
 
   return (
     <div className="nb-row" style={{ gap: 10 }}>
       <WalletMultiButton />
 
-      {connected && !user && (
-        <Button variant="primary" onClick={signIn} disabled={status === "signing"}>
-          {status === "signing" ? "Signing…" : "Sign in"}
+      {/* Normal path auto-signs on connect; only surface a control if it failed. */}
+      {connected && !user && status === "error" && (
+        <Button variant="primary" onClick={signIn}>
+          Retry sign-in
         </Button>
       )}
 
@@ -25,8 +26,6 @@ export function SignInPanel() {
           </Button>
         </>
       )}
-
-      {error && <Badge tone="eliminated">Auth failed</Badge>}
     </div>
   );
 }

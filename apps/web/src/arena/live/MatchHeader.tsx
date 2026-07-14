@@ -10,7 +10,6 @@ export function MatchHeader({ view }: { view: ArenaView }) {
     <div className="nb-rise">
       <div className="nb-scoreboard">
         <div className="nb-scoreboard__team">
-          <span className="nb-label">Home</span>
           <span className="nb-teamname">{view.home}</span>
         </div>
         <div className="nb-scoreboard__score">
@@ -19,7 +18,6 @@ export function MatchHeader({ view }: { view: ArenaView }) {
           <span>{view.score.away}</span>
         </div>
         <div className="nb-scoreboard__team nb-scoreboard__team--away">
-          <span className="nb-label">Away</span>
           <span className="nb-teamname">{view.away}</span>
         </div>
       </div>

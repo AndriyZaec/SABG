@@ -44,8 +44,8 @@ export interface ArenaView {
 
 /** Base match state. */
 export const DEMO_VIEW: ArenaView = {
-  home: "Arsenal",
-  away: "Chelsea",
+  home: "Brazil",
+  away: "Argentina",
   score: { home: 1, away: 0 },
   minute: 27,
   period: "first_half",
@@ -72,7 +72,7 @@ export function makeDemoView(): ArenaView {
     ...DEMO_VIEW,
     round: {
       roundId: "demo-round",
-      question: "Will Arsenal have a shot between 25:00 and 30:00?",
+      question: "Will Brazil have a shot between 25:00 and 30:00?",
       windowStartMinute: 25,
       windowEndMinute: 30,
       status: "open",
