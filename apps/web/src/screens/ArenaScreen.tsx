@@ -1,9 +1,13 @@
-// F3 — Live Arena + Prediction Card (V). Realtime via WS; countdown to lockAt (>=60s, spec §5).
+import { DEMO_VIEW } from "../arena/arenaView.js";
+import { MatchHeader } from "../arena/live/MatchHeader.js";
+
+// 5d will replace DEMO_VIEW with a live WS-driven view.
 export function ArenaScreen() {
+  const view = DEMO_VIEW;
+
   return (
-    <main>
-      <h1>Live Arena</h1>
-      <p>Prediction card, answer timer counting down to lock, survivors counter.</p>
-    </main>
+    <div className="nb-container" style={{ display: "grid", gap: 20 }}>
+      <MatchHeader view={view} />
+    </div>
   );
 }
