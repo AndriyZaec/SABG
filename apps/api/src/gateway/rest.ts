@@ -17,9 +17,12 @@ import type {
   RoundWithPredictions,
   SubmitAnswerRequest,
   SubmitAnswerResponse,
+  WalletNonceRequest,
+  WalletNonceResponse,
   WalletSignInRequest,
   WalletSignInResponse,
 } from "@arena/contracts";
+import { verifyWalletSignInRequest } from "@arena/auth";
 import { userRepository } from "../db/repositories/user.repository.js";
 import { matchRepository } from "../db/repositories/match.repository.js";
 import { arenaRepository } from "../db/repositories/arena.repository.js";
@@ -28,6 +31,8 @@ import { predictionRoundRepository } from "../db/repositories/prediction-round.r
 import { predictionRepository } from "../db/repositories/prediction.repository.js";
 import { entryPassRepository } from "../db/repositories/entry-pass.repository.js";
 import { issueToken, requireAuth, type AuthedRequest } from "./auth.js";
+import { issueNonce, consumeNonce } from "./nonce-store.js";
+import { gatewayConfig } from "./config.js";
 import type { ArenaRuntimeLookup } from "./arena-runtime.js";
 
 function notFound(res: Response, message: string): void {
@@ -37,20 +42,49 @@ function notFound(res: Response, message: string): void {
 export function createRestRouter(runtimeLookup: ArenaRuntimeLookup): RouterType {
   const router = Router();
 
-  /**
-   * POST /auth/wallet — minimal session-token auth (scope decision, see auth.ts's doc comment):
-   * upserts a User by the reported wallet address and issues a session token. Seam for later:
-   * real `tweetnacl` signature verification over a server-issued nonce slots in right here,
-   * before the upsert; this handler trusts the reported walletAddress until that lands.
-   */
-  router.post<Record<string, never>, WalletSignInResponse | ApiError, WalletSignInRequest>(
-    "/auth/wallet",
-    async (req, res) => {
+  /** POST /auth/nonce — issue a fresh nonce for the wallet to embed in its sign-in message. */
+  router.post<Record<string, never>, WalletNonceResponse | ApiError, WalletNonceRequest>(
+    "/auth/nonce",
+    (req, res) => {
       const { walletAddress } = req.body;
       if (!walletAddress) {
         res.status(400).json({ error: "bad_request", message: "walletAddress is required" });
         return;
       }
+      res.json({ nonce: issueNonce(walletAddress) });
+    },
+  );
+
+  /**
+   * POST /auth/wallet — verify the wallet's ed25519 signature over a server-issued nonce, then
+   * upsert the User and issue a session token. Verification is gated by
+   * `AUTH_REQUIRE_SIGNATURE` (default on); disabling it keeps the old address-only behavior for
+   * demo runs.
+   */
+  router.post<Record<string, never>, WalletSignInResponse | ApiError, WalletSignInRequest>(
+    "/auth/wallet",
+    async (req, res) => {
+      const { walletAddress, message, signature } = req.body;
+      if (!walletAddress) {
+        res.status(400).json({ error: "bad_request", message: "walletAddress is required" });
+        return;
+      }
+
+      if (gatewayConfig.auth.requireSignature) {
+        if (!message || !signature) {
+          res.status(400).json({ error: "bad_request", message: "message and signature are required" });
+          return;
+        }
+        if (!verifyWalletSignInRequest({ walletAddress, message, signature })) {
+          res.status(401).json({ error: "unauthorized", message: "invalid signature" });
+          return;
+        }
+        if (!consumeNonce(walletAddress, message)) {
+          res.status(401).json({ error: "unauthorized", message: "invalid or expired nonce" });
+          return;
+        }
+      }
+
       const username = `fan_${walletAddress.slice(0, 6)}`;
       const user = await userRepository.upsertByWallet(walletAddress, username);
       const token = issueToken(user.id);

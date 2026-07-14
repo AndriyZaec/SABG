@@ -3,7 +3,7 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import bs58 from "bs58";
 import { buildSignInMessage } from "@arena/auth";
 import type { User } from "@arena/contracts";
-import { requestNonce, walletSignIn } from "../api/client.js";
+import { requestNonce, walletSignIn, setAuthToken } from "../api/client.js";
 
 type Status = "idle" | "signing" | "error";
 
@@ -42,6 +42,7 @@ export function useWalletAuth(): WalletAuth {
         await signMessage(new TextEncoder().encode(message)),
       );
       const res = await walletSignIn({ walletAddress: address, message, signature });
+      setAuthToken(res.token);
       setUser(res.user);
       setToken(res.token);
       setStatus("idle");
@@ -52,6 +53,7 @@ export function useWalletAuth(): WalletAuth {
   }, [publicKey, signMessage]);
 
   const signOut = useCallback(() => {
+    setAuthToken(null);
     setUser(null);
     setToken(null);
     setStatus("idle");

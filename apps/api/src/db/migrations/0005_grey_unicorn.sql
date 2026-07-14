@@ -1,0 +1,1 @@
+ALTER TABLE "arena" ADD COLUMN "onchain_arena_id" bigint;

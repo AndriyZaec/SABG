@@ -1,4 +1,8 @@
 import type {
+  Arena,
+  ArenaListResponse,
+  BuyEntryResponse,
+  MatchListResponse,
   WalletNonceRequest,
   WalletNonceResponse,
   WalletSignInRequest,
@@ -10,12 +14,22 @@ import { generateNonce, verifyWalletSignInRequest } from "@arena/auth";
 // demoable end-to-end. Set VITE_MOCK_API=false to hit the real API.
 const USE_MOCK = (import.meta.env.VITE_MOCK_API ?? "true") !== "false";
 
-async function post<TReq, TRes>(path: string, body: TReq): Promise<TRes> {
-  const res = await fetch(`/api${path}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
+// Session token from wallet sign-in; attached to authenticated calls.
+let authToken: string | null = null;
+export function setAuthToken(token: string | null): void {
+  authToken = token;
+}
+
+async function get<TRes>(path: string): Promise<TRes> {
+  const res = await fetch(`/api${path}`);
+  if (!res.ok) throw new Error(`${path} failed (${res.status})`);
+  return (await res.json()) as TRes;
+}
+
+async function post<TReq, TRes>(path: string, body: TReq, authed = false): Promise<TRes> {
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  if (authed && authToken) headers["authorization"] = `Bearer ${authToken}`;
+  const res = await fetch(`/api${path}`, { method: "POST", headers, body: JSON.stringify(body) });
   if (!res.ok) throw new Error(`${path} failed (${res.status})`);
   return (await res.json()) as TRes;
 }
@@ -44,4 +58,29 @@ export async function walletSignIn(
     };
   }
   return post<WalletSignInRequest, WalletSignInResponse>("/auth/wallet", req);
+}
+
+/**
+ * The arena the frontend should target (demo has one match → one arena). Null in mock mode or
+ * when the backend has no arena yet — callers then fall back to the standalone on-chain demo.
+ */
+export async function fetchPrimaryArena(): Promise<Arena | null> {
+  if (USE_MOCK) return null;
+  const { matches } = await get<MatchListResponse>("/matches");
+  const match = matches[0];
+  if (!match) return null;
+  const { arenas } = await get<ArenaListResponse>(`/arenas?matchId=${match.id}`);
+  return arenas[0] ?? null;
+}
+
+/** Register an on-chain entry with the backend (joins the player to the arena game). */
+export async function registerEntry(
+  arenaId: string,
+  txSignature: string,
+): Promise<BuyEntryResponse> {
+  return post<{ txSignature: string }, BuyEntryResponse>(
+    `/arenas/${arenaId}/entry`,
+    { txSignature },
+    true,
+  );
 }

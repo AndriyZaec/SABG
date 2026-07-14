@@ -23,6 +23,7 @@ import { ArenaRuntime, type ArenaPersistence } from "./arena-runtime.js";
 import { WriteQueue } from "./stores/write-queue.js";
 import { createPgPredictionStore } from "./stores/pg-prediction-store.js";
 import { createPgArenaPlayerStore } from "./stores/pg-arena-player-store.js";
+import { payoutService } from "../payout/index.js";
 import { sleep } from "../shared/sleep.js";
 
 /** Same recorded fixture the engine test suites replay — see ingestion/replay.ts. */
@@ -69,8 +70,10 @@ async function main(): Promise<void> {
     upsertRound(round) {
       void writeQueue.enqueue(arena.id, () => predictionRoundRepository.upsert(round).then(() => undefined));
     },
-    finishArena(arenaId) {
+    finishArena(arenaId, winners) {
       void writeQueue.enqueue(arenaId, () => arenaRepository.setStatus(arenaId, "finished"));
+      // Release the escrow to winners (no-op for off-chain arenas — see payout service).
+      void payoutService.settleArena(arenaId, winners);
     },
   };
 

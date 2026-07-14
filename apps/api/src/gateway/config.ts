@@ -12,6 +12,12 @@ const envSchema = z.object({
   GATEWAY_PORT: z.coerce.number().int().positive().default(4000),
   /** HMAC secret for session tokens (auth.ts). Dev-only default — set a real secret in prod. */
   AUTH_SECRET: z.string().min(1).default("dev-insecure-auth-secret"),
+  /**
+   * Require a verified wallet signature over a server-issued nonce on POST /auth/wallet.
+   * Default on (real security). Set "false" for a mock/demo that signs in with just a wallet
+   * address (the standalone mock server keeps that permissive behavior regardless).
+   */
+  AUTH_REQUIRE_SIGNATURE: z.enum(["true", "false"]).default("true"),
   /** Comma-separated CORS origins; "*" (default) matches the mock's permissive dev behavior. */
   CORS_ORIGINS: z.string().default("*"),
   /**
@@ -43,6 +49,7 @@ export const gatewayConfig = {
   port: env.GATEWAY_PORT,
   auth: {
     secret: env.AUTH_SECRET,
+    requireSignature: env.AUTH_REQUIRE_SIGNATURE === "true",
   },
   cors: {
     origins: env.CORS_ORIGINS === "*" ? true : env.CORS_ORIGINS.split(",").map((o) => o.trim()),
