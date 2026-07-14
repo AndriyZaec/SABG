@@ -1,32 +1,32 @@
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import { useWalletAuth } from "./useWalletAuth.js";
+import { Button } from "../ui/Button.js";
+import { Badge } from "../ui/Badge.js";
 
-/** Wallet connect + sign-in control. */
+/** Wallet connect + sign-in control (lives in the masthead). */
 export function SignInPanel() {
   const { connected, user, status, error, signIn, signOut } = useWalletAuth();
 
   return (
-    <section style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+    <div className="nb-row" style={{ gap: 10 }}>
       <WalletMultiButton />
 
       {connected && !user && (
-        <button onClick={signIn} disabled={status === "signing"}>
+        <Button variant="primary" onClick={signIn} disabled={status === "signing"}>
           {status === "signing" ? "Signing…" : "Sign in"}
-        </button>
+        </Button>
       )}
 
       {user && (
         <>
-          <span>Signed in as {user.username}</span>
-          <button onClick={signOut}>Sign out</button>
+          <Badge tone="survive">{user.username}</Badge>
+          <Button variant="plain" onClick={signOut}>
+            Out
+          </Button>
         </>
       )}
 
-      {error && (
-        <span role="alert" style={{ color: "crimson" }}>
-          {error}
-        </span>
-      )}
-    </section>
+      {error && <Badge tone="eliminated">Auth failed</Badge>}
+    </div>
   );
 }

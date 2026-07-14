@@ -172,3 +172,59 @@ a { color: var(--ink); text-decoration: none; }
   font-size: 0.72rem;
   letter-spacing: 0.06em;
 }
+
+/* ---- App shell + masthead ---- */
+.nb-shell { min-height: 100%; display: flex; flex-direction: column; }
+.nb-main { flex: 1 0 auto; }
+.nb-masthead {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 12px 20px;
+  background: var(--paper);
+  border-bottom: var(--bw-thick) solid var(--ink);
+}
+.nb-brand { display: flex; align-items: center; gap: 12px; }
+.nb-brand__logo {
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  font-size: 1.7rem;
+  line-height: 0.8;
+  letter-spacing: 0.02em;
+  background: var(--ink);
+  color: var(--paper);
+  padding: 8px 10px 5px;
+  border: var(--bw) solid var(--ink);
+  box-shadow: var(--shadow-sm);
+}
+.nb-brand__tag { font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.7; }
+@media (max-width: 620px) { .nb-brand__tag { display: none; } }
+
+/* ---- Solana wallet-adapter button, brutalised ---- */
+.wallet-adapter-button {
+  font-family: var(--font-mono) !important;
+  font-weight: 700 !important;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.85rem !important;
+  height: auto !important;
+  line-height: 1.2 !important;
+  padding: 11px 16px !important;
+  background: var(--ink) !important;
+  color: var(--white) !important;
+  border: var(--bw) solid var(--ink) !important;
+  border-radius: 0 !important;
+  box-shadow: var(--shadow-sm);
+}
+.wallet-adapter-button:not([disabled]):hover { background: #222 !important; }
+.wallet-adapter-dropdown-list {
+  border: var(--bw) solid var(--ink) !important;
+  border-radius: 0 !important;
+  box-shadow: var(--shadow) !important;
+  font-family: var(--font-mono) !important;
+}

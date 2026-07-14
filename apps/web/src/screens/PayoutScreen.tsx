@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { SignInPanel } from "../auth/SignInPanel.js";
 import { useArenaPayout } from "../arena/useArenaPayout.js";
 import { useBackendArena } from "../arena/useBackendArena.js";
 import { Loading } from "../ui/Loading.js";
@@ -19,7 +18,6 @@ export function PayoutScreen() {
   return (
     <main style={{ padding: 24, display: "grid", gap: 16, maxWidth: 480 }}>
       <h1>Winner / Payout</h1>
-      <SignInPanel />
 
       {!connected && <p>Connect a wallet.</p>}
 
