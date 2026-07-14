@@ -2,6 +2,7 @@ import { Buffer } from "buffer";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { App } from "./App.js";
+import "./styles/theme.css";
 
 // Solana web3/wallet-adapter expect Node's Buffer in the browser.
 globalThis.Buffer = globalThis.Buffer ?? Buffer;
