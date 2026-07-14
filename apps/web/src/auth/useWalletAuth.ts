@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import bs58 from "bs58";
 import { buildSignInMessage } from "@arena/auth";
@@ -51,6 +51,20 @@ export function useWalletAuth(): WalletAuth {
       setError(e instanceof Error ? e.message : "Sign-in failed");
     }
   }, [publicKey, signMessage]);
+
+  // Auto sign-in the moment a wallet connects — once per address, no retry after a rejection.
+  const autoSignedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!connected || !publicKey) {
+      autoSignedFor.current = null;
+      return;
+    }
+    const address = publicKey.toBase58();
+    if (!user && status === "idle" && autoSignedFor.current !== address) {
+      autoSignedFor.current = address;
+      void signIn();
+    }
+  }, [connected, publicKey, user, status, signIn]);
 
   const signOut = useCallback(() => {
     setAuthToken(null);
