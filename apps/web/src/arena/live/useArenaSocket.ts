@@ -31,7 +31,7 @@ function prepend(feed: FeedItem[], item: FeedItem): FeedItem[] {
 }
 
 /** Fold a server message into the current view. */
-function reduce(view: ArenaView, msg: ServerMessage): ArenaView {
+function reduce(view: ArenaView, msg: ServerMessage, myUserId?: string): ArenaView {
   switch (msg.type) {
     case "match.state":
       return {
@@ -74,6 +74,7 @@ function reduce(view: ArenaView, msg: ServerMessage): ArenaView {
         name: e.username,
         score: e.score,
         status: e.status,
+        you: myUserId != null && e.userId === myUserId,
       }));
       return {
         ...view,
@@ -107,10 +108,13 @@ export interface ArenaSocket {
 /** Live arena state over WebSocket. `arenaId === "demo"` returns the seeded view (no socket). */
 export function useArenaSocket(arenaId: string): ArenaSocket {
   const isDemo = arenaId === "demo";
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [view, setView] = useState<ArenaView | null>(() => (isDemo ? makeDemoView() : null));
   const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
+  // Kept current so the (once-created) message handler always sees the latest signed-in user.
+  const myUserId = useRef<string | undefined>(undefined);
+  myUserId.current = user?.id;
 
   // Initial snapshot over REST (no auth) so the scoreboard shows immediately.
   useEffect(() => {
@@ -137,7 +141,7 @@ export function useArenaSocket(arenaId: string): ArenaSocket {
     ws.onmessage = (ev) => {
       try {
         const msg = JSON.parse(ev.data as string) as ServerMessage;
-        setView((v) => (v ? reduce(v, msg) : v));
+        setView((v) => (v ? reduce(v, msg, myUserId.current) : v));
       } catch {
         /* ignore malformed frames */
       }
