@@ -261,6 +261,20 @@ a { color: var(--ink); text-decoration: none; }
 .nb-timer--low .nb-timer__bar { background: var(--eliminate); }
 .nb-yesno { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 16px; }
 
+/* ---- Inputs ---- */
+.nb-input {
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  border: var(--bw) solid var(--ink);
+  border-radius: 0;
+  padding: 10px 12px;
+  background: var(--white);
+  color: var(--ink);
+  width: 100%;
+  resize: vertical;
+}
+.nb-input:focus { outline: none; box-shadow: var(--shadow-sm); }
+
 /* ---- Live Arena: layout + feed + leaderboard ---- */
 .nb-arena-grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
 @media (min-width: 900px) {
