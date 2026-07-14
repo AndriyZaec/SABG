@@ -261,6 +261,43 @@ a { color: var(--ink); text-decoration: none; }
 .nb-timer--low .nb-timer__bar { background: var(--eliminate); }
 .nb-yesno { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 16px; }
 
+/* ---- Live Arena: layout + feed + leaderboard ---- */
+.nb-arena-grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
+@media (min-width: 900px) {
+  .nb-arena-grid { grid-template-columns: minmax(0, 1fr) 300px; align-items: start; }
+}
+
+.nb-feed { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.nb-feed__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 2px solid var(--ink);
+  padding: 8px 10px;
+  background: var(--paper);
+  font-size: 0.85rem;
+}
+.nb-feed__marker { width: 12px; height: 12px; border: 2px solid var(--ink); flex: none; }
+.nb-feed__item--eliminated .nb-feed__marker { background: var(--eliminate); }
+.nb-feed__item--survived .nb-feed__marker { background: var(--survive); }
+.nb-feed__item--info .nb-feed__marker { background: var(--yellow); }
+.nb-feed__min { margin-left: auto; font-weight: 700; opacity: 0.55; }
+
+.nb-board { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.nb-board__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 2px solid var(--ink);
+  padding: 7px 10px;
+  background: var(--white);
+}
+.nb-board__row--you { background: var(--yellow); }
+.nb-board__row--eliminated { opacity: 0.6; }
+.nb-board__rank { font-family: var(--font-display); font-size: 1.05rem; min-width: 18px; }
+.nb-board__name { flex: 1; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nb-board__score { font-family: var(--font-display); font-size: 1.2rem; }
+
 /* ---- Solana wallet-adapter button, brutalised ---- */
 .wallet-adapter-button {
   font-family: var(--font-mono) !important;
