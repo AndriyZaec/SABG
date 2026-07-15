@@ -1,6 +1,7 @@
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useArenaEntry } from "./useArenaEntry.js";
 import { useBackendArena } from "./useBackendArena.js";
+import { DEMO_VIEW } from "./arenaView.js";
 import { Panel } from "../ui/Panel.js";
 import { Button } from "../ui/Button.js";
 import { Badge } from "../ui/Badge.js";
@@ -18,15 +19,20 @@ function Stat({ label, value }: { label: string; value: string }) {
 /** Shows the target arena and lets a connected wallet create it (demo) / buy an entry pass. */
 export function EntryCard() {
   const { connected } = useWallet();
-  const { arena: backendArena } = useBackendArena();
+  const { arena: backendArena, match } = useBackendArena();
   const { status, error, info, hasEntry, createArena, buyEntry } = useArenaEntry({
     ...(backendArena?.onchainArenaId != null ? { onchainArenaId: backendArena.onchainArenaId } : {}),
     ...(backendArena ? { backendArenaId: backendArena.id } : {}),
   });
 
+  // Name the fixture this arena runs against; fall back to the demo match (same as the lobby hero)
+  // so the card always reads as tied to a match, never a generic "Match Arena".
+  const fixture = match ?? { homeTeam: DEMO_VIEW.home, awayTeam: DEMO_VIEW.away };
+  const title = `${fixture.homeTeam} – ${fixture.awayTeam}`;
+
   if (!connected) {
     return (
-      <Panel title="Match Arena" accent="yellow">
+      <Panel title={title} accent="yellow">
         <p className="nb-mono">Connect a wallet in the top bar to join the arena.</p>
       </Panel>
     );
@@ -34,7 +40,7 @@ export function EntryCard() {
 
   if (status === "loading" && !info) {
     return (
-      <Panel title="Match Arena" accent="yellow">
+      <Panel title={title} accent="yellow">
         <Loading label="Loading arena…" />
       </Panel>
     );
@@ -45,7 +51,7 @@ export function EntryCard() {
   const allowClientCreate = import.meta.env.VITE_ALLOW_CLIENT_ARENA !== "false";
 
   return (
-    <Panel title="Match Arena" accent="yellow" className="nb-rise">
+    <Panel title={title} accent="yellow" className="nb-rise">
       {info && (
         <div
           className="nb-grid"
