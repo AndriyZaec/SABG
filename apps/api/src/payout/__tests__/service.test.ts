@@ -14,13 +14,19 @@ const arena = (overrides: Partial<Arena> = {}): Arena => ({
   ...overrides,
 });
 
+// Real base58 wallets — the payout service only pays winners whose wallet is a valid on-chain pubkey.
+const WALLET: Record<string, string> = {
+  u1: "5FHwkrdxntdK24hgQU8qgBjn35Y1zwhz1GZwCkP2UJnM",
+  u2: "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+};
+
 // Records created payouts and hands back ids so markSent/markFailed can be asserted.
 function makeDeps(over: Partial<PayoutServiceDeps> = {}) {
   const created: { id: Uuid; userId: Uuid; amountLamports: number }[] = [];
   let n = 0;
   const deps: PayoutServiceDeps = {
     findArena: vi.fn().mockResolvedValue(arena()),
-    findWallet: vi.fn(async (userId: Uuid) => `wallet-${userId}`),
+    findWallet: vi.fn(async (userId: Uuid) => WALLET[userId]),
     createPayout: vi.fn(async (input) => {
       const p: Payout = { id: `p${++n}`, status: "pending", ...input };
       created.push({ id: p.id, userId: input.userId, amountLamports: input.amountLamports });
@@ -41,7 +47,7 @@ describe("payout service — settleArena", () => {
 
     // 300 / 2 → 150 + 150
     expect(created.map((c) => c.amountLamports)).toEqual([150, 150]);
-    expect(deps.settleOnchain).toHaveBeenCalledWith(42, ["wallet-u1", "wallet-u2"]);
+    expect(deps.settleOnchain).toHaveBeenCalledWith(42, [WALLET.u1, WALLET.u2]);
     expect(deps.markSent).toHaveBeenCalledTimes(2);
     expect(deps.markSent).toHaveBeenCalledWith("p1", "sig-123");
     expect(deps.markFailed).not.toHaveBeenCalled();
@@ -76,10 +82,19 @@ describe("payout service — settleArena", () => {
 
   it("skips winners with no wallet but pays the rest", async () => {
     const { deps, created } = makeDeps({
-      findWallet: vi.fn(async (userId: Uuid) => (userId === "u2" ? undefined : `wallet-${userId}`)),
+      findWallet: vi.fn(async (userId: Uuid) => (userId === "u2" ? undefined : WALLET[userId])),
     });
     await createPayoutService(deps).settleArena("arena-1", ["u1", "u2"]);
     expect(created).toHaveLength(1);
-    expect(deps.settleOnchain).toHaveBeenCalledWith(42, ["wallet-u1"]);
+    expect(deps.settleOnchain).toHaveBeenCalledWith(42, [WALLET.u1]);
+  });
+
+  it("skips winners whose wallet isn't a valid on-chain pubkey", async () => {
+    const { deps, created } = makeDeps({
+      findWallet: vi.fn(async (userId: Uuid) => (userId === "u2" ? "demo-bot-wallet-2" : WALLET[userId])),
+    });
+    await createPayoutService(deps).settleArena("arena-1", ["u1", "u2"]);
+    expect(created).toHaveLength(1);
+    expect(deps.settleOnchain).toHaveBeenCalledWith(42, [WALLET.u1]);
   });
 });
