@@ -7,7 +7,6 @@
 // (gateway/rest.ts) — rather than a hardcoded in-memory roster. Needs Postgres in addition to
 // Mongo/TxLINE.
 
-import type { Answer, PredictionRound, ServerMessage, Uuid } from "@arena/contracts";
 import { GuestJwtService } from "./auth/guest-jwt.service.js";
 import { TxLineService } from "./auth/txline.service.js";
 import { MongoService } from "./mongo/mongo.service.js";
@@ -24,56 +23,11 @@ import { resolveFixtureTeams } from "../db/seeds/fixture-metadata.js";
 import { matchRepository } from "../db/repositories/match.repository.js";
 import { arenaRepository } from "../db/repositories/arena.repository.js";
 import { predictionRoundRepository } from "../db/repositories/prediction-round.repository.js";
-import { userRepository } from "../db/repositories/user.repository.js";
-import { entryPassRepository } from "../db/repositories/entry-pass.repository.js";
 import { payoutService } from "../payout/index.js";
-import { createBots } from "../replay/bots.js";
+import { joinBots, withBotAnswers, type DemoBot } from "../gateway/demo-bots.js";
 
 const LIVE_ENTRY_FEE_LAMPORTS = 10_000_000;
 const LIVE_BOT_COUNT = 3;
-
-interface LiveBot {
-  userId: Uuid;
-  answerFor(round: PredictionRound): Answer;
-}
-
-function botWallet(index: number): string {
-  return `live-demo-bot-wallet-${index}`;
-}
-
-/**
- * Joins each scripted bot through the real entry flow — a real `users` row (wallet upsert), a
- * real `entry_pass` row, the arena's active-player count, then `runtime.join(...)` (what
- * POST /arenas/:id/entry calls) — while the arena is still `lobby` (spec §9: pre-kickoff only).
- * Idempotent across restarts: `upsertByWallet` returns the same user for the same bot wallet, and
- * the entry-pass/active-count writes are skipped once that user has already entered this arena.
- */
-async function joinBots(arenaId: Uuid, runtime: ArenaRuntime): Promise<LiveBot[]> {
-  const scripted = createBots(LIVE_BOT_COUNT);
-  const bots: LiveBot[] = [];
-
-  for (const [index, bot] of scripted.entries()) {
-    const user = await userRepository.upsertByWallet(botWallet(index), bot.username);
-
-    const alreadyEntered = await entryPassRepository.findByArenaAndUser(arenaId, user.id);
-    if (alreadyEntered === undefined) {
-      await entryPassRepository.create({
-        arenaId,
-        userId: user.id,
-        walletAddress: user.walletAddress,
-        amountLamports: LIVE_ENTRY_FEE_LAMPORTS,
-        txSignature: `live-demo-bot-${index}`,
-      });
-      await arenaRepository.bumpActivePlayers(arenaId, 1);
-      await arenaRepository.bumpPrizePool(arenaId, LIVE_ENTRY_FEE_LAMPORTS);
-    }
-
-    runtime.join(user.id, user.username, new Date().toISOString());
-    bots.push({ userId: user.id, answerFor: bot.answerFor });
-  }
-
-  return bots;
-}
 
 process.on("unhandledRejection", (reason) => {
   logger.error({ err: reason }, "unhandled promise rejection");
@@ -133,26 +87,24 @@ const persistence: ArenaPersistence = {
 
 const bus = new MatchSignalBus();
 
-// Populated by joinBots() below, before the worker starts — the round.open handler reads it live.
-let liveBots: LiveBot[] = [];
+// Populated by joinBots() below, before the worker starts — the answer wrapper reads it live.
+let liveBots: DemoBot[] = [];
 
 let runtime!: ArenaRuntime; // assigned below, before any signal on `bus` can fire
-const broadcaster: GatewayBroadcaster = {
-  broadcast(arenaId, message: ServerMessage) {
+// This worker has no WS server, so the transport just logs; the wrapper makes bots answer on open.
+const logBroadcaster: GatewayBroadcaster = {
+  broadcast(_arenaId, message) {
     logger.info({ message }, `[broadcast] ${message.type}`);
-    if (message.type !== "round.open") return;
-    // Every still-active bot answers immediately on open, exactly like the headless replay
-    // demo's bots (replay/run.ts) — just against the live match clock instead of an accelerated one.
-    const round = message.round;
-    for (const bot of liveBots) {
-      if (arenaPlayerStore.getStatus(bot.userId) !== "active") continue;
-      runtime.submitAnswer(bot.userId, round.id, bot.answerFor(round));
-    }
   },
-  sendToUser(_arenaId, userId, message: ServerMessage) {
+  sendToUser(_arenaId, userId, message) {
     logger.info({ userId, message }, `[personal] ${message.type}`);
   },
 };
+const broadcaster = withBotAnswers(logBroadcaster, {
+  getBots: () => liveBots,
+  getRuntime: () => runtime,
+  isActive: (userId) => arenaPlayerStore.getStatus(userId) === "active",
+});
 
 runtime = new ArenaRuntime({
   matchId: match.id,
@@ -167,7 +119,7 @@ runtime = new ArenaRuntime({
   persistence,
 });
 
-liveBots = await joinBots(arena.id, runtime);
+liveBots = await joinBots(arena.id, runtime, LIVE_BOT_COUNT, LIVE_ENTRY_FEE_LAMPORTS);
 
 // Join is only valid pre-kickoff (spec §9) — flip to "live" now, right before kickoff starts.
 await arenaRepository.setStatus(arena.id, "live");
