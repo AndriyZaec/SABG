@@ -3,6 +3,7 @@ import type {
   ArenaDetailResponse,
   ArenaListResponse,
   BuyEntryResponse,
+  LeaderboardResponse,
   Match,
   MatchListResponse,
   WalletNonceRequest,
@@ -88,6 +89,11 @@ export async function fetchPrimaryArena(): Promise<PrimaryArena | null> {
 /** Full arena detail (match + current state + round) for the live arena. */
 export async function fetchArenaDetail(arenaId: string): Promise<ArenaDetailResponse> {
   return get<ArenaDetailResponse>(`/arenas/${arenaId}`);
+}
+
+/** Current leaderboard snapshot — seeds the board on load (WS updates only fire on settle). */
+export async function fetchLeaderboard(arenaId: string): Promise<LeaderboardResponse> {
+  return get<LeaderboardResponse>(`/arenas/${arenaId}/leaderboard`);
 }
 
 /** Register an on-chain entry with the backend (joins the player to the arena game). */

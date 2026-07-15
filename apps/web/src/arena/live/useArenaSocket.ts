@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Answer, ArenaDetailResponse, ServerMessage } from "@arena/contracts";
-import { fetchArenaDetail } from "../../api/client.js";
+import { fetchArenaDetail, fetchLeaderboard } from "../../api/client.js";
 import { useAuth } from "../../auth/AuthContext.js";
-import type { ArenaView, FeedItem } from "../arenaView.js";
+import type { ArenaView, FeedItem, LeaderRow } from "../arenaView.js";
 import { makeDemoView } from "../arenaView.js";
 
 function buildWsUrl(token: string | null): string {
@@ -116,12 +116,23 @@ export function useArenaSocket(arenaId: string): ArenaSocket {
   const myUserId = useRef<string | undefined>(undefined);
   myUserId.current = user?.id;
 
-  // Initial snapshot over REST (no auth) so the scoreboard shows immediately.
+  // Initial snapshot over REST (no auth) so the scoreboard + current board show immediately —
+  // WS leaderboard.update only fires on settle, so without this the board is empty until then.
   useEffect(() => {
     if (isDemo) return;
     let cancelled = false;
-    void fetchArenaDetail(arenaId)
-      .then((detail) => !cancelled && setView((v) => v ?? initialView(detail)))
+    void Promise.all([fetchArenaDetail(arenaId), fetchLeaderboard(arenaId).catch(() => null)])
+      .then(([detail, board]) => {
+        if (cancelled) return;
+        const rows: LeaderRow[] = (board?.entries ?? []).map((e, i) => ({
+          rank: e.rank ?? i + 1,
+          name: e.username,
+          score: e.score,
+          status: e.status,
+          you: myUserId.current != null && e.userId === myUserId.current,
+        }));
+        setView((v) => v ?? { ...initialView(detail), leaderboard: rows });
+      })
       .catch(() => undefined);
     return () => {
       cancelled = true;
