@@ -24,6 +24,8 @@ wallet*.json
 
 # Local task scratchpad (per-dev, not shared)
 TASK.md
+PLAN.md
+handoff-v.md
 
 # Editor / OS
 .DS_Store

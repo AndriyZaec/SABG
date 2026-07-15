@@ -65,6 +65,7 @@ async function joinBots(arenaId: Uuid, runtime: ArenaRuntime): Promise<LiveBot[]
         txSignature: `live-demo-bot-${index}`,
       });
       await arenaRepository.bumpActivePlayers(arenaId, 1);
+      await arenaRepository.bumpPrizePool(arenaId, LIVE_ENTRY_FEE_LAMPORTS);
     }
 
     runtime.join(user.id, user.username, new Date().toISOString());
