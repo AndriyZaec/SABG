@@ -7,5 +7,14 @@
     "kickoff": "2026-07-08T20:00:00Z",
     "homeTeam": "France",
     "awayTeam": "Morocco"
+  },
+  {
+    "fixtureId": 18241006,
+    "sport": "Soccer",
+    "region": "International",
+    "competition": "World Cup > Semi-finals",
+    "kickoff": "2026-07-15T19:00:00Z",
+    "homeTeam": "England",
+    "awayTeam": "Argentina"
   }
 ]
