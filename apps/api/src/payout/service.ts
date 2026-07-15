@@ -5,6 +5,12 @@
 
 import type { Arena, Payout, Uuid, WalletAddress } from "@arena/contracts";
 
+// Only real on-chain wallets can receive an escrow release. A Solana address is base58 (32–44 chars).
+const BASE58_PUBKEY = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+function isPayableWallet(wallet: string): boolean {
+  return BASE58_PUBKEY.test(wallet);
+}
+
 export interface PayoutServiceDeps {
   findArena: (arenaId: Uuid) => Promise<Arena | undefined>;
   findWallet: (userId: Uuid) => Promise<WalletAddress | undefined>;
@@ -42,6 +48,10 @@ export function createPayoutService(deps: PayoutServiceDeps): PayoutService {
         const wallet = await deps.findWallet(userId);
         if (!wallet) {
           log("payout.skip", { arenaId, userId, reason: "no wallet" });
+          continue;
+        }
+        if (!isPayableWallet(wallet)) {
+          log("payout.skip", { arenaId, userId, reason: "wallet not on-chain payable" });
           continue;
         }
         resolved.push({ userId, wallet });

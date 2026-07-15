@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { SignInPanel } from "../auth/SignInPanel.js";
 import { useArenaPayout } from "../arena/useArenaPayout.js";
 import { useBackendArena } from "../arena/useBackendArena.js";
+import { Panel } from "../ui/Panel.js";
+import { Button } from "../ui/Button.js";
+import { Badge } from "../ui/Badge.js";
 import { Loading } from "../ui/Loading.js";
 
 export function PayoutScreen() {
@@ -17,59 +19,84 @@ export function PayoutScreen() {
   const winnerList = winners.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
 
   return (
-    <main style={{ padding: 24, display: "grid", gap: 16, maxWidth: 480 }}>
+    <div className="nb-container" style={{ maxWidth: 560, display: "grid", gap: 20 }}>
       <h1>Winner / Payout</h1>
-      <SignInPanel />
 
-      {!connected && <p>Connect a wallet.</p>}
+      {!connected && <p className="nb-mono">Connect a wallet in the top bar.</p>}
 
       {connected && status === "loading" && <Loading label="Loading payout…" />}
 
       {connected && status !== "loading" && !exists && (
-        <p>No arena yet — create one in the lobby first.</p>
+        <p className="nb-mono">No arena yet — create one in the lobby first.</p>
       )}
 
       {connected && exists && (
-        <section style={{ border: "1px solid #ddd", borderRadius: 8, padding: 16 }}>
-          <p>
-            Prize pool: <strong>{prizePoolSol} SOL</strong>
-          </p>
-          <p>Status: {settled ? "✅ Settled — paid out" : "In play"}</p>
+        <Panel title="Prize Pool" accent={settled ? "green" : "yellow"} className="nb-rise">
+          <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
+            <span className="nb-stat">{prizePoolSol}</span>
+            <span className="nb-display" style={{ fontSize: "1.4rem" }}>SOL</span>
+            <span style={{ marginLeft: "auto" }}>
+              {settled ? <Badge tone="survive">Paid out</Badge> : <Badge tone="live">In play</Badge>}
+            </span>
+          </div>
+
+          {settled && (
+            <div
+              className="nb-bg--green"
+              style={{
+                marginTop: 16,
+                border: "var(--bw) solid var(--ink)",
+                padding: "16px",
+                textAlign: "center",
+                fontFamily: "var(--font-display)",
+                textTransform: "uppercase",
+                fontSize: "1.5rem",
+              }}
+            >
+              ✔ Pool paid out to winners
+            </div>
+          )}
 
           {!settled && isPayoutAuthority && (
-            <div style={{ display: "grid", gap: 8 }}>
-              <label style={{ display: "grid", gap: 4 }}>
-                Winner address(es) — comma/space separated; split equally
+            <div style={{ display: "grid", gap: 12, marginTop: 16 }}>
+              <label style={{ display: "grid", gap: 6 }}>
+                <span className="nb-label">Winner address(es) — comma/space separated, split equally</span>
                 <textarea
+                  className="nb-input"
                   value={winners}
                   onChange={(e) => setWinners(e.target.value)}
                   rows={2}
                   placeholder={selfAddress}
                 />
               </label>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={() => setWinners(selfAddress)}>Use my address</button>
-                <button
+              <div className="nb-row">
+                <Button variant="plain" onClick={() => setWinners(selfAddress)}>
+                  Use my address
+                </Button>
+                <Button
+                  variant="survive"
                   onClick={() => settle(winnerList.length ? winnerList : [selfAddress])}
                   disabled={status === "working"}
                 >
                   {status === "working" ? "Settling…" : "Settle & pay out"}
-                </button>
+                </Button>
               </div>
             </div>
           )}
 
           {!settled && !isPayoutAuthority && (
-            <p>Only the payout authority can settle this arena.</p>
+            <p className="nb-label" style={{ marginTop: 16 }}>
+              Only the payout authority can settle this arena.
+            </p>
           )}
 
           {error && (
-            <p role="alert" style={{ color: "crimson" }}>
-              {error}
-            </p>
+            <div style={{ marginTop: 14 }}>
+              <Badge tone="eliminated">{error}</Badge>
+            </div>
           )}
-        </section>
+        </Panel>
       )}
-    </main>
+    </div>
   );
 }

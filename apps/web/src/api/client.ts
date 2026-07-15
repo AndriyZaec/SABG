@@ -1,7 +1,10 @@
 import type {
   Arena,
+  ArenaDetailResponse,
   ArenaListResponse,
   BuyEntryResponse,
+  LeaderboardResponse,
+  Match,
   MatchListResponse,
   WalletNonceRequest,
   WalletNonceResponse,
@@ -18,6 +21,9 @@ const USE_MOCK = (import.meta.env.VITE_MOCK_API ?? "true") !== "false";
 let authToken: string | null = null;
 export function setAuthToken(token: string | null): void {
   authToken = token;
+}
+export function getAuthToken(): string | null {
+  return authToken;
 }
 
 async function get<TRes>(path: string): Promise<TRes> {
@@ -64,13 +70,30 @@ export async function walletSignIn(
  * The arena the frontend should target (demo has one match → one arena). Null in mock mode or
  * when the backend has no arena yet — callers then fall back to the standalone on-chain demo.
  */
-export async function fetchPrimaryArena(): Promise<Arena | null> {
+/** The backend arena to target, paired with its match (teams, score, clock) for the lobby. */
+export interface PrimaryArena {
+  arena: Arena;
+  match: Match;
+}
+
+export async function fetchPrimaryArena(): Promise<PrimaryArena | null> {
   if (USE_MOCK) return null;
   const { matches } = await get<MatchListResponse>("/matches");
   const match = matches[0];
   if (!match) return null;
   const { arenas } = await get<ArenaListResponse>(`/arenas?matchId=${match.id}`);
-  return arenas[0] ?? null;
+  const arena = arenas[0];
+  return arena ? { arena, match } : null;
+}
+
+/** Full arena detail (match + current state + round) for the live arena. */
+export async function fetchArenaDetail(arenaId: string): Promise<ArenaDetailResponse> {
+  return get<ArenaDetailResponse>(`/arenas/${arenaId}`);
+}
+
+/** Current leaderboard snapshot — seeds the board on load (WS updates only fire on settle). */
+export async function fetchLeaderboard(arenaId: string): Promise<LeaderboardResponse> {
+  return get<LeaderboardResponse>(`/arenas/${arenaId}/leaderboard`);
 }
 
 /** Register an on-chain entry with the backend (joins the player to the arena game). */

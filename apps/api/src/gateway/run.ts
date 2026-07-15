@@ -26,6 +26,7 @@ import { createPgPredictionStore } from "./stores/pg-prediction-store.js";
 import { createPgArenaPlayerStore } from "./stores/pg-arena-player-store.js";
 import { payoutService } from "../payout/index.js";
 import { sleep } from "../shared/sleep.js";
+import { joinBots, withBotAnswers, type DemoBot } from "./demo-bots.js";
 
 /** Same recorded fixture the engine test suites replay — see ingestion/replay.ts. */
 const DEMO_FIXTURE_ID = 18179764;
@@ -82,15 +83,28 @@ async function main(): Promise<void> {
   };
 
   const bus = new MatchSignalBus();
-  const runtime = new ArenaRuntime({
+
+  // Bots answer each round via a broadcaster wrapper; `demoBots`/`runtime` are read through getters
+  // to sidestep the runtime↔broadcaster construction cycle. Disabled → the raw WS broadcaster.
+  let demoBots: DemoBot[] = [];
+  let runtime!: ArenaRuntime;
+  const broadcaster = gatewayConfig.bots.enabled
+    ? withBotAnswers(wsGateway, {
+        getBots: () => demoBots,
+        getRuntime: () => runtime,
+        isActive: (userId) => arenaPlayerStore.getStatus(userId) === "active",
+      })
+    : wsGateway;
+
+  runtime = new ArenaRuntime({
     matchId: match.id,
     arenaId: arena.id,
     bus,
     predictionStore,
     arenaPlayerStore,
-    // Real players join dynamically via POST /arenas/:id/entry (spec §9) — no scripted roster.
+    // Roster starts empty — bots (below) and the human (POST /arenas/:id/entry) join pre-kickoff.
     roster: [],
-    broadcaster: wsGateway,
+    broadcaster,
     persistence,
     ...(gatewayConfig.replay.leadTimeSeconds !== undefined
       ? { leadTimeSeconds: gatewayConfig.replay.leadTimeSeconds }
@@ -98,11 +112,20 @@ async function main(): Promise<void> {
   });
   wsGateway.registerRuntime(arena.id, runtime);
 
-  // Join is only valid pre-kickoff (spec §9) — flip to "live" now, right before kickoff starts.
-  await arenaRepository.setStatus(arena.id, "live");
-
+  // Listen before the lobby window so bots and the browser can join while the arena is still `lobby`.
   await new Promise<void>((resolve) => httpServer.listen(gatewayConfig.port, resolve));
   logger.info({ port: gatewayConfig.port }, `gateway listening — REST http://localhost:${gatewayConfig.port}/api, WS ws://localhost:${gatewayConfig.port}/ws`);
+
+  if (gatewayConfig.bots.enabled) {
+    demoBots = await joinBots(arena.id, runtime, gatewayConfig.bots.count, DEMO_ENTRY_FEE_LAMPORTS);
+    logger.info({ arenaId: arena.id, bots: demoBots.length }, "demo bots joined the lobby");
+  }
+
+  // Pre-kickoff lobby window: arena stays `lobby` so the human can buy in + join, then flips `live`.
+  logger.info({ arenaId: arena.id, lobbySeconds: gatewayConfig.lobby.seconds }, "lobby open — waiting for players");
+  await sleep(gatewayConfig.lobby.seconds * 1000);
+  await arenaRepository.setStatus(arena.id, "live");
+  logger.info({ arenaId: arena.id }, "kickoff — arena live");
 
   await replayFixturePaced(bus, match.id, gatewayConfig.replay.delayMs);
   logger.info({ arenaId: arena.id }, "demo replay finished");

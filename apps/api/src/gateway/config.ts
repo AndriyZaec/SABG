@@ -32,6 +32,15 @@ const envSchema = z.object({
    * actually watchable in real time.
    */
   GATEWAY_REPLAY_DELAY_MS: z.coerce.number().int().nonnegative().default(200),
+  /**
+   * Pre-kickoff lobby window: the demo arena stays `lobby` this long after the server is up so bots
+   * and the human can join, then flips `live` and the replay starts. Longer when filming an on-chain
+   * buy so the wallet tx confirms before kickoff.
+   */
+  GATEWAY_LOBBY_SECONDS: z.coerce.number().int().nonnegative().default(180),
+  /** Seed scripted bots into the demo arena so the board/feed are populated. */
+  GATEWAY_SEED_BOTS: z.enum(["true", "false"]).default("true"),
+  GATEWAY_BOT_COUNT: z.coerce.number().int().positive().default(8),
   LOG_LEVEL: z.string().default("info"),
   NODE_ENV: z.string().default("development"),
 });
@@ -57,6 +66,13 @@ export const gatewayConfig = {
   replay: {
     leadTimeSeconds: env.GATEWAY_LEAD_TIME_SECONDS,
     delayMs: env.GATEWAY_REPLAY_DELAY_MS,
+  },
+  lobby: {
+    seconds: env.GATEWAY_LOBBY_SECONDS,
+  },
+  bots: {
+    enabled: env.GATEWAY_SEED_BOTS === "true",
+    count: env.GATEWAY_BOT_COUNT,
   },
   log: {
     level: env.LOG_LEVEL,
