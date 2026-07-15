@@ -5,6 +5,7 @@ import { AuthProvider } from "./auth/AuthContext.js";
 import { LobbyScreen } from "./screens/LobbyScreen.js";
 import { StyleScreen } from "./screens/StyleScreen.js";
 import { Masthead } from "./ui/Masthead.js";
+import { Footer } from "./ui/Footer.js";
 import { Loading } from "./ui/Loading.js";
 
 // Landing (Lobby) loads eagerly; heavier in-arena screens are split out.
@@ -45,6 +46,7 @@ export function App() {
               </Routes>
             </Suspense>
           </main>
+          <Footer />
           </div>
         </BrowserRouter>
       </AuthProvider>

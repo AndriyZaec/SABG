@@ -4,8 +4,6 @@ import { useBackendArena } from "../arena/useBackendArena.js";
 import { DEMO_VIEW, PERIOD_LABEL } from "../arena/arenaView.js";
 import { Badge } from "../ui/Badge.js";
 
-const STEPS = ["Buy in", "Answer Yes / No", "Survive", "Take the pool"];
-
 /** Seeded schedule so the lobby reads like a live tournament product (display-only for the demo). */
 const UPCOMING = [
   { home: "England", away: "France", kickoff: "Today · 21:00" },
@@ -26,13 +24,34 @@ export function LobbyScreen() {
   const survivors = arena?.activePlayersCount ?? DEMO_VIEW.survivors;
   const live = hero.period === "first_half" || hero.period === "second_half";
 
-  const ticker = [
-    `● ${hero.home} ${hero.score.home}–${hero.score.away} ${hero.away}`,
-    `${survivors} survivors left`,
-    "One Yes/No every 5 minutes",
-    "Miss it or call it wrong — you're out",
-    "Last survivor takes the pool",
-  ];
+  // Ticker adapts to match state: lobby info before kickoff, live stats during. Real arena numbers
+  // when the backend is up, demo fallbacks otherwise.
+  const sol = (lamports: number) => Number((lamports / 1_000_000_000).toFixed(3));
+  const entrySol = arena ? sol(arena.entryFeeLamports) : 0.1;
+  const poolSol = arena ? sol(arena.prizePoolLamports) : 0.8;
+  const joined = arena?.activePlayersCount ?? DEMO_VIEW.totalPlayers;
+  const kickoff = match
+    ? new Date(match.startTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : "21:00";
+
+  const ticker = live
+    ? [
+        `● Live ${hero.minute}'`,
+        `${hero.home} ${hero.score.home}–${hero.score.away} ${hero.away}`,
+        `${survivors} survivors left`,
+        `Pool ${poolSol} SOL`,
+        "One Yes/No every 5 minutes",
+        "Last survivor takes the pool",
+      ]
+    : [
+        "● Lobby open",
+        `${hero.home} vs ${hero.away}`,
+        `Kickoff ${kickoff}`,
+        `Entry ${entrySol} SOL · Pool ${poolSol} SOL`,
+        `${joined} players in`,
+        "One Yes/No every 5 minutes",
+        "Last survivor takes the pool",
+      ];
 
   return (
     <div className="nb-container" style={{ display: "grid", gap: 22 }}>
@@ -56,15 +75,15 @@ export function LobbyScreen() {
           </span>
           <span className="nb-hero__team nb-hero__team--away">{hero.away}</span>
         </div>
+        {/* entry / join docked into the same card */}
+        <div className="nb-hero__foot">
+          <EntryCard />
+        </div>
       </section>
 
       <Link to={`/arena/${arenaId}`} className="nb-btn nb-btn--survive nb-btn--lg nb-btn--block nb-rise">
         Enter live arena →
       </Link>
-
-      <div style={{ maxWidth: 460 }}>
-        <EntryCard />
-      </div>
 
       {/* Scrolling matchday ticker */}
       <div className="nb-ticker" aria-hidden>
@@ -94,22 +113,6 @@ export function LobbyScreen() {
           ))}
         </div>
       </section>
-
-      {/* How it works — slim reference strip */}
-      <div className="nb-row" style={{ gap: 8 }}>
-        <span className="nb-label">How it works</span>
-        {STEPS.map((s, i) => (
-          <span key={s} className="nb-badge nb-badge--neutral">
-            {i + 1} · {s}
-          </span>
-        ))}
-      </div>
-
-      <div className="nb-row">
-        <Link to={`/arena/${arenaId}/payout`} className="nb-btn nb-btn--plain">
-          Winner / Payout
-        </Link>
-      </div>
     </div>
   );
 }
