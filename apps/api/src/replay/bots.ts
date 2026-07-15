@@ -1,7 +1,9 @@
 // Scripted bot players for the headless replay demo. No real client exists to answer
 // rounds, so a small deterministic roster stands in: a mix of always-yes / always-no / seeded
 // pseudo-random strategies so bots get eliminated across different rounds rather than all
-// surviving or all dying together, letting the demo reach a genuine winner (spec §7).
+// surviving or all dying together, letting the demo reach a genuine winner (spec §7). Bots join
+// the arena through the real runtime.join(...) path (run.ts) — this module only scripts who they
+// are and how they answer, not how they get onto the roster.
 
 import type { Answer, PredictionRound, Uuid } from "@arena/contracts";
 

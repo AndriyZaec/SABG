@@ -30,10 +30,10 @@ describe("rankLeaderboard", () => {
     ]);
   });
 
-  it("assigns shared rank to equal scores within the same status band (full tie)", () => {
+  it("assigns shared rank only on a genuine full tie within the same status band", () => {
     const rows = [
       row({ userId: "a", status: "active", score: 4, joinedAt: "t1" }),
-      row({ userId: "b", status: "active", score: 4, joinedAt: "t2" }),
+      row({ userId: "b", status: "active", score: 4, joinedAt: "t1" }),
       row({ userId: "c", status: "active", score: 2, joinedAt: "t3" }),
     ];
 
@@ -44,7 +44,7 @@ describe("rankLeaderboard", () => {
     expect(entries.find((e) => e.userId === "c")?.rank).toBe(3);
   });
 
-  it("breaks ties in equal-score rows by earlier joinedAt, for stable display order only", () => {
+  it("orders equal-score rows by earlier joinedAt (spec §7 tie-break 3, display order only)", () => {
     const rows = [
       row({ userId: "later", status: "active", score: 1, joinedAt: "2024-01-02T00:00:00.000Z" }),
       row({ userId: "earlier", status: "active", score: 1, joinedAt: "2024-01-01T00:00:00.000Z" }),
@@ -52,19 +52,65 @@ describe("rankLeaderboard", () => {
 
     const entries = rankLeaderboard(rows);
 
+    // Distinct ranks now — joinedAt is a real §7 rung for display, it just never changes winners.
     expect(entries.map((e) => e.userId)).toEqual(["earlier", "later"]);
-    // Still a full tie in rank — ordering is display-only, never a spec §7 winner tie-break.
+    expect(entries[0]?.rank).toBe(1);
+    expect(entries[1]?.rank).toBe(2);
+  });
+
+  it("orders equal-score rows by faster avg answer speed (spec §7 tie-break 1) when both have it", () => {
+    const rows = [
+      row({ userId: "slower", status: "active", score: 1, joinedAt: "t1", avgAnswerMs: 5000 }),
+      row({ userId: "faster", status: "active", score: 1, joinedAt: "t2", avgAnswerMs: 1000 }),
+    ];
+
+    const entries = rankLeaderboard(rows);
+
+    expect(entries.map((e) => e.userId)).toEqual(["faster", "slower"]);
+    expect(entries[0]?.rank).toBe(1);
+    expect(entries[1]?.rank).toBe(2);
+  });
+
+  it("falls through to fewer missed rounds (spec §7 tie-break 2) when speed data is absent", () => {
+    const rows = [
+      row({ userId: "more-missed", status: "active", score: 1, joinedAt: "t1", missedCount: 2 }),
+      row({ userId: "fewer-missed", status: "active", score: 1, joinedAt: "t2", missedCount: 0 }),
+    ];
+
+    const entries = rankLeaderboard(rows);
+
+    expect(entries.map((e) => e.userId)).toEqual(["fewer-missed", "more-missed"]);
+    expect(entries[0]?.rank).toBe(1);
+    expect(entries[1]?.rank).toBe(2);
+  });
+
+  it("shares rank on a genuine full tie across the whole chain (score, speed, missed, joinedAt all equal)", () => {
+    const rows = [
+      row({ userId: "a", status: "active", score: 3, joinedAt: "t1", avgAnswerMs: 2000, missedCount: 1 }),
+      row({ userId: "b", status: "active", score: 3, joinedAt: "t1", avgAnswerMs: 2000, missedCount: 1 }),
+    ];
+
+    const entries = rankLeaderboard(rows);
+
     expect(entries[0]?.rank).toBe(1);
     expect(entries[1]?.rank).toBe(1);
   });
 
-  it("carries score/missedCount/joinedAt through and leaves avgAnswerMs unset", () => {
+  it("carries score/missedCount/joinedAt through and leaves avgAnswerMs unset when absent", () => {
     const rows = [row({ userId: "u1", score: 7, missedCount: 2, joinedAt: "t1" })];
 
     const [entry] = rankLeaderboard(rows);
 
     expect(entry).toMatchObject({ userId: "u1", score: 7, missedCount: 2, joinedAt: "t1" });
     expect(entry?.avgAnswerMs).toBeUndefined();
+  });
+
+  it("carries avgAnswerMs through when set", () => {
+    const rows = [row({ userId: "u1", avgAnswerMs: 1234 })];
+
+    const [entry] = rankLeaderboard(rows);
+
+    expect(entry?.avgAnswerMs).toBe(1234);
   });
 });
 

@@ -13,6 +13,7 @@
 import { loadFixture, defaultFixturePath } from "../ingestion/replay.js";
 import { createMatchSignalProducer } from "../ingestion/match-signal.js";
 import { MatchSignalBus } from "../ingestion/event-bus.js";
+import { resolveFixtureTeams } from "../db/seeds/fixture-metadata.js";
 import { matchRepository } from "../db/repositories/match.repository.js";
 import { arenaRepository } from "../db/repositories/arena.repository.js";
 import { predictionRoundRepository } from "../db/repositories/prediction-round.repository.js";
@@ -46,9 +47,12 @@ async function replayFixturePaced(bus: MatchSignalBus, matchId: string, delayMs:
 }
 
 async function main(): Promise<void> {
+  // Real names when the fixture is listed in db/seeds/matches.json — the scores feed itself
+  // carries no team names, only "Home"/"Away" for a fixture that isn't seeded yet.
+  const teams = resolveFixtureTeams(DEMO_FIXTURE_ID) ?? { homeTeam: "Home", awayTeam: "Away" };
   const match = await matchRepository.upsertByTxoddsFixtureId(DEMO_FIXTURE_ID, {
-    homeTeam: "Home",
-    awayTeam: "Away",
+    homeTeam: teams.homeTeam,
+    awayTeam: teams.awayTeam,
     startTime: new Date(),
   });
   const arena = await arenaRepository.upsertForMatch(match.id, {
