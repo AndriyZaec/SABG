@@ -71,4 +71,13 @@ export const arenaRepository = {
       .set({ activePlayersCount: sql`${arenas.activePlayersCount} + ${delta}` })
       .where(eq(arenas.id, id));
   },
+
+  /** Called on entry purchase alongside bumpActivePlayers. Atomic increment mirrors the on-chain
+   *  program's `arena.prize_pool_lamports += fee`, keeping the DB pool in sync with escrow. */
+  async bumpPrizePool(id: Uuid, delta: number): Promise<void> {
+    await db
+      .update(arenas)
+      .set({ prizePoolLamports: sql`${arenas.prizePoolLamports} + ${delta}` })
+      .where(eq(arenas.id, id));
+  },
 };

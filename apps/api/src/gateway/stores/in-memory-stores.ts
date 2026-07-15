@@ -31,7 +31,8 @@ export function createInMemoryRuntimeStores(
     getActivePlayerIds: innerPlayers.getActivePlayerIds,
     getStatus: innerPlayers.getStatus,
     setStatus: innerPlayers.setStatus,
-    // Callers of this in-memory adapter seed the full roster up front — no late-join flow.
+    // Backs runtime.join(...)'s late-join flow (e.g. replay/run.ts's bots) as much as any
+    // upfront-seeded roster — the underlying map just needs a key, seeded or not.
     addPlayer(userId) {
       innerPlayers.setStatus(userId, "active");
     },

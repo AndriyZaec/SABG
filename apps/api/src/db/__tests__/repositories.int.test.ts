@@ -109,7 +109,7 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
     expect(list.some((m) => m.id === matchId)).toBe(true);
   });
 
-  it("arena.repository: upsertForMatch is idempotent, and bumpActivePlayers increments atomically", async () => {
+  it("arena.repository: upsertForMatch is idempotent, and bumpActivePlayers/bumpPrizePool increment atomically", async () => {
     const first = await arenaRepository.upsertForMatch(matchId, { entryFeeLamports: 1000, prizePoolLamports: 0 });
     arenaId = first.id;
     expect(first.status).toBe("lobby");
@@ -119,8 +119,11 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
 
     await arenaRepository.bumpActivePlayers(arenaId, 1);
     await arenaRepository.bumpActivePlayers(arenaId, 1);
+    await arenaRepository.bumpPrizePool(arenaId, 1000);
+    await arenaRepository.bumpPrizePool(arenaId, 1000);
     const afterBumps = await arenaRepository.findById(arenaId);
     expect(afterBumps?.activePlayersCount).toBe(2);
+    expect(afterBumps?.prizePoolLamports).toBe(2000);
 
     await arenaRepository.setStatus(arenaId, "live");
     const afterStatus = await arenaRepository.findById(arenaId);

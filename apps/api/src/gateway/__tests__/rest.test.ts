@@ -19,7 +19,7 @@ vi.mock("../../db/repositories/match.repository.js", () => ({
   matchRepository: { list: vi.fn(), findById: vi.fn() },
 }));
 vi.mock("../../db/repositories/arena.repository.js", () => ({
-  arenaRepository: { findById: vi.fn(), bumpActivePlayers: vi.fn(), listByMatchId: vi.fn() },
+  arenaRepository: { findById: vi.fn(), bumpActivePlayers: vi.fn(), bumpPrizePool: vi.fn(), listByMatchId: vi.fn() },
 }));
 vi.mock("../../db/repositories/arena-player.repository.js", () => ({
   arenaPlayerRepository: { join: vi.fn() },
@@ -339,6 +339,7 @@ describe("REST gateway routes", () => {
       expect(body.entryPassId).toBe("entry-1");
       expect(body.player).toEqual(player);
       expect(arenaRepository.bumpActivePlayers).toHaveBeenCalledWith(ARENA_ID, 1);
+      expect(arenaRepository.bumpPrizePool).toHaveBeenCalledWith(ARENA_ID, 1000);
       expect(runtimeJoin).toHaveBeenCalledWith("u1", "fan_wallet", player.joinedAt);
     });
   });

@@ -181,6 +181,7 @@ export function createRestRouter(runtimeLookup: ArenaRuntimeLookup): RouterType 
       });
       const player = await arenaPlayerRepository.join(arenaId, userId);
       await arenaRepository.bumpActivePlayers(arenaId, 1);
+      await arenaRepository.bumpPrizePool(arenaId, arena.entryFeeLamports);
       // Keeps the live runtime's roster (leaderboard + ArenaPlayerStore) in sync with the DAL —
       // a no-op if this arena has no running runtime yet, or the player already joined.
       runtimeLookup.getRuntime(arenaId)?.join(userId, user.username, player.joinedAt);

@@ -26,9 +26,10 @@ export const matchRepository = {
   },
 
   /**
-   * Idempotent demo bootstrap (gateway/run.ts): ensures a placeholder match row exists for a
-   * replay fixture, keyed by `txoddsFixtureId` — the TXODDS feed carries only home/away sides,
-   * not team names, so this seeds a placeholder label rather than real teams.
+   * Idempotent demo bootstrap (gateway/run.ts, live/run.ts): ensures a match row exists for a
+   * fixture, keyed by `txoddsFixtureId`. The TXODDS feed itself carries only home/away sides, not
+   * team names — callers resolve real names from `db/seeds/fixture-metadata.ts` and pass them in
+   * here; `"Home"`/`"Away"` is only a fallback for a fixture that isn't seeded yet.
    */
   async upsertByTxoddsFixtureId(
     fixtureId: number,

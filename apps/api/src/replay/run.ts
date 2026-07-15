@@ -62,10 +62,11 @@ export function createReplayDemo(options: ReplayDemoOptions = {}): ReplayDemo {
   const arenaId = options.arenaId ?? DEMO_ARENA_ID;
   const matchId = options.matchId ?? FIXTURE_MATCH_ID;
   const bots = createBots(options.botCount ?? replayConfig.botCount);
-  const botIds = bots.map((b) => b.userId);
 
   const bus = new MatchSignalBus();
-  const { predictionStore, arenaPlayerStore } = createInMemoryRuntimeStores(arenaId, botIds);
+  // Bots join through the real path (runtime.join, below) rather than being pre-seeded here —
+  // mirrors POST /arenas/:id/entry's roster-building, just without Postgres.
+  const { predictionStore, arenaPlayerStore } = createInMemoryRuntimeStores(arenaId, []);
   const outerBroadcaster = options.broadcaster ?? createConsoleBroadcaster();
 
   let runtime!: ArenaRuntime; // assigned below, before any signal on `bus` can fire
@@ -94,11 +95,17 @@ export function createReplayDemo(options: ReplayDemoOptions = {}): ReplayDemo {
     bus,
     predictionStore,
     arenaPlayerStore,
-    roster: bots.map((b) => ({ userId: b.userId, username: b.username, joinedAt: b.joinedAt })),
+    // Roster starts empty — bots join below through the real path (runtime.join), same as
+    // POST /arenas/:id/entry.
+    roster: [],
     broadcaster: answeringBroadcaster,
     // No persistence — kept DB-free, mirroring arena-runtime.test.ts.
     ...(leadTimeSeconds !== undefined ? { leadTimeSeconds } : {}),
   });
+
+  // Bots join pre-kickoff (spec §9) through the same runtime.join(...) POST /arenas/:id/entry
+  // calls, rather than being pre-seeded into the roster/stores above.
+  for (const bot of bots) runtime.join(bot.userId, bot.username, bot.joinedAt);
 
   const replayEngine = new ReplayEngine(bus, {
     matchId,

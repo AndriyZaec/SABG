@@ -1,7 +1,12 @@
 // On-chain arena provisioning: the backend acts as the arena `authority` + `payout_authority`,
 // creating the arena via the deployed program. Loaded only when provisioning is enabled.
-
-import * as anchor from "@coral-xyz/anchor";
+//
+// Default import, not `* as anchor`: under this project's ESM runtime (tsx), a namespace import
+// of @coral-xyz/anchor's CJS build does not expose `anchor.BN` as a constructor (Program/
+// AnchorProvider/Wallet resolve fine, BN alone doesn't) — found by actually exercising this path
+// against devnet for the first time (it had only ever run with ONCHAIN_ARENAS_ENABLED=false
+// before). The default import exposes all four correctly.
+import anchor from "@coral-xyz/anchor";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import bs58 from "bs58";
 import { ARENA_IDL } from "@arena/contracts/onchain";
