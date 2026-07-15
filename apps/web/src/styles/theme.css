@@ -335,3 +335,19 @@ a { color: var(--ink); text-decoration: none; }
   box-shadow: var(--shadow) !important;
   font-family: var(--font-mono) !important;
 }
+
+/* ---- Mobile adaptive pass ---- */
+@media (max-width: 560px) {
+  .nb-container { padding: 18px 14px 80px; }
+  /* masthead already wraps (brand ↕ wallet); just tighten the frame */
+  .nb-masthead { padding: 10px 14px; gap: 10px; }
+  /* scoreboard: reclaim the padding names/score were eating */
+  .nb-scoreboard__team { padding: 12px 10px; }
+  .nb-scoreboard__score { padding: 0 12px; gap: 6px; }
+  .nb-panel__body { padding: 14px 12px; }
+  .nb-section { margin-top: 28px; }
+}
+@media (max-width: 380px) {
+  .nb-teamname { font-size: 1.05rem; }
+  .nb-scoreboard__team { padding: 10px 8px; }
+}
