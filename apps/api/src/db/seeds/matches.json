@@ -16,5 +16,14 @@
     "kickoff": "2026-07-15T19:00:00Z",
     "homeTeam": "England",
     "awayTeam": "Argentina"
+  },
+  {
+    "fixtureId": 18179764,
+    "sport": "Soccer",
+    "region": "International",
+    "competition": "World Cup > Final",
+    "kickoff": "2026-07-19T19:00:00Z",
+    "homeTeam": "Brazil",
+    "awayTeam": "Argentina"
   }
 ]
