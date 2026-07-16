@@ -167,6 +167,18 @@ export class ArenaRuntime {
     return this.leaderboardService.snapshot();
   }
 
+  /**
+   * True once at least one round has settled — the first moment a just-seated player could be
+   * unfairly eliminated for a round they couldn't answer. Used to gate the join grace window: a
+   * buy started in the lobby may still be seated during `live` up to this point, not past it.
+   */
+  hasSettledRound(): boolean {
+    for (const round of this.roundEngine.roundsByWindow.values()) {
+      if (round.status === "settled") return true;
+    }
+    return false;
+  }
+
   finalWinners(): Uuid[] | undefined {
     return this.winners;
   }

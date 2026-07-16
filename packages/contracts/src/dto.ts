@@ -67,6 +67,34 @@ export interface BuyEntryResponse {
   arena: Arena;
 }
 
+/**
+ * Backend-orchestrated entry (atomic pay ⇒ seat). The user signs once; the backend builds and
+ * submits the on-chain buy, so a payment can never land without a seat.
+ *
+ * POST /arenas/:id/entry/prepare — backend builds the unsigned buy_entry tx (lobby only).
+ */
+export interface PrepareEntryRequest {
+  walletAddress: string;
+}
+export interface PrepareEntryResponse {
+  prepareId: Uuid;
+  /** Base64 unsigned transaction for the wallet to sign. */
+  tx: string;
+}
+
+/** POST /arenas/:id/entry/submit — backend submits the signed tx, seats the player, issues a token. */
+export interface SubmitEntryRequest {
+  prepareId: Uuid;
+  /** Base64 tx signed by the user's wallet. */
+  signedTx: string;
+}
+export interface SubmitEntryResponse {
+  token: string;
+  entryPassId: Uuid;
+  player: ArenaPlayer;
+  arena: Arena;
+}
+
 /** POST /rounds/:id/answer — submit/change answer while round is open (spec §5, §9). */
 export interface SubmitAnswerRequest {
   answer: Answer;
