@@ -78,12 +78,15 @@ export interface PrimaryArena {
 
 export async function fetchPrimaryArena(): Promise<PrimaryArena | null> {
   if (USE_MOCK) return null;
+  // Not every seeded match has an arena, and /matches order isn't arena order — scan for the match
+  // that actually has one, preferring a joinable/running arena over a finished one.
   const { matches } = await get<MatchListResponse>("/matches");
-  const match = matches[0];
-  if (!match) return null;
-  const { arenas } = await get<ArenaListResponse>(`/arenas?matchId=${match.id}`);
-  const arena = arenas[0];
-  return arena ? { arena, match } : null;
+  const found: PrimaryArena[] = [];
+  for (const match of matches) {
+    const { arenas } = await get<ArenaListResponse>(`/arenas?matchId=${match.id}`);
+    for (const arena of arenas) found.push({ arena, match });
+  }
+  return found.find((p) => p.arena.status === "lobby" || p.arena.status === "live") ?? found[0] ?? null;
 }
 
 /** Full arena detail (match + current state + round) for the live arena. */
