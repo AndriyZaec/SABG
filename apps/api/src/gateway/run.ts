@@ -33,17 +33,26 @@ const DEMO_FIXTURE_ID = 18179764;
 const DEMO_ENTRY_FEE_LAMPORTS = 10_000_000;
 
 /**
- * Like `replayFixture` (ingestion/replay.ts), but spread over wall-clock time via `delayMs`
- * between messages — reuses the same helpers (`loadFixture`, `createMatchSignalProducer`) rather
- * than duplicating their logic, just with an async pacing loop instead of a tight synchronous
- * one, so a manual WS walkthrough is actually watchable.
+ * Like `replayFixture` (ingestion/replay.ts), but paced by the match clock: each time a clock
+ * signal advances the match minute, we sleep `secondsPerMatchMinute` real seconds per minute
+ * advanced before publishing it, so the match plays out at a controlled, watchable rate. Non-clock
+ * signals (events, possession) and same-minute messages publish with no extra wait. Pacing by
+ * match-minute — not per raw message — is what keeps the countdown honest: the round engine
+ * projects `lockAt` off the same rate, so a round's shown countdown matches when it actually locks.
  */
-async function replayFixturePaced(bus: MatchSignalBus, matchId: string, delayMs: number): Promise<void> {
+async function replayFixturePaced(bus: MatchSignalBus, matchId: string, secondsPerMatchMinute: number): Promise<void> {
   const raw = loadFixture(defaultFixturePath());
   const producer = createMatchSignalProducer(matchId);
+  let lastMinute: number | undefined;
   for (const message of raw) {
-    for (const signal of producer.process(message)) bus.publish(signal);
-    if (delayMs > 0) await sleep(delayMs);
+    for (const signal of producer.process(message)) {
+      if (signal.kind === "clock") {
+        const advanced = lastMinute === undefined ? 0 : Math.max(signal.matchMinute - lastMinute, 0);
+        lastMinute = signal.matchMinute;
+        if (advanced > 0) await sleep(advanced * secondsPerMatchMinute * 1000);
+      }
+      bus.publish(signal);
+    }
   }
 }
 
@@ -106,9 +115,7 @@ async function main(): Promise<void> {
     roster: [],
     broadcaster,
     persistence,
-    ...(gatewayConfig.replay.leadTimeSeconds !== undefined
-      ? { leadTimeSeconds: gatewayConfig.replay.leadTimeSeconds }
-      : {}),
+    secondsPerMatchMinute: gatewayConfig.clock.secondsPerMatchMinute,
   });
   wsGateway.registerRuntime(arena.id, runtime);
 
@@ -127,7 +134,7 @@ async function main(): Promise<void> {
   await arenaRepository.setStatus(arena.id, "live");
   logger.info({ arenaId: arena.id }, "kickoff — arena live");
 
-  await replayFixturePaced(bus, match.id, gatewayConfig.replay.delayMs);
+  await replayFixturePaced(bus, match.id, gatewayConfig.clock.secondsPerMatchMinute);
   logger.info({ arenaId: arena.id }, "demo replay finished");
 }
 

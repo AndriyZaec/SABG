@@ -18,6 +18,18 @@ export async function maybeProvisionArena(
   return { onchainArenaId, escrowAccount };
 }
 
+/** Build an unsigned `buy_entry` tx for the user to sign. Dynamic import keeps Solana off the default path. */
+export async function buildEntryTx(onchainArenaId: number, playerAddress: string): Promise<string> {
+  const { buildBuyEntryTx } = await import("./arena-program.js");
+  return buildBuyEntryTx(onchainArenaId, playerAddress);
+}
+
+/** Submit a user-signed `buy_entry` tx + confirm; returns the signature. */
+export async function submitEntryTx(signedTxBase64: string): Promise<string> {
+  const { submitSignedEntry } = await import("./arena-program.js");
+  return submitSignedEntry(signedTxBase64);
+}
+
 /** Sign + send `settle_payout` for an arena. Dynamic import keeps Solana off the default path. */
 export async function settleArenaPayoutOnchain(
   onchainArenaId: number,

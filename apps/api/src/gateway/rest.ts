@@ -14,9 +14,13 @@ import type {
   BuyEntryResponse,
   LeaderboardResponse,
   MatchListResponse,
+  PrepareEntryRequest,
+  PrepareEntryResponse,
   RoundWithPredictions,
   SubmitAnswerRequest,
   SubmitAnswerResponse,
+  SubmitEntryRequest,
+  SubmitEntryResponse,
   WalletNonceRequest,
   WalletNonceResponse,
   WalletSignInRequest,
@@ -32,7 +36,10 @@ import { predictionRepository } from "../db/repositories/prediction.repository.j
 import { entryPassRepository } from "../db/repositories/entry-pass.repository.js";
 import { issueToken, requireAuth, type AuthedRequest } from "./auth.js";
 import { issueNonce, consumeNonce } from "./nonce-store.js";
+import { stashPrepare, takePrepare } from "./entry-prepare-store.js";
+import { buildEntryTx, submitEntryTx } from "../onchain/index.js";
 import { gatewayConfig } from "./config.js";
+import { logger } from "./logger.js";
 import type { ArenaRuntimeLookup } from "./arena-runtime.js";
 
 function notFound(res: Response, message: string): void {
@@ -189,6 +196,120 @@ export function createRestRouter(runtimeLookup: ArenaRuntimeLookup): RouterType 
       const updatedArena = (await arenaRepository.findById(arenaId)) ?? arena;
       const body: BuyEntryResponse = { entryPassId: entryPass.id, player, arena: updatedArena };
       res.json(body);
+    },
+  );
+
+  /**
+   * POST /arenas/:id/entry/prepare — backend builds the unsigned buy_entry tx for the user to sign.
+   * Lobby-only: this is where a join "starts". No auth — a validly-signed tx is what authorizes;
+   * the token is issued on /submit.
+   */
+  router.post<{ id: string }, PrepareEntryResponse | ApiError, PrepareEntryRequest>(
+    "/arenas/:id/entry/prepare",
+    async (req, res) => {
+      const arenaId = req.params.id;
+      const arena = await arenaRepository.findById(arenaId);
+      if (!arena) {
+        notFound(res, "Arena not found");
+        return;
+      }
+      if (arena.status !== "lobby") {
+        res.status(409).json({ error: "arena_not_joinable", message: "Arena has already started or finished" });
+        return;
+      }
+      if (arena.onchainArenaId == null) {
+        res.status(409).json({ error: "arena_not_onchain", message: "Arena is not provisioned on-chain" });
+        return;
+      }
+      const { walletAddress } = req.body;
+      if (!walletAddress) {
+        res.status(400).json({ error: "bad_request", message: "walletAddress is required" });
+        return;
+      }
+
+      try {
+        const tx = await buildEntryTx(arena.onchainArenaId, walletAddress);
+        const prepareId = stashPrepare(arenaId, walletAddress, tx);
+        res.json({ prepareId, tx });
+      } catch (err: unknown) {
+        logger.error({ err, arenaId }, "entry prepare failed");
+        res.status(502).json({ error: "onchain_error", message: "Failed to build entry transaction" });
+      }
+    },
+  );
+
+  /**
+   * POST /arenas/:id/entry/submit — submit the user-signed tx, seat the player, issue a session
+   * token. Atomicity hinge: re-checks joinable right before the irreversible submit, so a payment
+   * can't land without a seat. Idempotent — a repeat submit returns the existing seat, never buys
+   * twice.
+   */
+  router.post<{ id: string }, SubmitEntryResponse | ApiError, SubmitEntryRequest>(
+    "/arenas/:id/entry/submit",
+    async (req, res) => {
+      const arenaId = req.params.id;
+      const { prepareId, signedTx } = req.body;
+      if (!prepareId || !signedTx) {
+        res.status(400).json({ error: "bad_request", message: "prepareId and signedTx are required" });
+        return;
+      }
+
+      const pending = takePrepare(prepareId);
+      if (!pending || pending.arenaId !== arenaId) {
+        res.status(400).json({ error: "bad_request", message: "Unknown or expired prepareId" });
+        return;
+      }
+
+      const arena = await arenaRepository.findById(arenaId);
+      if (!arena) {
+        notFound(res, "Arena not found");
+        return;
+      }
+
+      // Joinable re-check at the last safe moment: lobby, or the grace into live before the first
+      // round locks (seating past a lock would eliminate the player for a round they couldn't
+      // answer). Not joinable → do NOT submit → the user's SOL never moves (no strand).
+      const runtime = runtimeLookup.getRuntime(arenaId);
+      const joinable = arena.status === "lobby" || (arena.status === "live" && runtime?.hasLockedRound() === false);
+      if (!joinable) {
+        res.status(409).json({ error: "arena_not_joinable", message: "Arena is no longer joinable" });
+        return;
+      }
+
+      const user = await userRepository.upsertByWallet(pending.walletAddress, `fan_${pending.walletAddress.slice(0, 6)}`);
+
+      // Idempotent: already seated (double submit / reconcile) → return the seat, don't buy again.
+      const existing = await entryPassRepository.findByArenaAndUser(arenaId, user.id);
+      if (existing) {
+        const player = await arenaPlayerRepository.join(arenaId, user.id);
+        runtime?.join(user.id, user.username, player.joinedAt);
+        res.json({ token: issueToken(user.id), entryPassId: existing.id, player, arena });
+        return;
+      }
+
+      let signature: string;
+      try {
+        signature = await submitEntryTx(signedTx);
+      } catch (err: unknown) {
+        logger.error({ err, arenaId, wallet: pending.walletAddress }, "entry submit failed on-chain");
+        res.status(502).json({ error: "onchain_submit_failed", message: "Entry transaction failed on-chain" });
+        return;
+      }
+
+      const entryPass = await entryPassRepository.create({
+        arenaId,
+        userId: user.id,
+        walletAddress: user.walletAddress,
+        amountLamports: arena.entryFeeLamports,
+        txSignature: signature,
+      });
+      const player = await arenaPlayerRepository.join(arenaId, user.id);
+      await arenaRepository.bumpActivePlayers(arenaId, 1);
+      await arenaRepository.bumpPrizePool(arenaId, arena.entryFeeLamports);
+      runtime?.join(user.id, user.username, player.joinedAt);
+
+      const updatedArena = (await arenaRepository.findById(arenaId)) ?? arena;
+      res.json({ token: issueToken(user.id), entryPassId: entryPass.id, player, arena: updatedArena });
     },
   );
 

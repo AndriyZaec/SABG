@@ -4,7 +4,6 @@
 // `RoundLifecycleEvent`s.
 
 import { randomUUID } from "node:crypto";
-import { MIN_LEAD_TIME_SECONDS } from "@arena/contracts";
 import type { Answer, MatchSignal, MatchState, PredictionRound, SettledBy, Uuid } from "@arena/contracts";
 import type { MatchSignalBus } from "../ingestion/event-bus.js";
 import { initialPlannerState, planRoundActions, type PlannerState } from "./planner.js";
@@ -15,19 +14,11 @@ export type RoundLifecycleEvent =
       type: "open";
       round: PredictionRound;
       /**
-       * Estimate for client countdown only — NOT authoritative. The real lock fires off the
-       * match clock crossing windowStartMinute (spec §5.1), never off this wall-clock guess.
-       *
-       * The guess assumes 1 match-minute of remaining lead time takes ~60 real seconds (true for
-       * a live feed). `leadTimeSeconds` (RoundEngineOptions) is only a floor on this estimate, not
-       * an override of that assumption — for every round after the first, `handleOpen` computes
-       * ~5 real minutes remaining (windows are 5 match-minutes apart, and each round opens the
-       * instant its predecessor locks), which dwarfs any small `leadTimeSeconds` value. A caller
-       * that replays match-clock ticks faster or slower than real time (e.g. gateway/run.ts's
-       * GATEWAY_REPLAY_DELAY_MS-paced demo) will therefore see this estimate badly mismatch the
-       * real lock time for rounds 2+; only `leadTimeSeconds` alone can't fix that. Don't build a
-       * precise countdown off this field under non-real-time playback — only round.lock/settle
-       * are ever authoritative.
+       * When the round will lock, for the client countdown. Lock fires when the match clock
+       * crosses windowStartMinute; each remaining match-minute takes `secondsPerMatchMinute` real
+       * seconds, so this matches the real lock time as long as the driver advances the clock at
+       * that same rate (a live feed's stoppage can push the real lock slightly later). The clock
+       * is still the authority — round.lock/settle are what actually resolve the round.
        */
       lockAt: string;
     }
@@ -35,18 +26,25 @@ export type RoundLifecycleEvent =
 
 export interface RoundEngineOptions {
   questionProvider?: QuestionProvider;
-  /** Minimum lead time before lock (spec §5, default MIN_LEAD_TIME_SECONDS = 60s). */
-  leadTimeSeconds?: number;
-  /** Supplies context to the QuestionProvider (spec §4.2) — wire to a MatchStateEngine's snapshot. */
+  /**
+   * Real seconds per match-minute, used only to project `lockAt` for the client countdown.
+   * Defaults to 60 (real time — correct for a live feed). A driver that compresses the match
+   * (the demo replay) sets this to its own pace so the countdown stays truthful.
+   */
+  secondsPerMatchMinute?: number;
+  /** Supplies context to the QuestionProvider — wire to a MatchStateEngine's snapshot. */
   getMatchState?: () => MatchState | undefined;
   onTransition?: (event: RoundLifecycleEvent) => void;
 }
+
+/** Real time a match-minute takes on a live feed — the default `lockAt` projection rate. */
+const DEFAULT_SECONDS_PER_MATCH_MINUTE = 60;
 
 export class RoundEngine {
   private plannerState: PlannerState = initialPlannerState();
   private readonly rounds = new Map<number, PredictionRound>();
   private readonly questionProvider: QuestionProvider;
-  private readonly leadTimeSeconds: number;
+  private readonly secondsPerMatchMinute: number;
 
   constructor(
     private readonly matchId: Uuid,
@@ -54,7 +52,7 @@ export class RoundEngine {
     private readonly options: RoundEngineOptions = {},
   ) {
     this.questionProvider = options.questionProvider ?? createStubQuestionProvider();
-    this.leadTimeSeconds = options.leadTimeSeconds ?? MIN_LEAD_TIME_SECONDS;
+    this.secondsPerMatchMinute = options.secondsPerMatchMinute ?? DEFAULT_SECONDS_PER_MATCH_MINUTE;
   }
 
   /** Rounds created so far, keyed by windowStartMinute (open, locked, or settled). */
@@ -127,11 +125,10 @@ export class RoundEngine {
     };
     this.rounds.set(windowStart, round);
 
-    // Display-only projection of when lock will happen, for a client countdown — never
-    // authoritative (see RoundLifecycleEvent doc comment above).
+    // Projected lock time for the client countdown (see RoundLifecycleEvent doc comment above).
     const minutesUntilWindow = Math.max(windowStart - currentMinute, 0);
     const lockAt = new Date(
-      Date.now() + Math.max(minutesUntilWindow * 60, this.leadTimeSeconds) * 1000,
+      Date.now() + minutesUntilWindow * this.secondsPerMatchMinute * 1000,
     ).toISOString();
 
     this.options.onTransition?.({ type: "open", round, lockAt });

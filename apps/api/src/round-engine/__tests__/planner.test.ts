@@ -22,8 +22,8 @@ function runTicks(ticks: ClockTick[], start: PlannerState = initialPlannerState(
 }
 
 describe("TARGET_WINDOW_STARTS", () => {
-  it("has 17 windows, skipping the halftime window (45)", () => {
-    expect(TARGET_WINDOW_STARTS).toEqual([0, 5, 10, 15, 20, 25, 30, 35, 40, 50, 55, 60, 65, 70, 75, 80, 85]);
+  it("has 16 windows, skipping the halftime window (45) and the kickoff window (0)", () => {
+    expect(TARGET_WINDOW_STARTS).toEqual([5, 10, 15, 20, 25, 30, 35, 40, 50, 55, 60, 65, 70, 75, 80, 85]);
   });
 });
 
@@ -37,33 +37,33 @@ describe("requiredPeriod", () => {
 });
 
 describe("planRoundActions", () => {
-  it("opens the first round immediately in the pre-kickoff period", () => {
+  it("opens the first round (window 5) immediately in the pre-kickoff period", () => {
     const { actions, state } = planRoundActions(initialPlannerState(), { period: "pre", minute: 0 });
-    expect(actions).toEqual([{ kind: "open", windowStart: 0 }]);
-    expect(state).toEqual({ nextIndex: 1, openWindow: 0 });
+    expect(actions).toEqual([{ kind: "open", windowStart: 5 }]);
+    expect(state).toEqual({ nextIndex: 1, openWindow: 5 });
   });
 
-  it("locks window 0 at kickoff and immediately opens window 5", () => {
+  it("holds the first round open through kickoff and locks it at minute 5, opening window 10", () => {
     const afterPre = planRoundActions(initialPlannerState(), { period: "pre", minute: 0 }).state;
-    const { actions, state } = planRoundActions(afterPre, { period: "first_half", minute: 0 });
+    // Kickoff (minute 0) is well before window 5's lock — nothing fires yet.
+    const atKickoff = planRoundActions(afterPre, { period: "first_half", minute: 0 });
+    expect(atKickoff.actions).toEqual([]);
+    const { actions, state } = planRoundActions(atKickoff.state, { period: "first_half", minute: 5 });
     expect(actions).toEqual([
-      { kind: "lock", windowStart: 0 },
-      { kind: "open", windowStart: 5 },
+      { kind: "lock", windowStart: 5 },
+      { kind: "open", windowStart: 10 },
     ]);
-    expect(state).toEqual({ nextIndex: 2, openWindow: 5 });
+    expect(state).toEqual({ nextIndex: 2, openWindow: 10 });
   });
 
   it("chains through interior first-half windows one lock+open pair per boundary crossed", () => {
     const { actions } = runTicks([
       { period: "pre", minute: 0 },
-      { period: "first_half", minute: 0 },
       { period: "first_half", minute: 5 },
       { period: "first_half", minute: 10 },
       { period: "first_half", minute: 15 },
     ]);
     expect(actions).toEqual([
-      { kind: "open", windowStart: 0 },
-      { kind: "lock", windowStart: 0 },
       { kind: "open", windowStart: 5 },
       { kind: "lock", windowStart: 5 },
       { kind: "open", windowStart: 10 },

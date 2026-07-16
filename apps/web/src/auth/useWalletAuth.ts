@@ -16,6 +16,8 @@ export interface WalletAuth {
   error?: string;
   signIn: () => Promise<void>;
   signOut: () => void;
+  /** Adopt a session issued elsewhere (the join flow returns a token on seat — one signature). */
+  setSession: (token: string, user: User) => void;
 }
 
 // Persist the session so a reload / navigation doesn't force another wallet signature.
@@ -100,24 +102,27 @@ export function useWalletAuth(): WalletAuth {
     clearSession();
   }, []);
 
-  // Auto sign-in on connect (once per address, no retry after rejection). A restored session for a
-  // different wallet is dropped first so we re-sign for the wallet that's actually connected.
-  const autoSignedFor = useRef<string | null>(null);
+  // Adopt a session minted by the join flow (backend issues a token on seat), so there's just one
+  // wallet signature to play — no separate sign-in message.
+  const setSession = useCallback((newToken: string, newUser: User) => {
+    setAuthToken(newToken);
+    setUser(newUser);
+    setToken(newToken);
+    setStatus("idle");
+    setError(undefined);
+    sessionAddress.current = newUser.walletAddress;
+    saveSession({ token: newToken, user: newUser, address: newUser.walletAddress });
+  }, []);
+
+  // No auto sign-in: identity comes from the join. Only drop a restored session that belongs to a
+  // different wallet than the one now connected.
   useEffect(() => {
-    if (!connected || !publicKey) {
-      autoSignedFor.current = null;
-      return;
-    }
+    if (!connected || !publicKey) return;
     const address = publicKey.toBase58();
     if (user && sessionAddress.current && sessionAddress.current !== address) {
       signOut();
-      return;
     }
-    if (!user && status === "idle" && autoSignedFor.current !== address) {
-      autoSignedFor.current = address;
-      void signIn();
-    }
-  }, [connected, publicKey, user, status, signIn, signOut]);
+  }, [connected, publicKey, user, signOut]);
 
   return {
     connected,
@@ -128,5 +133,6 @@ export function useWalletAuth(): WalletAuth {
     error,
     signIn,
     signOut,
+    setSession,
   };
 }

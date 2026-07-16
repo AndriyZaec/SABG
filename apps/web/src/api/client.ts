@@ -6,6 +6,8 @@ import type {
   LeaderboardResponse,
   Match,
   MatchListResponse,
+  PrepareEntryResponse,
+  SubmitEntryResponse,
   WalletNonceRequest,
   WalletNonceResponse,
   WalletSignInRequest,
@@ -78,12 +80,15 @@ export interface PrimaryArena {
 
 export async function fetchPrimaryArena(): Promise<PrimaryArena | null> {
   if (USE_MOCK) return null;
+  // Not every seeded match has an arena, and /matches order isn't arena order — scan for the match
+  // that actually has one, preferring a joinable/running arena over a finished one.
   const { matches } = await get<MatchListResponse>("/matches");
-  const match = matches[0];
-  if (!match) return null;
-  const { arenas } = await get<ArenaListResponse>(`/arenas?matchId=${match.id}`);
-  const arena = arenas[0];
-  return arena ? { arena, match } : null;
+  const found: PrimaryArena[] = [];
+  for (const match of matches) {
+    const { arenas } = await get<ArenaListResponse>(`/arenas?matchId=${match.id}`);
+    for (const arena of arenas) found.push({ arena, match });
+  }
+  return found.find((p) => p.arena.status === "lobby" || p.arena.status === "live") ?? found[0] ?? null;
 }
 
 /** Full arena detail (match + current state + round) for the live arena. */
@@ -105,5 +110,25 @@ export async function registerEntry(
     `/arenas/${arenaId}/entry`,
     { txSignature },
     true,
+  );
+}
+
+/** Backend-orchestrated entry, step 1: ask the backend to build the buy_entry tx to sign. */
+export async function prepareEntry(arenaId: string, walletAddress: string): Promise<PrepareEntryResponse> {
+  return post<{ walletAddress: string }, PrepareEntryResponse>(
+    `/arenas/${arenaId}/entry/prepare`,
+    { walletAddress },
+  );
+}
+
+/** Step 2: hand back the signed tx; backend submits + seats + returns a session token. */
+export async function submitEntry(
+  arenaId: string,
+  prepareId: string,
+  signedTx: string,
+): Promise<SubmitEntryResponse> {
+  return post<{ prepareId: string; signedTx: string }, SubmitEntryResponse>(
+    `/arenas/${arenaId}/entry/submit`,
+    { prepareId, signedTx },
   );
 }

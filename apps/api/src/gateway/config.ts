@@ -21,17 +21,11 @@ const envSchema = z.object({
   /** Comma-separated CORS origins; "*" (default) matches the mock's permissive dev behavior. */
   CORS_ORIGINS: z.string().default("*"),
   /**
-   * Speeds up the demo replay's round lead time (spec §5 default is >=60s). Mirrors the mock's
-   * MOCK_LEAD_MS override so a manual walkthrough doesn't take 17 rounds x 60s+.
+   * Real seconds per match-minute for the demo replay — the single speed knob. Drives both the
+   * clock pacing and the countdown projection (they must match), so rounds open/lock/settle at a
+   * watchable, truthful cadence. Small = compressed demo; ~60 = real-match pace.
    */
-  GATEWAY_LEAD_TIME_SECONDS: z.coerce.number().int().positive().optional(),
-  /**
-   * Wall-clock delay between fixture messages in the demo replay (gateway/run.ts). The recorded
-   * fixture's own match-clock signals have no built-in pacing — replayed with 0 delay, all 17
-   * rounds resolve in milliseconds. A small per-message delay makes a manual WS walkthrough
-   * actually watchable in real time.
-   */
-  GATEWAY_REPLAY_DELAY_MS: z.coerce.number().int().nonnegative().default(200),
+  GATEWAY_SECONDS_PER_MATCH_MINUTE: z.coerce.number().positive().default(6),
   /**
    * Pre-kickoff lobby window: the demo arena stays `lobby` this long after the server is up so bots
    * and the human can join, then flips `live` and the replay starts. Longer when filming an on-chain
@@ -63,9 +57,8 @@ export const gatewayConfig = {
   cors: {
     origins: env.CORS_ORIGINS === "*" ? true : env.CORS_ORIGINS.split(",").map((o) => o.trim()),
   },
-  replay: {
-    leadTimeSeconds: env.GATEWAY_LEAD_TIME_SECONDS,
-    delayMs: env.GATEWAY_REPLAY_DELAY_MS,
+  clock: {
+    secondsPerMatchMinute: env.GATEWAY_SECONDS_PER_MATCH_MINUTE,
   },
   lobby: {
     seconds: env.GATEWAY_LOBBY_SECONDS,

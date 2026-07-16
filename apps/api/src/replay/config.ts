@@ -11,8 +11,6 @@ const envSchema = z.object({
   REPLAY_SPEED: z.coerce.number().positive().default(60),
   /** Clamp on any single inter-message wait (real ms, pre-speed) — bounds idle gaps like halftime. */
   REPLAY_MAX_GAP_MS: z.coerce.number().int().nonnegative().default(2_000),
-  /** Overrides RoundEngine's default (spec §5 minimum 60s) so rounds open/lock promptly under the sped-up clock. */
-  REPLAY_LEAD_TIME_SECONDS: z.coerce.number().int().positive().optional(),
   /** Number of scripted bot players in the headless demo. */
   REPLAY_BOT_COUNT: z.coerce.number().int().positive().default(8),
   LOG_LEVEL: z.string().default("info"),
@@ -31,7 +29,6 @@ const env = parsed.data;
 export const replayConfig = {
   speed: env.REPLAY_SPEED,
   maxGapMs: env.REPLAY_MAX_GAP_MS,
-  leadTimeSeconds: env.REPLAY_LEAD_TIME_SECONDS,
   botCount: env.REPLAY_BOT_COUNT,
   log: {
     level: env.LOG_LEVEL,
