@@ -7,7 +7,7 @@
 // against devnet for the first time (it had only ever run with ONCHAIN_ARENAS_ENABLED=false
 // before). The default import exposes all four correctly.
 import anchor from "@coral-xyz/anchor";
-import { Connection, Keypair, PublicKey } from "@solana/web3.js";
+import { Connection, Keypair, PublicKey, Transaction } from "@solana/web3.js";
 import bs58 from "bs58";
 import { ARENA_IDL } from "@arena/contracts/onchain";
 import { onchainConfig } from "./config.js";
@@ -39,8 +39,18 @@ type RpcBuilder = {
   accounts: (a: Record<string, PublicKey>) => RpcBuilder;
   remainingAccounts: (r: { pubkey: PublicKey; isWritable: boolean; isSigner: boolean }[]) => RpcBuilder;
   rpc: () => Promise<string>;
+  transaction: () => Promise<Transaction>;
 };
 type LooseMethods = Record<string, (...args: unknown[]) => RpcBuilder>;
+
+/** entry_pass PDA — same seeds as the program & frontend (deriveEntryPass). */
+function deriveEntryPass(programId: PublicKey, arena: PublicKey, player: PublicKey): PublicKey {
+  const [entryPass] = PublicKey.findProgramAddressSync(
+    [Buffer.from("entry"), arena.toBuffer(), player.toBuffer()],
+    programId,
+  );
+  return entryPass;
+}
 
 function buildProgram(): { program: anchor.Program; authority: Keypair } {
   if (!onchainConfig.authoritySecret) {
@@ -74,6 +84,38 @@ export async function provisionArena(entryFeeLamports: number): Promise<Provisio
     .rpc();
 
   return { onchainArenaId, escrowAccount: escrow.toBase58(), signature };
+}
+
+/**
+ * Build an unsigned `buy_entry` tx for the user to sign. The user (`player`) is the sole signer
+ * and fee payer — the backend never signs it, only submits it (submitSignedEntry). Returns the
+ * base64 wire tx; the caller stashes it and hands it to the browser to sign.
+ */
+export async function buildBuyEntryTx(onchainArenaId: number, playerAddress: string): Promise<string> {
+  const { program } = buildProgram();
+  const player = new PublicKey(playerAddress);
+  const { arena, escrow } = deriveArenaPdas(program.programId, new anchor.BN(onchainArenaId));
+  const entryPass = deriveEntryPass(program.programId, arena, player);
+
+  const tx = await (program.methods as unknown as LooseMethods)
+    .buyEntry!()
+    .accounts({ arena, entryPass, escrow, player })
+    .transaction();
+
+  tx.feePayer = player;
+  const { blockhash } = await program.provider.connection.getLatestBlockhash("confirmed");
+  tx.recentBlockhash = blockhash;
+  return tx.serialize({ requireAllSignatures: false }).toString("base64");
+}
+
+/** Submit a user-signed `buy_entry` tx and wait for confirmation; returns the signature. */
+export async function submitSignedEntry(signedTxBase64: string): Promise<string> {
+  const { program } = buildProgram();
+  const connection = program.provider.connection;
+  const raw = Buffer.from(signedTxBase64, "base64");
+  const signature = await connection.sendRawTransaction(raw);
+  await connection.confirmTransaction(signature, "confirmed");
+  return signature;
 }
 
 /** Settle an arena's escrow to the winner wallets (equal split on-chain); returns the tx sig. */
