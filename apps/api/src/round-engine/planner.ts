@@ -4,9 +4,13 @@
 
 import { HALFTIME_WINDOW_START, MATCH_WINDOWS, type MatchPeriod } from "@arena/contracts";
 
-/** Regular-time window starts with the halftime window (spec §3.2) skipped: [0,5,...,40,50,...,85]. */
+/**
+ * Regular-time window starts, halftime window skipped: [5,10,...,40,50,...,85]. The 0:00 window
+ * is also dropped: it would lock at kickoff, giving no answer window at all — so the first
+ * answerable round opens at kickoff and locks at minute 5 like every other round.
+ */
 export const TARGET_WINDOW_STARTS: readonly number[] = MATCH_WINDOWS.filter(
-  (w) => w.start !== HALFTIME_WINDOW_START,
+  (w) => w.start !== HALFTIME_WINDOW_START && w.start !== 0,
 ).map((w) => w.start);
 
 /** Ordering used to detect "we've moved past this window's period" (spec §3.2, §5). */

@@ -34,7 +34,8 @@ export function createInMemoryRuntimeStores(
     // Backs runtime.join(...)'s late-join flow (e.g. replay/run.ts's bots) as much as any
     // upfront-seeded roster — the underlying map just needs a key, seeded or not.
     addPlayer(userId) {
-      innerPlayers.setStatus(userId, "active");
+      // Seed "active" only for a new player — never reset a known player back to active.
+      if (innerPlayers.getStatus(userId) === undefined) innerPlayers.setStatus(userId, "active");
     },
   };
 

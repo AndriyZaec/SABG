@@ -83,8 +83,8 @@ export interface ArenaRuntimeOptions {
   roster: LeaderboardRosterEntry[];
   broadcaster: GatewayBroadcaster;
   persistence?: ArenaPersistence;
-  /** Overrides RoundEngine's default (spec §5 minimum 60s) — for demo pacing (config.replay.leadTimeSeconds). */
-  leadTimeSeconds?: number;
+  /** Real seconds per match-minute for the countdown projection — must match the driver's pace. */
+  secondsPerMatchMinute?: number;
 }
 
 export type SubmitAnswerOutcome =
@@ -137,7 +137,7 @@ export class ArenaRuntime {
     this.roundEngine = new RoundEngine(this.matchId, this.arenaId, {
       getMatchState: () => this.matchStateEngine.snapshot,
       questionProvider: questionGenerator,
-      ...(options.leadTimeSeconds !== undefined ? { leadTimeSeconds: options.leadTimeSeconds } : {}),
+      ...(options.secondsPerMatchMinute !== undefined ? { secondsPerMatchMinute: options.secondsPerMatchMinute } : {}),
       onTransition: (event) => this.onRoundTransition(event),
     });
     this.roundEngine.subscribeTo(this.bus);
@@ -168,13 +168,14 @@ export class ArenaRuntime {
   }
 
   /**
-   * True once at least one round has settled — the first moment a just-seated player could be
-   * unfairly eliminated for a round they couldn't answer. Used to gate the join grace window: a
-   * buy started in the lobby may still be seated during `live` up to this point, not past it.
+   * True once any round has locked — from that point a newly-seated player has already missed an
+   * answerable round (locked rounds can no longer be answered, and are scored "missed" at settle).
+   * Gates the join grace window: a buy started in the lobby may still be seated during `live` up to
+   * the first lock, not past it.
    */
-  hasSettledRound(): boolean {
+  hasLockedRound(): boolean {
     for (const round of this.roundEngine.roundsByWindow.values()) {
-      if (round.status === "settled") return true;
+      if (round.status === "locked" || round.status === "settled") return true;
     }
     return false;
   }
@@ -184,8 +185,8 @@ export class ArenaRuntime {
   }
 
   /**
-   * Join the arena (spec §9: pre-kickoff only — the caller, e.g. rest.ts's /entry handler, must
-   * check `matchState.period === "pre"` before calling this).
+   * Seat a player. Allowed pre-kickoff or during the live grace window before the first round
+   * locks — the caller (rest.ts's /entry/submit) enforces that via `hasLockedRound()`.
    */
   join(userId: Uuid, username: string, joinedAt: string = new Date().toISOString()): void {
     this.arenaPlayerStore.addPlayer(userId);

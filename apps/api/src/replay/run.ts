@@ -35,7 +35,7 @@ function createConsoleBroadcaster(): GatewayBroadcaster {
 export interface ReplayDemoOptions {
   speed?: number;
   maxGapMs?: number;
-  leadTimeSeconds?: number;
+  secondsPerMatchMinute?: number;
   botCount?: number;
   arenaId?: Uuid;
   matchId?: string;
@@ -86,7 +86,9 @@ export function createReplayDemo(options: ReplayDemoOptions = {}): ReplayDemo {
     },
   };
 
-  const leadTimeSeconds = options.leadTimeSeconds ?? replayConfig.leadTimeSeconds;
+  // The ReplayEngine plays the fixture's real timestamps at `speed`x, so one match-minute
+  // (~60 real seconds at the source) takes ~60/speed real seconds — the rate the countdown uses.
+  const secondsPerMatchMinute = options.secondsPerMatchMinute ?? 60 / replayConfig.speed;
   const fixturePath = options.fixturePath;
 
   runtime = new ArenaRuntime({
@@ -100,7 +102,7 @@ export function createReplayDemo(options: ReplayDemoOptions = {}): ReplayDemo {
     roster: [],
     broadcaster: answeringBroadcaster,
     // No persistence — kept DB-free, mirroring arena-runtime.test.ts.
-    ...(leadTimeSeconds !== undefined ? { leadTimeSeconds } : {}),
+    secondsPerMatchMinute,
   });
 
   // Bots join pre-kickoff (spec §9) through the same runtime.join(...) POST /arenas/:id/entry

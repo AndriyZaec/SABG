@@ -18,27 +18,27 @@ describe("RoundEngine", () => {
     expect(events).toHaveLength(1);
     const openEvent = events[0];
     if (openEvent?.type !== "open") throw new Error("expected an open event");
-    expect(openEvent.round.windowStartMinute).toBe(0);
-    expect(openEvent.round.windowEndMinute).toBe(5);
+    expect(openEvent.round.windowStartMinute).toBe(5);
+    expect(openEvent.round.windowEndMinute).toBe(10);
     expect(openEvent.round.status).toBe("open");
     expect(openEvent.round.arenaId).toBe(ARENA_ID);
     expect(openEvent.round.matchId).toBe(FIXTURE_MATCH_ID);
     expect(openEvent.round.settlementCondition).toEqual({
       targetEventType: "shot",
       targetTeam: "any",
-      windowStartMinute: 0,
-      windowEndMinute: 5,
+      windowStartMinute: 5,
+      windowEndMinute: 10,
       resolve: "event_in_window",
     });
     // lockAt is a display estimate only — just confirm it's a well-formed timestamp.
     expect(new Date(openEvent.lockAt).getTime()).not.toBeNaN();
-    expect(engine.roundsByWindow.get(0)?.status).toBe("open");
+    expect(engine.roundsByWindow.get(5)?.status).toBe("open");
 
-    bus.publish({ kind: "clock", period: "first_half", matchMinute: 0, running: true, timestamp: "t1" });
+    bus.publish({ kind: "clock", period: "first_half", matchMinute: 5, running: true, timestamp: "t1" });
 
     const lockEvent = events.find((e) => e.type === "lock");
-    expect(lockEvent).toEqual({ type: "lock", roundId: openEvent.round.id, windowStartMinute: 0 });
-    const stored = engine.roundsByWindow.get(0);
+    expect(lockEvent).toEqual({ type: "lock", roundId: openEvent.round.id, windowStartMinute: 5 });
+    const stored = engine.roundsByWindow.get(5);
     expect(stored?.status).toBe("locked");
     expect(stored?.id).toBe(openEvent.round.id); // same round, updated in place — not a new one
     expect(stored?.lockedAt).toBeDefined();
@@ -68,7 +68,7 @@ describe("RoundEngine", () => {
     expect(engine.roundsByWindow.size).toBe(0);
   });
 
-  it("replaying fixture 18179764 opens and locks exactly the 17 non-halftime windows, in order, one at a time", () => {
+  it("replaying fixture 18179764 opens and locks exactly the 16 non-halftime windows, in order, one at a time", () => {
     const bus = new MatchSignalBus();
     const events: RoundLifecycleEvent[] = [];
     const engine = new RoundEngine(FIXTURE_MATCH_ID, ARENA_ID, { onTransition: (e) => events.push(e) });
@@ -100,8 +100,8 @@ describe("RoundEngine", () => {
     }
     expect(currentlyOpen).toBeUndefined();
 
-    // All 17 rounds end up locked in the engine's own map.
-    expect(engine.roundsByWindow.size).toBe(17);
+    // All 16 rounds end up locked in the engine's own map.
+    expect(engine.roundsByWindow.size).toBe(16);
     for (const round of engine.roundsByWindow.values()) {
       expect(round.status).toBe("locked");
     }

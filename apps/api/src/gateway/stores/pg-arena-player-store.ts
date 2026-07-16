@@ -25,7 +25,9 @@ export function createPgArenaPlayerStore(arenaId: Uuid, writeQueue: WriteQueue):
     },
 
     addPlayer(userId) {
-      statusByUser.set(userId, "active");
+      // Seed "active" only for a genuinely new player — never reset a known player (e.g. an
+      // idempotent re-join of someone already eliminated) back to active.
+      if (!statusByUser.has(userId)) statusByUser.set(userId, "active");
       void writeQueue.enqueue(arenaId, () => arenaPlayerRepository.join(arenaId, userId).then(() => undefined));
     },
 

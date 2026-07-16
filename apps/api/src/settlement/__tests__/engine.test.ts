@@ -198,7 +198,7 @@ describe("SettlementEngine", () => {
     ]);
   });
 
-  it("replaying fixture 18179764 through Ingestion -> RoundEngine -> SettlementEngine settles all 17 rounds", () => {
+  it("replaying fixture 18179764 through Ingestion -> RoundEngine -> SettlementEngine settles all 16 rounds", () => {
     const bus = new MatchSignalBus();
 
     // Bridge round engine <-> settlement engine exactly as live/run.ts wires it: forward-declare
@@ -223,7 +223,7 @@ describe("SettlementEngine", () => {
     replayFixture(bus, FIXTURE_MATCH_ID);
 
     const rounds = [...roundEngine.roundsByWindow.values()];
-    expect(rounds).toHaveLength(17);
+    expect(rounds).toHaveLength(16);
     for (const round of rounds) {
       expect(round.status).toBe("settled");
       expect(round.settledBy === "early" || round.settledBy === "window_end").toBe(true);

@@ -266,10 +266,11 @@ export function createRestRouter(runtimeLookup: ArenaRuntimeLookup): RouterType 
         return;
       }
 
-      // Joinable re-check at the last safe moment: lobby, or the grace into live before any round
-      // settles. Not joinable → do NOT submit → the user's SOL never moves (no strand).
+      // Joinable re-check at the last safe moment: lobby, or the grace into live before the first
+      // round locks (seating past a lock would eliminate the player for a round they couldn't
+      // answer). Not joinable → do NOT submit → the user's SOL never moves (no strand).
       const runtime = runtimeLookup.getRuntime(arenaId);
-      const joinable = arena.status === "lobby" || (arena.status === "live" && runtime?.hasSettledRound() === false);
+      const joinable = arena.status === "lobby" || (arena.status === "live" && runtime?.hasLockedRound() === false);
       if (!joinable) {
         res.status(409).json({ error: "arena_not_joinable", message: "Arena is no longer joinable" });
         return;
