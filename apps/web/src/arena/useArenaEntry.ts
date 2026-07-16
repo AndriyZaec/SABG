@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { BN } from "@coral-xyz/anchor";
-import { LAMPORTS_PER_SOL } from "@solana/web3.js";
+import { LAMPORTS_PER_SOL, Transaction } from "@solana/web3.js";
 import {
   DEFAULT_ENTRY_FEE_LAMPORTS,
   DEMO_ARENA_ID,
@@ -9,7 +9,21 @@ import {
   deriveEntryPass,
   useArenaProgram,
 } from "../solana/program.js";
-import { registerEntry } from "../api/client.js";
+import { prepareEntry, submitEntry } from "../api/client.js";
+import { useAuth } from "../auth/AuthContext.js";
+
+/** Browser-safe base64 <-> bytes (no Node Buffer) for the wire transaction. */
+function b64ToBytes(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+function bytesToB64(bytes: Uint8Array): string {
+  let bin = "";
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin);
+}
 
 type Status = "loading" | "idle" | "working" | "error";
 
@@ -28,7 +42,7 @@ export interface ArenaEntry {
   info: ArenaInfo | null;
   hasEntry: boolean;
   createArena: () => Promise<void>;
-  buyEntry: () => Promise<void>;
+  join: () => Promise<void>;
   refresh: () => Promise<void>;
 }
 
@@ -43,7 +57,8 @@ const toSol = (lamports: { toString(): string }) => Number(lamports.toString()) 
 /** Reads the target arena and lets the connected wallet create it (demo) / buy an entry. */
 export function useArenaEntry(options: ArenaEntryOptions = {}): ArenaEntry {
   const program = useArenaProgram();
-  const { publicKey } = useWallet();
+  const { publicKey, signTransaction } = useWallet();
+  const { setSession } = useAuth();
   const { onchainArenaId, backendArenaId } = options;
 
   // Backend-provisioned id when available, else the standalone demo arena.
@@ -120,18 +135,22 @@ export function useArenaEntry(options: ArenaEntryOptions = {}): ArenaEntry {
     );
   }, [program, publicKey, arenaId, run]);
 
-  const buyEntry = useCallback(async () => {
-    if (!program || !publicKey) return;
-    const { arena } = deriveArenaPdas(program.programId, arenaId);
+  // One-signature join: backend builds the buy_entry tx, the user signs it, backend submits + seats
+  // + issues the session token. Payment and seat are one backend-owned act — no strand possible.
+  const join = useCallback(async () => {
+    if (!publicKey || !signTransaction || !backendArenaId) return;
     await run(async () => {
-      const signature = await program.methods
-        .buyEntry()
-        .accountsPartial({ arena, player: publicKey })
-        .rpc();
-      // Register the entry with the backend so the player joins the arena game.
-      if (backendArenaId) await registerEntry(backendArenaId, signature);
+      const wallet = publicKey.toBase58();
+      const { prepareId, tx } = await prepareEntry(backendArenaId, wallet);
+      const signed = await signTransaction(Transaction.from(b64ToBytes(tx)));
+      const res = await submitEntry(backendArenaId, prepareId, bytesToB64(signed.serialize()));
+      setSession(res.token, {
+        id: res.player.userId,
+        walletAddress: wallet,
+        username: `fan_${wallet.slice(0, 6)}`,
+      });
     });
-  }, [program, publicKey, arenaId, backendArenaId, run]);
+  }, [publicKey, signTransaction, backendArenaId, run, setSession]);
 
   return {
     ready: program !== null,
@@ -140,7 +159,7 @@ export function useArenaEntry(options: ArenaEntryOptions = {}): ArenaEntry {
     info,
     hasEntry,
     createArena,
-    buyEntry,
+    join,
     refresh,
   };
 }

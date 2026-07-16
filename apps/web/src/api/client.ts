@@ -6,6 +6,8 @@ import type {
   LeaderboardResponse,
   Match,
   MatchListResponse,
+  PrepareEntryResponse,
+  SubmitEntryResponse,
   WalletNonceRequest,
   WalletNonceResponse,
   WalletSignInRequest,
@@ -108,5 +110,25 @@ export async function registerEntry(
     `/arenas/${arenaId}/entry`,
     { txSignature },
     true,
+  );
+}
+
+/** Backend-orchestrated entry, step 1: ask the backend to build the buy_entry tx to sign. */
+export async function prepareEntry(arenaId: string, walletAddress: string): Promise<PrepareEntryResponse> {
+  return post<{ walletAddress: string }, PrepareEntryResponse>(
+    `/arenas/${arenaId}/entry/prepare`,
+    { walletAddress },
+  );
+}
+
+/** Step 2: hand back the signed tx; backend submits + seats + returns a session token. */
+export async function submitEntry(
+  arenaId: string,
+  prepareId: string,
+  signedTx: string,
+): Promise<SubmitEntryResponse> {
+  return post<{ prepareId: string; signedTx: string }, SubmitEntryResponse>(
+    `/arenas/${arenaId}/entry/submit`,
+    { prepareId, signedTx },
   );
 }
