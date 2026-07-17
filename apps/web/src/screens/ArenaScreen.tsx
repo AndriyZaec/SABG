@@ -46,7 +46,15 @@ export function ArenaScreen() {
         <div style={{ display: "grid", gap: 20 }}>
           <MatchHeader view={view} />
           {view.round && (
-            <PredictionCard round={view.round} onAnswer={submitAnswer} eliminated={view.myStatus === "eliminated"} />
+            // key={round.roundId} forces a fresh mount per round — PredictionCard's `picked`
+            // state must not survive into the next round (it otherwise looks answered with no
+            // answer ever having been sent for it).
+            <PredictionCard
+              key={view.round.roundId}
+              round={view.round}
+              onAnswer={submitAnswer}
+              eliminated={view.myStatus === "eliminated"}
+            />
           )}
           {pending.length > 0 && <PendingPredictionsList predictions={pending} />}
           <EliminationFeed feed={view.feed} />
