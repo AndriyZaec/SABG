@@ -118,6 +118,7 @@ async function main(): Promise<void> {
     broadcaster,
     persistence,
     secondsPerMatchMinute: gatewayConfig.clock.secondsPerMatchMinute,
+    teamNames: { home: match.homeTeam, away: match.awayTeam },
   });
   wsGateway.registerRuntime(arena.id, runtime);
 

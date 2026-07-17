@@ -21,7 +21,7 @@ export class QuestionGenerator implements QuestionProvider {
     this.previousTargetEventType = targetEventType;
 
     return {
-      question: renderQuestion(targetEventType, targetTeam, ctx.windowStartMinute, ctx.windowEndMinute),
+      question: renderQuestion(targetEventType, targetTeam, ctx.windowStartMinute, ctx.windowEndMinute, ctx.teamNames),
       targetEventType,
       targetTeam,
       settlementCondition: {

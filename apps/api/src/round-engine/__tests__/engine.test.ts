@@ -3,6 +3,7 @@ import { MatchSignalBus } from "../../ingestion/event-bus.js";
 import { replayFixture, FIXTURE_MATCH_ID } from "../../ingestion/replay.js";
 import { RoundEngine, type RoundLifecycleEvent } from "../engine.js";
 import { TARGET_WINDOW_STARTS } from "../planner.js";
+import type { QuestionContext, QuestionProvider } from "../question-provider.js";
 
 const ARENA_ID = "00000000-0000-0000-0000-000000000099";
 
@@ -42,6 +43,38 @@ describe("RoundEngine", () => {
     expect(stored?.status).toBe("locked");
     expect(stored?.id).toBe(openEvent.round.id); // same round, updated in place — not a new one
     expect(stored?.lockedAt).toBeDefined();
+  });
+
+  it("forwards teamNames from RoundEngineOptions into the QuestionContext on every open", () => {
+    const bus = new MatchSignalBus();
+    const contexts: QuestionContext[] = [];
+    const fakeProvider: QuestionProvider = {
+      generate(ctx) {
+        contexts.push(ctx);
+        return {
+          question: "q",
+          targetEventType: "shot",
+          targetTeam: "any",
+          settlementCondition: {
+            targetEventType: "shot",
+            targetTeam: "any",
+            windowStartMinute: ctx.windowStartMinute,
+            windowEndMinute: ctx.windowEndMinute,
+            resolve: "event_in_window",
+          },
+        };
+      },
+    };
+    const engine = new RoundEngine(FIXTURE_MATCH_ID, ARENA_ID, {
+      questionProvider: fakeProvider,
+      teamNames: { home: "England", away: "Argentina" },
+    });
+    engine.subscribeTo(bus);
+
+    bus.publish({ kind: "clock", period: "pre", matchMinute: 0, running: false, timestamp: "t0" });
+
+    expect(contexts).toHaveLength(1);
+    expect(contexts[0]?.teamNames).toEqual({ home: "England", away: "Argentina" });
   });
 
   it("ignores non-clock signals (event, possession)", () => {

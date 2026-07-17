@@ -99,6 +99,20 @@ describe("QuestionGenerator", () => {
     expect(() => generator.generate(ctx(0))).not.toThrow();
   });
 
+  it("threads teamNames from the QuestionContext into the rendered question for team-specific picks", () => {
+    const generator = createQuestionGenerator();
+    const teamNames = { home: "England", away: "Argentina" };
+    const picks = [];
+    for (let m = 0; m < 40; m++) {
+      for (const windowStart of TARGET_WINDOW_STARTS) picks.push(generator.generate({ ...ctx(windowStart), teamNames }));
+    }
+
+    const homePick = picks.find((p) => p.targetTeam === "home");
+    const awayPick = picks.find((p) => p.targetTeam === "away");
+    expect(homePick?.question).toContain("England");
+    expect(awayPick?.question).toContain("Argentina");
+  });
+
   it("subscribeTo(bus) applies every published signal", () => {
     const bus = new MatchSignalBus();
     const generator = createQuestionGenerator();

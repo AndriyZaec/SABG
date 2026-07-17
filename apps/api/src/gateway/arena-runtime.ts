@@ -89,6 +89,9 @@ export interface ArenaRuntimeOptions {
   persistence?: ArenaPersistence;
   /** Real seconds per match-minute for the countdown projection — must match the driver's pace. */
   secondsPerMatchMinute?: number;
+  /** Real home/away team names, forwarded to the RoundEngine/QuestionProvider so questions read
+   *  "England" instead of "home". Falls back to "Home"/"Away" when omitted. */
+  teamNames?: { home: string; away: string };
 }
 
 export type SubmitAnswerOutcome =
@@ -142,6 +145,7 @@ export class ArenaRuntime {
       getMatchState: () => this.matchStateEngine.snapshot,
       questionProvider: questionGenerator,
       ...(options.secondsPerMatchMinute !== undefined ? { secondsPerMatchMinute: options.secondsPerMatchMinute } : {}),
+      ...(options.teamNames !== undefined ? { teamNames: options.teamNames } : {}),
       onTransition: (event) => this.onRoundTransition(event),
     });
     this.roundEngine.subscribeTo(this.bus);
