@@ -2,6 +2,7 @@ import { useParams } from "react-router-dom";
 import { useArenaSocket } from "../arena/live/useArenaSocket.js";
 import { MatchHeader } from "../arena/live/MatchHeader.js";
 import { PredictionCard } from "../arena/live/PredictionCard.js";
+import { PendingPredictionsList } from "../arena/live/PendingPredictionsList.js";
 import { EliminationFeed } from "../arena/live/EliminationFeed.js";
 import { LeaderboardRail } from "../arena/live/LeaderboardRail.js";
 import { Loading } from "../ui/Loading.js";
@@ -18,6 +19,10 @@ export function ArenaScreen() {
       </div>
     );
   }
+
+  // The current round is already shown in full by PredictionCard (incl. its locked-waiting
+  // state) — this list is only the other rounds still awaiting settlement.
+  const pending = (view.pendingPredictions ?? []).filter((p) => p.roundId !== view.round?.roundId);
 
   return (
     <div className="nb-container">
@@ -40,7 +45,18 @@ export function ArenaScreen() {
       <div className="nb-arena-grid">
         <div style={{ display: "grid", gap: 20 }}>
           <MatchHeader view={view} />
-          {view.round && <PredictionCard round={view.round} onAnswer={submitAnswer} />}
+          {view.round && (
+            // key={round.roundId} forces a fresh mount per round — PredictionCard's `picked`
+            // state must not survive into the next round (it otherwise looks answered with no
+            // answer ever having been sent for it).
+            <PredictionCard
+              key={view.round.roundId}
+              round={view.round}
+              onAnswer={submitAnswer}
+              eliminated={view.myStatus === "eliminated"}
+            />
+          )}
+          {pending.length > 0 && <PendingPredictionsList predictions={pending} />}
           <EliminationFeed feed={view.feed} />
         </div>
         <aside style={{ display: "grid", gap: 20 }}>

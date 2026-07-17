@@ -21,7 +21,12 @@ export function loadFixture(fixturePath: string): ScoreSnapshot[] {
 }
 
 export function defaultFixturePath(): string {
-  return path.join(__dirname, "__fixtures__", "fixture-18179764.json");
+  return fixturePathFor(18179764);
+}
+
+/** Path to a recorded fixture by TXODDS fixture id — see `__fixtures__` for what's recorded. */
+export function fixturePathFor(fixtureId: number): string {
+  return path.join(__dirname, "__fixtures__", `fixture-${fixtureId}.json`);
 }
 
 /**

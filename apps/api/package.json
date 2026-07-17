@@ -14,7 +14,8 @@
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:seed": "tsx src/db/seeds/seed-matches.ts"
+    "db:seed": "tsx src/db/seeds/seed-matches.ts",
+    "reset-demo": "tsx src/db/seeds/reset-demo.ts"
   },
   "dependencies": {
     "@arena/auth": "workspace:*",

@@ -119,11 +119,25 @@ export class GatewayWebSocketServer implements GatewayBroadcaster, ArenaRuntimeL
     conns.add(conn);
 
     const cache = this.cacheByArena.get(arenaId);
-    if (cache === undefined) return;
-    if (cache.matchState !== undefined) this.send(conn, cache.matchState);
-    if (cache.round !== undefined) this.send(conn, cache.round);
-    if (cache.leaderboard !== undefined) this.send(conn, cache.leaderboard);
-    if (cache.finished !== undefined) this.send(conn, cache.finished);
+    if (cache !== undefined) {
+      if (cache.matchState !== undefined) this.send(conn, cache.matchState);
+      if (cache.round !== undefined) this.send(conn, cache.round);
+      if (cache.leaderboard !== undefined) this.send(conn, cache.leaderboard);
+      if (cache.finished !== undefined) this.send(conn, cache.finished);
+    }
+
+    // Personal resync (spec §9): the player's own locked-but-unsettled answers, never cached
+    // generically (same reasoning as player.status) — read fresh from the runtime per subscriber.
+    const runtime = this.runtimes.get(arenaId);
+    if (runtime !== undefined) {
+      this.send(conn, { type: "player.pending", predictions: runtime.pendingPredictionsFor(conn.userId) });
+
+      // Personal resync of the player's own status. Without this, a reconnecting eliminated
+      // player would see the answer buttons again until (never, since they're eliminated) a
+      // round they were part of settles again — status is otherwise only ever pushed live.
+      const status = runtime.statusFor(conn.userId);
+      if (status !== undefined) this.send(conn, { type: "player.status", status });
+    }
   }
 
   private removeConnection(conn: Connection): void {
@@ -174,6 +188,7 @@ export class GatewayWebSocketServer implements GatewayBroadcaster, ArenaRuntimeL
         cache.finished = message;
         break;
       case "player.status":
+      case "player.pending":
         break; // personal — never cached/replayed generically.
     }
   }

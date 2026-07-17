@@ -110,6 +110,82 @@ describe("GatewayWebSocketServer", () => {
     socket.close();
   });
 
+  it("pushes the subscriber's personal player.pending snapshot from the live runtime on subscribe", async () => {
+    const token = issueToken("user-1");
+    const socket = connect(token);
+    await waitForOpen(socket);
+    const messages = collectMessages(socket);
+
+    const pendingPredictionsFor = vi.fn(() => [
+      {
+        roundId: "r1",
+        question: "Next corner before minute 30?",
+        windowStartMinute: 25,
+        windowEndMinute: 30,
+        answer: "yes" as const,
+      },
+    ]);
+    gateway.registerRuntime(ARENA_ID, {
+      pendingPredictionsFor,
+      statusFor: () => undefined,
+    } as unknown as ArenaRuntime);
+
+    send(socket, { type: "subscribe", arenaId: ARENA_ID });
+
+    await vi.waitFor(() => {
+      expect(messages.some((m) => m.type === "player.pending")).toBe(true);
+    });
+
+    expect(pendingPredictionsFor).toHaveBeenCalledWith("user-1");
+    const pendingMsg = messages.find((m) => m.type === "player.pending");
+    expect(pendingMsg).toEqual({
+      type: "player.pending",
+      predictions: [
+        {
+          roundId: "r1",
+          question: "Next corner before minute 30?",
+          windowStartMinute: 25,
+          windowEndMinute: 30,
+          answer: "yes",
+        },
+      ],
+    });
+
+    socket.close();
+  });
+
+  it("pushes the subscriber's current status on subscribe (reconnect resync), but nothing when status is unknown", async () => {
+    const tokenEliminated = issueToken("user-eliminated");
+    const socketEliminated = connect(tokenEliminated);
+    await waitForOpen(socketEliminated);
+    const messagesEliminated = collectMessages(socketEliminated);
+
+    gateway.registerRuntime(ARENA_ID, {
+      pendingPredictionsFor: () => [],
+      statusFor: (userId: string) => (userId === "user-eliminated" ? "eliminated" : undefined),
+    } as unknown as ArenaRuntime);
+
+    send(socketEliminated, { type: "subscribe", arenaId: ARENA_ID });
+
+    await vi.waitFor(() => {
+      expect(messagesEliminated.some((m) => m.type === "player.status")).toBe(true);
+    });
+    const statusMsg = messagesEliminated.find((m) => m.type === "player.status");
+    expect(statusMsg).toEqual({ type: "player.status", status: "eliminated" });
+
+    // A different, unknown-to-the-runtime user gets no player.status push on subscribe.
+    const tokenUnknown = issueToken("user-unknown");
+    const socketUnknown = connect(tokenUnknown);
+    await waitForOpen(socketUnknown);
+    const messagesUnknown = collectMessages(socketUnknown);
+    send(socketUnknown, { type: "subscribe", arenaId: ARENA_ID });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(messagesUnknown.some((m) => m.type === "player.status")).toBe(false);
+
+    socketEliminated.close();
+    socketUnknown.close();
+  });
+
   it("only replays the latest round message, not a stale round.open after it locked", async () => {
     const token = issueToken("user-1");
     const socket = connect(token);
@@ -203,7 +279,11 @@ describe("GatewayWebSocketServer", () => {
       ok: true,
       receivedAt: "2024-01-01T00:00:00.000Z",
     }));
-    gateway.registerRuntime(ARENA_ID, { submitAnswer } as unknown as ArenaRuntime);
+    gateway.registerRuntime(ARENA_ID, {
+      submitAnswer,
+      pendingPredictionsFor: () => [],
+      statusFor: () => undefined,
+    } as unknown as ArenaRuntime);
 
     send(socket, { type: "subscribe", arenaId: ARENA_ID });
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -222,7 +302,11 @@ describe("GatewayWebSocketServer", () => {
     await waitForOpen(socket);
 
     const submitAnswer = vi.fn();
-    gateway.registerRuntime(ARENA_ID, { submitAnswer } as unknown as ArenaRuntime);
+    gateway.registerRuntime(ARENA_ID, {
+      submitAnswer,
+      pendingPredictionsFor: () => [],
+      statusFor: () => undefined,
+    } as unknown as ArenaRuntime);
 
     send(socket, { type: "answer", roundId: "round-1", answer: "yes" });
     await new Promise((resolve) => setTimeout(resolve, 50));

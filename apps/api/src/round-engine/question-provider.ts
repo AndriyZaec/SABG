@@ -13,6 +13,9 @@ export interface QuestionContext {
   windowEndMinute: number;
   /** Recent match state, when available — context for a real generator (spec §4.2). Unused by the stub. */
   matchState?: MatchState;
+  /** Real home/away team names for rendering questions (e.g. "England" instead of "home").
+   *  Falls back to "Home"/"Away" labels when not supplied (see templates.ts's renderQuestion). */
+  teamNames?: { home: string; away: string };
 }
 
 export interface GeneratedQuestion {

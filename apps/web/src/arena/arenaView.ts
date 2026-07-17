@@ -1,4 +1,4 @@
-import type { Answer, MatchPeriod, RoundStatus } from "@arena/contracts";
+import type { Answer, ArenaPlayerStatus, MatchPeriod, PendingPrediction, RoundStatus } from "@arena/contracts";
 
 /** The current prediction round as the arena screen needs it. */
 export interface RoundView {
@@ -38,6 +38,13 @@ export interface ArenaView {
   survivors: number;
   totalPlayers: number;
   round?: RoundView;
+  /** This player's own status, from personal player.status pushes (live, on elimination/winning
+   *  a round; and on subscribe/reconnect, since it otherwise wouldn't resync). Undefined until
+   *  the first such push arrives. */
+  myStatus?: ArenaPlayerStatus;
+  /** Rounds that have locked but not yet settled, for which this player submitted an answer
+   *  (spec §8: only ever their own). Full-list snapshot from the server — replace, don't merge. */
+  pendingPredictions?: PendingPrediction[];
   feed: FeedItem[];
   leaderboard: LeaderRow[];
 }
@@ -78,6 +85,15 @@ export function makeDemoView(): ArenaView {
       status: "open",
       lockAt: Date.now() + 45_000,
     },
+    pendingPredictions: [
+      {
+        roundId: "demo-round-prior",
+        question: "Will there be a corner between 20:00 and 25:00?",
+        windowStartMinute: 20,
+        windowEndMinute: 25,
+        answer: "yes",
+      },
+    ],
   };
 }
 

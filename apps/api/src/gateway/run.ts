@@ -1,16 +1,18 @@
 // Gateway entrypoint. Run via `pnpm gateway:dev` (apps/api) or
 // `pnpm --filter @arena/api gateway:dev`.
 //
-// Demo driver (scope decision): drives the real engine pipeline via `replayFixture` over the same
-// recorded fixture (18179764) the engine test suites already use — no Mongo/TxLINE credentials
-// needed. The live worker (src/live/run.ts) can drive the same ArenaRuntime later; the runtime
-// itself is source-agnostic (just a MatchSignalBus consumer).
+// Demo driver (scope decision): drives the real engine pipeline via `replayFixture` over a
+// recorded fixture (default 18179764, the same one the engine test suites replay) — no
+// Mongo/TxLINE credentials needed. Override which recorded match plays via
+// GATEWAY_DEMO_FIXTURE_ID (see gateway/config.ts) — it must have a matching
+// ingestion/__fixtures__/fixture-<id>.json. The live worker (src/live/run.ts) can drive the same
+// ArenaRuntime later; the runtime itself is source-agnostic (just a MatchSignalBus consumer).
 //
 // Demo bootstrap is self-contained: it upserts its own match+arena keyed by `txoddsFixtureId`,
 // independent of `db:seed` (whose matches.json seeds a *different* fixture, 18209181, than the
 // replay uses — see match.repository.ts's doc comment).
 
-import { loadFixture, defaultFixturePath } from "../ingestion/replay.js";
+import { loadFixture, fixturePathFor } from "../ingestion/replay.js";
 import { createMatchSignalProducer } from "../ingestion/match-signal.js";
 import { MatchSignalBus } from "../ingestion/event-bus.js";
 import { resolveFixtureTeams } from "../db/seeds/fixture-metadata.js";
@@ -28,8 +30,8 @@ import { payoutService } from "../payout/index.js";
 import { sleep } from "../shared/sleep.js";
 import { joinBots, withBotAnswers, type DemoBot } from "./demo-bots.js";
 
-/** Same recorded fixture the engine test suites replay — see ingestion/replay.ts. */
-const DEMO_FIXTURE_ID = 18179764;
+/** Which recorded fixture the demo replay drives — see GATEWAY_DEMO_FIXTURE_ID (gateway/config.ts). */
+const DEMO_FIXTURE_ID = gatewayConfig.demo.fixtureId;
 const DEMO_ENTRY_FEE_LAMPORTS = 10_000_000;
 
 /**
@@ -41,7 +43,7 @@ const DEMO_ENTRY_FEE_LAMPORTS = 10_000_000;
  * projects `lockAt` off the same rate, so a round's shown countdown matches when it actually locks.
  */
 async function replayFixturePaced(bus: MatchSignalBus, matchId: string, secondsPerMatchMinute: number): Promise<void> {
-  const raw = loadFixture(defaultFixturePath());
+  const raw = loadFixture(fixturePathFor(DEMO_FIXTURE_ID));
   const producer = createMatchSignalProducer(matchId);
   let lastMinute: number | undefined;
   for (const message of raw) {
@@ -116,6 +118,7 @@ async function main(): Promise<void> {
     broadcaster,
     persistence,
     secondsPerMatchMinute: gatewayConfig.clock.secondsPerMatchMinute,
+    teamNames: { home: match.homeTeam, away: match.awayTeam },
   });
   wsGateway.registerRuntime(arena.id, runtime);
 

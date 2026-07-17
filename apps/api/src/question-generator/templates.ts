@@ -35,16 +35,24 @@ const TEMPLATES: Record<TargetEventType, { any: string; team: string }> = {
   },
 };
 
-/** Renders the natural-language question text for a picked target event type/team (spec §4.2). */
+/**
+ * Renders the natural-language question text for a picked target event type/team (spec §4.2).
+ * `teamNames` supplies the real names (e.g. "England"/"Argentina") for the `{team}` slot; falls
+ * back to "Home"/"Away" labels when omitted (unseeded fixture, or a caller with no match names
+ * in scope) — mirrors `resolveFixtureTeams`'s own fallback (db/seeds/fixture-metadata.ts).
+ */
 export function renderQuestion(
   targetEventType: TargetEventType,
   targetTeam: TeamSide,
   windowStartMinute: number,
   windowEndMinute: number,
+  teamNames?: { home: string; away: string },
 ): string {
   const variant = targetTeam === "any" ? TEMPLATES[targetEventType].any : TEMPLATES[targetEventType].team;
+  const teamLabel =
+    targetTeam === "home" ? teamNames?.home ?? "Home" : targetTeam === "away" ? teamNames?.away ?? "Away" : targetTeam;
   return variant
     .replace("{s}", String(windowStartMinute))
     .replace("{e}", String(windowEndMinute))
-    .replace("{team}", targetTeam);
+    .replace("{team}", teamLabel);
 }

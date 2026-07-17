@@ -117,6 +117,7 @@ runtime = new ArenaRuntime({
   roster: [],
   broadcaster,
   persistence,
+  teamNames: { home: match.homeTeam, away: match.awayTeam },
 });
 
 liveBots = await joinBots(arena.id, runtime, LIVE_BOT_COUNT, LIVE_ENTRY_FEE_LAMPORTS);

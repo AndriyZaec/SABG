@@ -8,8 +8,17 @@ import { Badge } from "../../ui/Badge.js";
 
 const clock = (secs: number) => `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
 
-/** The heart of the arena: question + countdown-to-lock + YES/NO. */
-export function PredictionCard({ round, onAnswer }: { round: RoundView; onAnswer?: (a: Answer) => void }) {
+/** The heart of the arena: question + countdown-to-lock + YES/NO. Eliminated players still see
+ *  the round play out (spectating) but can't submit — the buttons are replaced by a note. */
+export function PredictionCard({
+  round,
+  onAnswer,
+  eliminated = false,
+}: {
+  round: RoundView;
+  onAnswer?: (a: Answer) => void;
+  eliminated?: boolean;
+}) {
   const [picked, setPicked] = useState<Answer | undefined>(round.myAnswer);
   const { remainingMs, locked } = useCountdown(round.lockAt);
 
@@ -38,7 +47,7 @@ export function PredictionCard({ round, onAnswer }: { round: RoundView; onAnswer
         <div className="nb-timer__bar" style={{ width: locked ? "0%" : `${pct}%` }} />
       </div>
 
-      {isOpen && (
+      {isOpen && !eliminated && (
         <div className="nb-yesno">
           <Button variant="survive" lg block onClick={() => answer("yes")} style={picked === "yes" ? pressed : undefined}>
             Yes
@@ -47,6 +56,10 @@ export function PredictionCard({ round, onAnswer }: { round: RoundView; onAnswer
             No
           </Button>
         </div>
+      )}
+
+      {isOpen && eliminated && (
+        <p className="nb-label" style={{ marginTop: 12 }}>You&apos;re eliminated — spectating only.</p>
       )}
 
       {picked && round.status !== "settled" && (

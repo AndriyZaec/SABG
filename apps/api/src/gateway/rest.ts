@@ -341,6 +341,8 @@ export function createRestRouter(runtimeLookup: ArenaRuntimeLookup): RouterType 
       if (!outcome.ok) {
         if (outcome.reason === "round_not_found") {
           notFound(res, "Round not found");
+        } else if (outcome.reason === "eliminated") {
+          res.status(403).json({ error: "eliminated", message: "Eliminated players cannot submit predictions" });
         } else {
           res.status(409).json({ error: "round_locked", message: "Round is no longer open" });
         }

@@ -34,6 +34,9 @@ export interface RoundEngineOptions {
   secondsPerMatchMinute?: number;
   /** Supplies context to the QuestionProvider — wire to a MatchStateEngine's snapshot. */
   getMatchState?: () => MatchState | undefined;
+  /** Real home/away team names, forwarded to the QuestionProvider on every open (see
+   *  question-provider.ts's QuestionContext). Falls back to "Home"/"Away" when omitted. */
+  teamNames?: { home: string; away: string };
   onTransition?: (event: RoundLifecycleEvent) => void;
 }
 
@@ -108,6 +111,7 @@ export class RoundEngine {
       windowStartMinute: windowStart,
       windowEndMinute,
       matchState: this.options.getMatchState?.(),
+      teamNames: this.options.teamNames,
     });
 
     const round: PredictionRound = {

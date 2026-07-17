@@ -57,6 +57,21 @@ export interface PlayerStatusMessage {
   roundId?: Uuid;
 }
 
+/** One locked-but-unsettled round the player has answered (spec §8: their own answer only). */
+export interface PendingPrediction {
+  roundId: Uuid;
+  question: string;
+  windowStartMinute: number;
+  windowEndMinute: number;
+  answer: Answer;
+}
+
+/** Personal snapshot of the player's own pending (locked, unsettled) predictions. */
+export interface PlayerPendingMessage {
+  type: "player.pending";
+  predictions: PendingPrediction[];
+}
+
 export type ServerMessage =
   | RoundOpenMessage
   | RoundLockMessage
@@ -64,7 +79,8 @@ export type ServerMessage =
   | MatchStateMessage
   | LeaderboardMessage
   | ArenaFinishedMessage
-  | PlayerStatusMessage;
+  | PlayerStatusMessage
+  | PlayerPendingMessage;
 
 // ---- Client -> Server -------------------------------------------------------
 
