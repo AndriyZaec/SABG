@@ -1,16 +1,19 @@
 // Resets the gateway:dev demo flow back to a clean lobby. Deletes the demo match/arena (keyed by
-// DEMO_FIXTURE_ID in gateway/run.ts) and everything hanging off it, so the next `gateway:dev`
-// boot's `upsertByTxoddsFixtureId` / `upsertForMatch` recreate both rows fresh with
-// status: "lobby". Scoped to the demo fixture only — leaves db:seed's matches.json fixtures
-// (a different fixture id) untouched.
+// a fixture id — gateway/run.ts's DEMO_FIXTURE_ID by default, or GATEWAY_DEMO_FIXTURE_ID / an
+// explicit CLI arg for a different recorded fixture) and everything hanging off it, so the next
+// `gateway:dev` boot's `upsertByTxoddsFixtureId` / `upsertForMatch` recreate both rows fresh with
+// status: "lobby". Scoped to the given fixture only — leaves db:seed's matches.json fixtures
+// (other fixture ids) untouched.
+//
+// Usage: pnpm --filter @arena/api reset-demo [fixtureId]
 
 import dotenv from "dotenv";
 import { eq } from "drizzle-orm";
 
 dotenv.config();
 
-/** Same fixture id gateway/run.ts bootstraps (DEMO_FIXTURE_ID). */
-const DEMO_FIXTURE_ID = 18179764;
+/** Same fixture id gateway/run.ts bootstraps by default (DEMO_FIXTURE_ID) unless overridden. */
+const DEMO_FIXTURE_ID = Number(process.argv[2] ?? process.env["GATEWAY_DEMO_FIXTURE_ID"] ?? 18179764);
 
 async function main(): Promise<void> {
   const { db } = await import("../client.js");

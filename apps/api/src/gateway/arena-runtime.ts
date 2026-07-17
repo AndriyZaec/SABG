@@ -7,6 +7,9 @@
 // Message-ordering note: within one round's settle, this runtime emits, in this order:
 //   round.settle -> leaderboard.update -> player.status (this round's active/eliminated, personal)
 //   -> [only if the arena just finished] arena.finished -> player.status:"winner" (personal, per winner)
+//   -> player.pending (personal, per answerer of this round — trails everything else; see
+//      pushPendingForAnswerers). The same personal player.pending refresh also fires right after
+//      round.lock, so each answerer sees a round added on lock and dropped on settle.
 // The mock's scripted timeline never interleaves a mid-round finish with its per-round messages
 // (it always finishes after a fixed round count), so there's no existing precedent to match here;
 // this ordering is a deliberate choice (settle before its own leaderboard effects; winner-only
@@ -18,6 +21,7 @@ import type {
   LeaderboardEntry,
   MatchPeriod,
   MatchState,
+  PendingPrediction,
   PredictionResult,
   PredictionRound,
   Score,
@@ -89,7 +93,7 @@ export interface ArenaRuntimeOptions {
 
 export type SubmitAnswerOutcome =
   | { ok: true; receivedAt: string }
-  | { ok: false; reason: "round_not_found" | "round_locked" };
+  | { ok: false; reason: "round_not_found" | "round_locked" | "eliminated" };
 
 export class ArenaRuntime {
   private readonly matchId: Uuid;
@@ -198,10 +202,53 @@ export class ArenaRuntime {
     const round = [...this.roundEngine.roundsByWindow.values()].find((r) => r.id === roundId);
     if (round === undefined) return { ok: false, reason: "round_not_found" };
     if (round.status !== "open") return { ok: false, reason: "round_locked" };
+    if (this.statusFor(userId) === "eliminated") return { ok: false, reason: "eliminated" };
 
     const receivedAt = new Date();
     this.predictionStore.recordAnswer(roundId, userId, answer, receivedAt);
     return { ok: true, receivedAt: receivedAt.toISOString() };
+  }
+
+  /** The player's current status, if known — used to gate submitAnswer and to resync a
+   *  reconnecting client's own status (WS subscribe), since player.status is otherwise only
+   *  ever pushed live, right after the round that changed it settles. */
+  statusFor(userId: Uuid): ArenaPlayerStatus | undefined {
+    return this.arenaPlayerStore.getStatus(userId);
+  }
+
+  /**
+   * The player's own pending predictions: every round that has locked but not yet settled and
+   * for which this user submitted an answer. Multiple can be in flight at once (settlement is
+   * per-window). Pure read over roundsByWindow + the answer cache — used both for the
+   * `player.pending` WS push on lock/settle and the GET /arenas/:id reconnect snapshot.
+   * Spec §8: only ever this user's own answer, never others'.
+   */
+  pendingPredictionsFor(userId: Uuid): PendingPrediction[] {
+    const pending: PendingPrediction[] = [];
+    for (const round of this.roundEngine.roundsByWindow.values()) {
+      if (round.status !== "locked") continue;
+      const answer = this.predictionStore.getAnswers(round.id).get(userId);
+      if (answer === undefined) continue;
+      pending.push({
+        roundId: round.id,
+        question: round.question,
+        windowStartMinute: round.windowStartMinute,
+        windowEndMinute: round.windowEndMinute,
+        answer,
+      });
+    }
+    return pending.sort((a, b) => a.windowStartMinute - b.windowStartMinute);
+  }
+
+  /** Re-push the personal pending snapshot to every user who answered `roundId` — call whenever
+   *  that round enters or leaves the locked-unsettled set (lock / settle). */
+  private pushPendingForAnswerers(roundId: Uuid): void {
+    for (const userId of this.predictionStore.getAnswers(roundId).keys()) {
+      this.broadcaster.sendToUser(this.arenaId, userId, {
+        type: "player.pending",
+        predictions: this.pendingPredictionsFor(userId),
+      });
+    }
   }
 
   private onMatchState(state: MatchState): void {
@@ -243,6 +290,7 @@ export class ArenaRuntime {
       roundId: round.id,
       aggregate: { yesPct, noPct, total },
     });
+    this.pushPendingForAnswerers(round.id);
   }
 
   private onSettled(event: SettlementEvent): void {
@@ -264,6 +312,9 @@ export class ArenaRuntime {
 
     this.flushPendingPlayerStatus(event.roundId);
     this.flushFinishIfPending();
+    // markSettled (above) already flipped this round's status, so pendingPredictionsFor no
+    // longer includes it — each answerer's refreshed snapshot shows it dropped off.
+    this.pushPendingForAnswerers(event.roundId);
   }
 
   /**

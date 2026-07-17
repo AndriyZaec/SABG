@@ -84,11 +84,18 @@ function reduce(view: ArenaView, msg: ServerMessage, myUserId?: string): ArenaVi
       };
     }
     case "player.status": {
+      const next = { ...view, myStatus: msg.status };
+      // A resync push (subscribe/reconnect) carries no roundId and isn't a fresh event to
+      // announce — except "winner", which has no roundId even live (harmless to show again).
+      if (msg.roundId === undefined && msg.status !== "winner") return next;
       const kind = msg.status === "eliminated" ? "eliminated" : "survived";
       const text =
         msg.status === "eliminated" ? "You were eliminated" : msg.status === "winner" ? "You won!" : "You survived";
-      return { ...view, feed: prepend(view.feed, { id: `me-${Date.now()}`, kind, text, minute: view.minute }) };
+      return { ...next, feed: prepend(view.feed, { id: `me-${Date.now()}`, kind, text, minute: view.minute }) };
     }
+    case "player.pending":
+      // Full-list snapshot from the server (re-sent on lock/settle/subscribe) — replace, don't merge.
+      return { ...view, pendingPredictions: msg.predictions };
     case "arena.finished":
       return {
         ...view,
