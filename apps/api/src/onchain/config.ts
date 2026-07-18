@@ -17,6 +17,13 @@ const schema = z.object({
 
 const env = schema.parse(process.env);
 
+if (
+  env.ONCHAIN_ARENAS_ENABLED === "true" &&
+  (!env.ARENA_AUTHORITY_SECRET || env.ARENA_AUTHORITY_SECRET.startsWith("REPLACE_"))
+) {
+  throw new Error("ARENA_AUTHORITY_SECRET is required when ONCHAIN_ARENAS_ENABLED=true");
+}
+
 export const onchainConfig = {
   enabled: env.ONCHAIN_ARENAS_ENABLED === "true",
   rpcUrl: env.ARENA_RPC_URL,

@@ -1,0 +1,9 @@
+{$SABG_HOST:localhost} {
+	encode zstd gzip
+
+	basic_auth {
+		{$ENVIRONMENT_ACCESS_USER} {$ENVIRONMENT_ACCESS_PASSWORD_HASH}
+	}
+
+	reverse_proxy app:4000
+}

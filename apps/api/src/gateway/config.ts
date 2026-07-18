@@ -67,7 +67,9 @@ const env = parsed.data;
 
 if (
   env.NODE_ENV === "production" &&
-  (env.AUTH_SECRET === "dev-insecure-auth-secret" || env.AUTH_SECRET.length < 32)
+  (env.AUTH_SECRET === "dev-insecure-auth-secret" ||
+    env.AUTH_SECRET.startsWith("REPLACE_") ||
+    env.AUTH_SECRET.length < 32)
 ) {
   throw new Error("AUTH_SECRET must be set to a non-default value of at least 32 characters in production");
 }
