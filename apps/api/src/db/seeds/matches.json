@@ -25,5 +25,23 @@
     "kickoff": "2026-07-19T19:00:00Z",
     "homeTeam": "England",
     "awayTeam": "Senegal"
+  },
+  {
+    "fixtureId": 18257865,
+    "sport": "Soccer",
+    "region": "International",
+    "competition": "World Cup > 3rd Place Final",
+    "kickoff": "2026-07-18T21:00:00Z",
+    "homeTeam": "France",
+    "awayTeam": "England"
+  },
+  {
+    "fixtureId": 18257739,
+    "sport": "Soccer",
+    "region": "International",
+    "competition": "World Cup > Final",
+    "kickoff": "2026-07-19T19:00:00Z",
+    "homeTeam": "Spain",
+    "awayTeam": "Argentina"
   }
 ]

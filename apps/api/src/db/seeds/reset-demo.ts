@@ -13,7 +13,7 @@ import { eq } from "drizzle-orm";
 dotenv.config();
 
 /** Same fixture id gateway/run.ts bootstraps by default (DEMO_FIXTURE_ID) unless overridden. */
-const DEMO_FIXTURE_ID = Number(process.argv[2] ?? process.env["GATEWAY_DEMO_FIXTURE_ID"] ?? 18179764);
+const DEMO_FIXTURE_ID = Number(process.argv[2] ?? process.env["GATEWAY_DEMO_FIXTURE_ID"] ?? 18241006);
 
 async function main(): Promise<void> {
   const { db } = await import("../client.js");
