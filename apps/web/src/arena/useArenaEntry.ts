@@ -61,11 +61,15 @@ export function useArenaEntry(options: ArenaEntryOptions = {}): ArenaEntry {
   const { setSession } = useAuth();
   const { onchainArenaId, backendArenaId } = options;
 
-  // Backend-provisioned id when available, else the standalone demo arena.
-  const arenaId = useMemo(
-    () => (onchainArenaId != null ? new BN(onchainArenaId) : DEMO_ARENA_ID),
-    [onchainArenaId],
-  );
+  // Backend-provisioned id when this arena is on-chain; null when it's a real backend arena that
+  // simply isn't on-chain yet (no pass is possible there — must not fall back to the demo arena's
+  // PDA, or a wallet holding the standalone demo's pass would be reported as "joined" here); the
+  // standalone demo arena only when there's no backend arena at all.
+  const targetArenaId = useMemo<BN | null>(() => {
+    if (onchainArenaId != null) return new BN(onchainArenaId);
+    if (backendArenaId != null) return null;
+    return DEMO_ARENA_ID;
+  }, [onchainArenaId, backendArenaId]);
 
   const [status, setStatus] = useState<Status>("loading");
   const [error, setError] = useState<string | undefined>();
@@ -77,7 +81,16 @@ export function useArenaEntry(options: ArenaEntryOptions = {}): ArenaEntry {
     setStatus("loading");
     setError(undefined);
     try {
-      const { arena } = deriveArenaPdas(program.programId, arenaId);
+      if (targetArenaId === null) {
+        // Real backend arena, not provisioned on-chain yet — no pass can exist for it, so never
+        // report "joined" here (see the DEMO_ARENA_ID fallback bug this guards against above).
+        setInfo({ exists: false, entryFeeSol: toSol(DEFAULT_ENTRY_FEE_LAMPORTS), prizePoolSol: 0, playerCount: 0, settled: false });
+        setHasEntry(false);
+        setStatus("idle");
+        return;
+      }
+
+      const { arena } = deriveArenaPdas(program.programId, targetArenaId);
       const account = await program.account.arena.fetchNullable(arena);
       setInfo(
         account
@@ -104,7 +117,7 @@ export function useArenaEntry(options: ArenaEntryOptions = {}): ArenaEntry {
       setStatus("error");
       setError(e instanceof Error ? e.message : "Failed to load arena");
     }
-  }, [program, publicKey, arenaId]);
+  }, [program, publicKey, targetArenaId]);
 
   useEffect(() => {
     void refresh();
@@ -126,14 +139,14 @@ export function useArenaEntry(options: ArenaEntryOptions = {}): ArenaEntry {
   );
 
   const createArena = useCallback(async () => {
-    if (!program || !publicKey) return;
+    if (!program || !publicKey || targetArenaId === null) return;
     await run(() =>
       program.methods
-        .initArena(arenaId, DEFAULT_ENTRY_FEE_LAMPORTS, publicKey, 0)
+        .initArena(targetArenaId, DEFAULT_ENTRY_FEE_LAMPORTS, publicKey, 0)
         .accounts({ authority: publicKey })
         .rpc(),
     );
-  }, [program, publicKey, arenaId, run]);
+  }, [program, publicKey, targetArenaId, run]);
 
   // One-signature join: backend builds the buy_entry tx, the user signs it, backend submits + seats
   // + issues the session token. Payment and seat are one backend-owned act — no strand possible.
