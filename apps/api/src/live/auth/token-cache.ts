@@ -4,7 +4,7 @@
 // the on-chain `subscribe()` call (and spending TXL tokens) every time. Not Redis-grade (no
 // TTL sweeping, single-process only) but enough to survive a restart.
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -13,7 +13,14 @@ interface Entry {
   expiresAt: number;
 }
 
-const CACHE_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", ".txline-cache.json");
+const defaultCacheFile = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "..",
+  "..",
+  ".txline-cache.json",
+);
+const CACHE_FILE = path.resolve(process.env["TXLINE_CACHE_FILE"] ?? defaultCacheFile);
 
 function readStore(): Record<string, Entry> {
   if (!existsSync(CACHE_FILE)) return {};
@@ -25,7 +32,14 @@ function readStore(): Record<string, Entry> {
 }
 
 function writeStore(store: Record<string, Entry>): void {
-  writeFileSync(CACHE_FILE, JSON.stringify(store, null, 2));
+  mkdirSync(path.dirname(CACHE_FILE), { recursive: true });
+  const temporaryFile = `${CACHE_FILE}.${process.pid}.tmp`;
+  try {
+    writeFileSync(temporaryFile, JSON.stringify(store, null, 2), { mode: 0o600 });
+    renameSync(temporaryFile, CACHE_FILE);
+  } finally {
+    rmSync(temporaryFile, { force: true });
+  }
 }
 
 export function getCached(key: string): string | undefined {

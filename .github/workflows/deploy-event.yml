@@ -185,7 +185,7 @@ jobs:
           install -m 0600 /dev/null "$known_hosts_file"
           printf '%s\n' "$SSH_PRIVATE_KEY" > "$key_file"
           printf '%s\n' "$SSH_KNOWN_HOSTS" > "$known_hosts_file"
-          tar -czf "$archive" compose.yml deploy/Caddyfile deploy/postgres-init.sh
+          tar -czf "$archive" compose.yml deploy/Caddyfile deploy/postgres-init.sh deploy/mongo-init.sh
 
           printf '%s' "$GHCR_TOKEN" | ssh -i "$key_file" -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$known_hosts_file" \

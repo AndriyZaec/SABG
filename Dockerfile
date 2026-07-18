@@ -45,7 +45,7 @@ WORKDIR /app
 COPY --from=build --chown=node:node /prod/app/ ./
 COPY --from=build --chown=node:node /workspace/apps/web/dist/ ./web/
 
-RUN mkdir -p /app/audit && chown node:node /app/audit
+RUN mkdir -p /app/audit /app/state && chown node:node /app/audit /app/state
 
 USER node
 
