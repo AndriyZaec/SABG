@@ -8,8 +8,8 @@ on:
         required: true
         type: choice
         options:
-          - "18179764"
           - "18241006"
+          - "18179764"
       confirmation:
         description: Type RESET followed by a space and the selected fixture ID
         required: true

@@ -158,7 +158,7 @@ fi
 current_image=
 current_revision=
 deployed_revision=
-fixture_id=18179764
+fixture_id=18241006
 if [ -f "$deploy_path/.env" ]; then
   while IFS='=' read -r key value; do
     case "$key" in

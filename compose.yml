@@ -139,7 +139,7 @@ services:
       - path: ${SABG_APP_ENV_FILE:-./deploy/app.env}
         format: raw
     environment:
-      GATEWAY_REPLAY_FIXTURE_ID: ${GATEWAY_REPLAY_FIXTURE_ID:-18179764}
+      GATEWAY_REPLAY_FIXTURE_ID: ${GATEWAY_REPLAY_FIXTURE_ID:-18241006}
     depends_on:
       postgres:
         condition: service_healthy

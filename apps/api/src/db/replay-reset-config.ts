@@ -41,7 +41,7 @@ export function parseReplayResetRequest(
     throw new Error("Usage: reset-replay [fixtureId] --force");
   }
 
-  const fixtureId = Number(positionals[0] ?? env["GATEWAY_REPLAY_FIXTURE_ID"] ?? 18179764);
+  const fixtureId = Number(positionals[0] ?? env["GATEWAY_REPLAY_FIXTURE_ID"] ?? 18241006);
   if (!Number.isInteger(fixtureId) || !ALLOWED_REPLAY_FIXTURE_IDS.has(fixtureId)) {
     throw new Error(
       `Fixture ${String(fixtureId)} is not resettable; allowed fixtures: ${[...ALLOWED_REPLAY_FIXTURE_IDS].join(", ")}`,

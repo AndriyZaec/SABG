@@ -53,7 +53,7 @@ async function main(): Promise<void> {
 
     const databaseUrl = process.env["DATABASE_URL"];
     if (!databaseUrl) throw new Error("DATABASE_URL is not set (see .env.example)");
-    const fixtureId = process.env["GATEWAY_REPLAY_FIXTURE_ID"] ?? "18179764";
+    const fixtureId = process.env["GATEWAY_REPLAY_FIXTURE_ID"] ?? "18241006";
     const database = describeDatabase(databaseUrl);
     const resetExitCode = await runChild(resetPath, [
       fixtureId,
