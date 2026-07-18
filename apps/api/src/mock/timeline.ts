@@ -149,6 +149,7 @@ export function startMockTimeline(socket: WebSocket): () => void {
         send(socket, {
           type: "round.settle",
           roundId: round.id,
+          question: round.question,
           correctAnswer: script.correctAnswer,
           settledBy: "window_end",
           survivorsCount: script.survivorsCount,

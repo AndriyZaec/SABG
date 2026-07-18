@@ -30,6 +30,11 @@ function prepend(feed: FeedItem[], item: FeedItem): FeedItem[] {
   return [item, ...feed].slice(0, 20);
 }
 
+/** Keeps feed entries readable — a long question shouldn't blow out the feed item's width. */
+function truncate(text: string, max = 64): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
 /** Fold a server message into the current view. */
 function reduce(view: ArenaView, msg: ServerMessage, myUserId?: string): ArenaView {
   switch (msg.type) {
@@ -64,7 +69,9 @@ function reduce(view: ArenaView, msg: ServerMessage, myUserId?: string): ArenaVi
         feed: prepend(view.feed, {
           id: `settle-${msg.roundId}`,
           kind: "info",
-          text: `Round settled · answer ${msg.correctAnswer.toUpperCase()}`,
+          text: msg.question
+            ? `Round settled · ${truncate(msg.question)} · answer ${msg.correctAnswer.toUpperCase()}`
+            : `Round settled · answer ${msg.correctAnswer.toUpperCase()}`,
           minute: view.minute,
         }),
       };

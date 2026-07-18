@@ -307,6 +307,7 @@ export class ArenaRuntime {
     this.broadcaster.broadcast(this.arenaId, {
       type: "round.settle",
       roundId: event.roundId,
+      question: settled?.question ?? "",
       correctAnswer: event.correctAnswer,
       settledBy: event.settledBy,
       survivorsCount,
