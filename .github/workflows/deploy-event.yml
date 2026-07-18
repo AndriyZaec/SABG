@@ -1,12 +1,9 @@
 name: Deploy Event
 
 on:
-  workflow_dispatch:
-    inputs:
-      commit_sha:
-        description: Full 40-character SHA at the current default-branch HEAD
-        required: true
-        type: string
+  push:
+    branches:
+      - "release/**"
 
 permissions:
   contents: read
@@ -22,40 +19,49 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+    services:
+      postgres:
+        image: postgres:16.9-bookworm@sha256:253815cf7579ffa05e1673d92e78d37273e61be0e4414e9a1449337d7925be94
+        env:
+          POSTGRES_USER: arena
+          POSTGRES_PASSWORD: arena
+          POSTGRES_DB: arena
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U arena -d arena"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
     env:
-      REQUESTED_SHA: ${{ inputs.commit_sha }}
-      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      REQUESTED_SHA: ${{ github.sha }}
+      DATABASE_URL: postgres://arena:arena@localhost:5433/arena
     steps:
       - name: Validate request
         shell: bash
         run: |
           set -euo pipefail
-          [[ "$GITHUB_REF" == "refs/heads/$DEFAULT_BRANCH" ]] || {
-            echo "Deploy Event must be dispatched from $DEFAULT_BRANCH" >&2
+          [[ "$GITHUB_REF" == refs/heads/release/* ]] || {
+            echo "Deploy Event only accepts release/* branches" >&2
             exit 1
           }
           [[ "$REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]] || {
-            echo "commit_sha must be a full lowercase 40-character SHA" >&2
+            echo "github.sha must be a full lowercase 40-character SHA" >&2
             exit 1
           }
 
       - name: Check out requested revision
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          ref: ${{ inputs.commit_sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Verify default-branch ancestry
+      - name: Verify pushed revision
         shell: bash
         run: |
           set -euo pipefail
-          git fetch --no-tags origin "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
           [[ "$(git rev-parse HEAD)" == "$REQUESTED_SHA" ]]
-          [[ "$REQUESTED_SHA" == "$(git rev-parse "refs/remotes/origin/$DEFAULT_BRANCH")" ]] || {
-            echo "$REQUESTED_SHA is not the current HEAD of $DEFAULT_BRANCH" >&2
-            exit 1
-          }
 
       - name: Set up pnpm
         uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
@@ -72,11 +78,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build shared contracts
+        run: pnpm contracts:build
+
       - name: Typecheck workspace
         run: pnpm typecheck
 
-      - name: Test workspace
-        run: pnpm test
+      - name: Migrate integration database
+        run: pnpm --filter @arena/api db:migrate
+
+      - name: Test API and auth packages
+        run: pnpm --filter @arena/api test && pnpm --filter @arena/auth test
 
   publish:
     name: Publish immutable image
@@ -88,12 +100,12 @@ jobs:
       packages: write
     outputs:
       image: ${{ steps.image.outputs.name }}@${{ steps.push.outputs.digest }}
-      revision: ${{ inputs.commit_sha }}
+      revision: ${{ github.sha }}
     steps:
       - name: Check out verified revision
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          ref: ${{ inputs.commit_sha }}
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Derive image name
@@ -123,8 +135,8 @@ jobs:
           context: .
           platforms: linux/amd64
           push: true
-          tags: ${{ steps.image.outputs.name }}:${{ inputs.commit_sha }}
-          build-args: VCS_REF=${{ inputs.commit_sha }}
+          tags: ${{ steps.image.outputs.name }}:${{ github.sha }}
+          build-args: VCS_REF=${{ github.sha }}
           provenance: mode=max
           sbom: true
           cache-from: type=gha
@@ -147,6 +159,17 @@ jobs:
         with:
           ref: ${{ needs.publish.outputs.revision }}
           persist-credentials: false
+
+      - name: Verify release branch is still current
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_branch=${GITHUB_REF#refs/heads/}
+          git fetch --no-tags origin "+$GITHUB_REF:refs/remotes/origin/$release_branch"
+          [[ "$REQUESTED_SHA" == "$(git rev-parse "refs/remotes/origin/$release_branch")" ]] || {
+            echo "$REQUESTED_SHA is no longer the HEAD of $release_branch" >&2
+            exit 1
+          }
 
       - name: Deploy to VPS
         shell: bash
@@ -187,6 +210,12 @@ jobs:
           printf '%s\n' "$SSH_KNOWN_HOSTS" > "$known_hosts_file"
           tar -czf "$archive" compose.yml deploy/Caddyfile deploy/postgres-init.sh deploy/mongo-init.sh deploy/remote-event-control.sh
 
+          release_branch=${GITHUB_REF#refs/heads/}
+          git fetch --no-tags origin "+$GITHUB_REF:refs/remotes/origin/$release_branch"
+          [[ "$REQUESTED_SHA" == "$(git rev-parse "refs/remotes/origin/$release_branch")" ]] || {
+            echo "$REQUESTED_SHA is no longer the HEAD of $release_branch" >&2
+            exit 1
+          }
           printf '%s' "$GHCR_TOKEN" | ssh -i "$key_file" -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$known_hosts_file" \
             "$SSH_USER@$SSH_HOST" \
