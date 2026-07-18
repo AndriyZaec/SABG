@@ -19,7 +19,7 @@ import { ArenaRuntime, type ArenaPersistence, type GatewayBroadcaster } from "..
 import { WriteQueue } from "../gateway/stores/write-queue.js";
 import { createPgPredictionStore } from "../gateway/stores/pg-prediction-store.js";
 import { createPgArenaPlayerStore } from "../gateway/stores/pg-arena-player-store.js";
-import { resolveFixtureTeams } from "../db/seeds/fixture-metadata.js";
+import { discoverWorldCupFixture } from "./fixture-discovery.js";
 import { matchRepository } from "../db/repositories/match.repository.js";
 import { arenaRepository } from "../db/repositories/arena.repository.js";
 import { predictionRoundRepository } from "../db/repositories/prediction-round.repository.js";
@@ -51,15 +51,15 @@ try {
   logger.error({ err }, "failed to fetch TxLINE API token");
 }
 
-const fixtureId = liveConfig.txodds.fixtureId;
-
-// Real names when the fixture is listed in db/seeds/matches.json — the scores feed itself
-// carries no team names, only "Home"/"Away" for a fixture that isn't seeded yet.
-const teams = resolveFixtureTeams(fixtureId) ?? { homeTeam: "Home", awayTeam: "Away" };
+const selectedFixture = await discoverWorldCupFixture({
+  ...(liveConfig.txodds.fixtureId !== undefined ? { fixtureId: liveConfig.txodds.fixtureId } : {}),
+});
+const fixtureId = selectedFixture.fixtureId;
+const teams = { homeTeam: selectedFixture.homeTeam, awayTeam: selectedFixture.awayTeam };
 const match = await matchRepository.upsertByTxoddsFixtureId(fixtureId, {
   homeTeam: teams.homeTeam,
   awayTeam: teams.awayTeam,
-  startTime: new Date(),
+  startTime: new Date(selectedFixture.startTime),
 });
 const arena = await arenaRepository.upsertForMatch(match.id, {
   entryFeeLamports: LIVE_ENTRY_FEE_LAMPORTS,

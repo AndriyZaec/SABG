@@ -6,12 +6,17 @@
 import dotenv from "dotenv";
 import { z } from "zod";
 import { fileURLToPath } from "node:url";
+import type { DeploymentEnvironment, GameSourceMode } from "@arena/contracts";
 
 dotenv.config();
 
 const envSchema = z.object({
   PORT: z.coerce.number().int().positive().optional(),
   GATEWAY_PORT: z.coerce.number().int().positive().default(4000),
+  DEPLOYMENT_ENV: z.enum(["demo", "live"]).default("demo"),
+  GAME_SOURCE: z.enum(["replay", "live"]).default("replay"),
+  SOLANA_NETWORK: z.literal("devnet").default("devnet"),
+  TXODDS_LIVE_FIXTURE_ID: z.coerce.number().int().positive().optional(),
   /** HMAC secret for session tokens (auth.ts). Dev-only default — set a real secret in prod. */
   AUTH_SECRET: z.string().min(1).default("dev-insecure-auth-secret"),
   /**
@@ -65,6 +70,13 @@ if (
   throw new Error("AUTH_SECRET must be set to a non-default value of at least 32 characters in production");
 }
 
+if (env.DEPLOYMENT_ENV === "live") {
+  throw new Error("The persistent Live Environment is not implemented; use DEPLOYMENT_ENV=demo for this milestone");
+}
+
+const deploymentEnvironment: DeploymentEnvironment = env.DEPLOYMENT_ENV;
+const gameSource: GameSourceMode = env.GAME_SOURCE;
+
 export const gatewayConfig = {
   port: env.PORT ?? env.GATEWAY_PORT,
   auth: {
@@ -79,6 +91,9 @@ export const gatewayConfig = {
   },
   demo: {
     fixtureId: env.GATEWAY_DEMO_FIXTURE_ID,
+  },
+  live: {
+    fixtureId: env.TXODDS_LIVE_FIXTURE_ID,
   },
   lobby: {
     seconds: env.GATEWAY_LOBBY_SECONDS,
@@ -95,5 +110,10 @@ export const gatewayConfig = {
     distDir:
       env.WEB_DIST_DIR ??
       (env.NODE_ENV === "production" ? fileURLToPath(new URL("../../../web/dist/", import.meta.url)) : undefined),
+  },
+  runtime: {
+    deploymentEnvironment,
+    gameSource,
+    sourceLabel: gameSource === "replay" ? "DEMO - RECORDED REPLAY" : "DEMO - LIVE FEED",
   },
 };

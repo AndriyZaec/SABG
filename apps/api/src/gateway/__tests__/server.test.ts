@@ -41,6 +41,19 @@ describe("production gateway server", () => {
     await expect(unavailable.json()).resolves.toEqual({ status: "unavailable" });
   });
 
+  it("exposes only public runtime source metadata", async () => {
+    const runtimeConfig = {
+      deploymentEnvironment: "demo" as const,
+      gameSource: "live" as const,
+      sourceLabel: "DEMO - LIVE FEED",
+    };
+    const baseUrl = await listen(createGatewayServer({ healthCheck: async () => {}, runtimeConfig }));
+
+    const response = await fetch(`${baseUrl}/api/runtime-config`);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(runtimeConfig);
+  });
+
   it("serves the SPA fallback without masking unknown API routes", async () => {
     webDistDir = await mkdtemp(path.join(tmpdir(), "sabg-web-"));
     await writeFile(path.join(webDistDir, "index.html"), "<main>SABG production</main>");

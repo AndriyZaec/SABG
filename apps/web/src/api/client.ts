@@ -7,6 +7,7 @@ import type {
   Match,
   MatchListResponse,
   PrepareEntryResponse,
+  RuntimeConfigResponse,
   SubmitEntryResponse,
   WalletNonceRequest,
   WalletNonceResponse,
@@ -25,6 +26,10 @@ export function setAuthToken(token: string | null): void {
 }
 export function getAuthToken(): string | null {
   return authToken;
+}
+
+export async function fetchRuntimeConfig(): Promise<RuntimeConfigResponse> {
+  return get<RuntimeConfigResponse>("/runtime-config");
 }
 
 async function get<TRes>(path: string): Promise<TRes> {

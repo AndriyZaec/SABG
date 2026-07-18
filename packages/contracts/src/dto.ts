@@ -16,6 +16,16 @@ import type {
   WalletAddress,
 } from "./entities.js";
 
+export type DeploymentEnvironment = "demo" | "live";
+export type GameSourceMode = "replay" | "live";
+
+/** GET /api/runtime-config — public display metadata, never secrets. */
+export interface RuntimeConfigResponse {
+  deploymentEnvironment: DeploymentEnvironment;
+  gameSource: GameSourceMode;
+  sourceLabel: string;
+}
+
 /** POST /auth/nonce — request a fresh nonce to embed in the sign-in message. */
 export interface WalletNonceRequest {
   walletAddress: WalletAddress;

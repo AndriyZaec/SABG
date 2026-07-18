@@ -8,6 +8,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import cors from "cors";
 import express from "express";
+import type { RuntimeConfigResponse } from "@arena/contracts";
 import { checkDatabaseConnection } from "../db/client.js";
 import { gatewayConfig } from "./config.js";
 import { createRestRouter } from "./rest.js";
@@ -21,12 +22,14 @@ export interface GatewayServer {
 export interface GatewayServerOptions {
   healthCheck?: () => Promise<void>;
   webDistDir?: string;
+  runtimeConfig?: RuntimeConfigResponse;
 }
 
 export function createGatewayServer(options: GatewayServerOptions = {}): GatewayServer {
   const wsGateway = new GatewayWebSocketServer();
   const healthCheck = options.healthCheck ?? checkDatabaseConnection;
   const webDistDir = options.webDistDir ?? gatewayConfig.web.distDir;
+  const runtimeConfig = options.runtimeConfig ?? gatewayConfig.runtime;
 
   const app = express();
   app.use(cors({ origin: gatewayConfig.cors.origins }));
@@ -39,6 +42,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
       res.status(503).json({ status: "unavailable" });
     }
   });
+  app.get("/api/runtime-config", (_req, res) => res.json(runtimeConfig));
   // wsGateway also implements ArenaRuntimeLookup — REST and WS share the one runtime registry
   // (see arena-runtime.ts's doc comment on that interface).
   app.use("/api", createRestRouter(wsGateway));

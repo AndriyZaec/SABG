@@ -12,10 +12,9 @@ const envSchema = z.object({
   // Devnet only (CLAUDE.md) — no mainnet keys or funds in this repo.
   SOLANA_NETWORK: z.literal("devnet").default("devnet"),
   SOLANA_WALLET_PRIVATE_KEY: z.string().min(1, "SOLANA_WALLET_PRIVATE_KEY is required"),
-  // The TXODDS Scores API (/scores/stream) — distinct from TxLine's auth/subscription origin
-  // in config/network.ts (API_ORIGIN).
-  TXODDS_BASE_URL: z.string().default("https://api.txodds.com"),
-  TXODDS_LIVE_FIXTURE_ID: z.coerce.number().int().positive().default(18179764),
+  // TXODDS dev API origin; scores and fixture snapshots live below the same `/api` base path.
+  TXODDS_BASE_URL: z.string().default("https://txline-dev.txodds.com/api"),
+  TXODDS_LIVE_FIXTURE_ID: z.coerce.number().int().positive().optional(),
   MONGODB_URI: z.string().min(1, "MONGODB_URI is required"),
   MONGODB_DB: z.string().default("sabg_raw"),
   LOG_LEVEL: z.string().default("info"),

@@ -7,7 +7,7 @@
   "main": "./dist/gateway/run.js",
   "scripts": {
     "dev": "tsx watch src/mock/server.ts",
-    "live:dev": "tsx watch src/live/run.ts",
+    "live:dev": "GAME_SOURCE=live DEPLOYMENT_ENV=demo tsx watch src/gateway/run.ts",
     "gateway:dev": "tsx watch src/gateway/run.ts",
     "replay:dev": "tsx src/replay/run.ts",
     "build": "tsc -p tsconfig.json && pnpm copy:assets",
