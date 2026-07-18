@@ -276,6 +276,12 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
     );
     await releaseGatewayLock?.();
 
+    await db.update(schema.arenas).set({ activePlayersCount: 1 }).where(eq(schema.arenas.id, arenaId));
+    await expect(
+      resetReplayFixture(fixtureId, "localhost:5433/arena", { requireEmptyOffchain: true }),
+    ).rejects.toThrow("active players or on-chain state");
+    await db.update(schema.arenas).set({ activePlayersCount: 0 }).where(eq(schema.arenas.id, arenaId));
+
     const previousArenaId = arenaId;
     const audit = await resetReplayFixture(fixtureId, "localhost:5433/arena");
 

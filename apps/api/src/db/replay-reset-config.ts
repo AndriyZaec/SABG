@@ -3,6 +3,7 @@ const ALLOWED_REPLAY_FIXTURE_IDS = new Set([18179764, 18241006]);
 export interface ReplayResetRequest {
   fixtureId: number;
   database: string;
+  requireEmptyOffchain: boolean;
 }
 
 export function describeDatabase(databaseUrl: string): string {
@@ -35,7 +36,7 @@ export function parseReplayResetRequest(
   }
 
   const positionals = args.filter(
-    (arg) => arg !== "--force" && !arg.startsWith("--confirm-database="),
+    (arg) => arg !== "--force" && arg !== "--require-empty-offchain" && !arg.startsWith("--confirm-database="),
   );
   if (positionals.length > 1) {
     throw new Error("Usage: reset-replay [fixtureId] --force");
@@ -48,5 +49,5 @@ export function parseReplayResetRequest(
     );
   }
 
-  return { fixtureId, database };
+  return { fixtureId, database, requireEmptyOffchain: args.includes("--require-empty-offchain") };
 }

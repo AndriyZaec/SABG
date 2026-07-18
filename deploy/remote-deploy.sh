@@ -44,7 +44,29 @@ compose_with_live_profile() {
   docker compose --profile live --project-directory "$deploy_path" -f "$deploy_path/compose.yml" "$@"
 }
 
-assert_lobby_or_empty() {
+read_staged_caddy_image() {
+  in_caddy=false
+  while IFS= read -r line; do
+    case "$line" in
+      '  caddy:') in_caddy=true ;;
+      '    image: '* )
+        if [ "$in_caddy" = true ]; then
+          printf '%s\n' "${line#    image: }"
+          return 0
+        fi
+        ;;
+      '  '[![:space:]]*:)
+        if [ "$in_caddy" = true ]; then
+          return 1
+        fi
+        ;;
+    esac
+  done < "$staging_dir/compose.yml"
+  return 1
+}
+
+inspect_deploy_arena() {
+  inspected_fixture=$1
   compose up -d --wait --wait-timeout 60 postgres \
     || fail "could not start PostgreSQL to verify current arena status"
   # Variables in the command string expand inside the container's shell.
@@ -55,10 +77,30 @@ assert_lobby_or_empty() {
   if [ -n "$arena_table" ]; then
     # Variables in the command string expand inside the container's shell.
     # shellcheck disable=SC2016
-    status=$(compose exec -T postgres sh -ec \
-      'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At --command="SELECT status::text FROM arena WHERE status <> \$\$lobby\$\$ LIMIT 1"') \
+    compose exec -T -e "INSPECTED_FIXTURE=$inspected_fixture" postgres sh -ec \
+      'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At --command="SELECT concat(count(*), '\''|'\'', count(*) FILTER (WHERE a.active_players_count <> 0 OR a.onchain_arena_id IS NOT NULL), '\''|'\'', count(*) FILTER (WHERE a.status <> '\''lobby'\'')) FROM arena a JOIN \"match\" m ON m.id = a.match_id WHERE m.txodds_fixture_id = $INSPECTED_FIXTURE"' \
       || fail "could not verify current arena status"
-    [ -z "$status" ] || fail "arena is $status; deploy only during a lobby or after a guarded reset"
+  fi
+}
+
+assert_empty_offchain_arena() {
+  arena_state=$1
+  arena_count=0
+  unsafe_arenas=0
+  non_lobby_arenas=0
+  [ -n "$arena_state" ] || return 0
+  arena_count=${arena_state%%|*}
+  arena_details=${arena_state#*|}
+  unsafe_arenas=${arena_details%%|*}
+  non_lobby_arenas=${arena_details#*|}
+  case "$arena_count:$unsafe_arenas:$non_lobby_arenas" in
+    *[!0-9:]*) fail "arena safety query returned an invalid result" ;;
+  esac
+  [ "$arena_count" = 0 ] && return 0
+  [ "$unsafe_arenas" = 0 ] \
+    || fail "$unsafe_arenas arena(s) have active players or on-chain state; deploy refused"
+  if [ "$non_lobby_arenas" != 0 ] && [ "$game_source" != replay ]; then
+    fail "$non_lobby_arenas live arena(s) are outside the lobby; deploy refused"
   fi
 }
 
@@ -69,6 +111,7 @@ succeeded=false
 rollback_needed=false
 migration_may_have_started=false
 game_source=
+live_fixture_id=
 had_compose=false
 had_caddyfile=false
 had_init_script=false
@@ -139,21 +182,22 @@ for required_env in app postgres mongo migrate caddy; do
 done
 
 while IFS='=' read -r key value; do
-  if [ "$key" = GAME_SOURCE ]; then
-    game_source=$value
-    break
-  fi
+  case "$key" in
+    GAME_SOURCE) game_source=$value ;;
+    TXODDS_LIVE_FIXTURE_ID) live_fixture_id=$value ;;
+  esac
 done < "$deploy_path/deploy/app.env"
 case "$game_source" in
   replay) ;;
-  live) export COMPOSE_PROFILES=live ;;
+  live)
+    case "$live_fixture_id" in
+      ''|*[!0-9]*) fail "TXODDS_LIVE_FIXTURE_ID must be set to a positive integer for live deploys" ;;
+    esac
+    [ "$live_fixture_id" -gt 0 ] || fail "TXODDS_LIVE_FIXTURE_ID must be positive"
+    export COMPOSE_PROFILES=live
+    ;;
   *) fail "GAME_SOURCE must be replay or live" ;;
 esac
-
-# A process restart cannot recover an in-memory live game. Check before and after graceful stop.
-if [ -f "$deploy_path/compose.yml" ]; then
-  assert_lobby_or_empty
-fi
 
 current_image=
 current_revision=
@@ -175,12 +219,43 @@ case "$fixture_id" in
   18179764|18241006) ;;
   *) fail "stored fixture is not allowlisted" ;;
 esac
+if [ "$game_source" = live ]; then
+  inspected_fixture_id=$live_fixture_id
+else
+  inspected_fixture_id=$fixture_id
+fi
+
+# Validate the staged proxy configuration before any runtime mutation, then reject games that have
+# players or on-chain state. An empty replay can be reset safely after its runtime is stopped.
+SABG_IMAGE="$image" SABG_PLATFORM=linux/amd64 SABG_VCS_REF="$revision" \
+  GATEWAY_REPLAY_FIXTURE_ID="$fixture_id" \
+  SABG_APP_ENV_FILE="$deploy_path/deploy/app.env" \
+  SABG_POSTGRES_ENV_FILE="$deploy_path/deploy/postgres.env" \
+  SABG_MONGO_ENV_FILE="$deploy_path/deploy/mongo.env" \
+  SABG_MIGRATE_ENV_FILE="$deploy_path/deploy/migrate.env" \
+  SABG_CADDY_ENV_FILE="$deploy_path/deploy/caddy.env" \
+  docker compose --project-directory "$staging_dir" -f "$staging_dir/compose.yml" config --quiet
+caddy_image=$(read_staged_caddy_image) || fail "staged compose file is missing the Caddy image"
+case "$caddy_image" in
+  caddy:*@sha256:*) ;;
+  *) fail "staged Caddy image must be digest-pinned" ;;
+esac
+caddy_digest=${caddy_image##*@sha256:}
+case "$caddy_digest" in
+  *[!0-9a-f]*|'') fail "staged Caddy image digest must be lowercase hexadecimal" ;;
+esac
+[ "${#caddy_digest}" -eq 64 ] || fail "staged Caddy image digest must contain 64 characters"
+docker pull "$caddy_image"
+docker run --rm --network none --read-only --tmpfs /tmp --tmpfs /data --tmpfs /config \
+  --env-file "$deploy_path/deploy/caddy.env" \
+  --mount "type=bind,src=$staging_dir/deploy/Caddyfile,dst=/tmp/sabg-caddyfile,readonly" \
+  "$caddy_image" caddy validate --config /tmp/sabg-caddyfile --adapter caddyfile
+if [ -f "$deploy_path/compose.yml" ]; then
+  arena_state=$(inspect_deploy_arena "$inspected_fixture_id")
+  assert_empty_offchain_arena "$arena_state"
+fi
 
 docker pull "$image"
-if [ -f "$deploy_path/compose.yml" ]; then
-  compose stop --timeout 60 app
-  assert_lobby_or_empty
-fi
 
 mkdir -p "$deploy_path/deploy"
 mkdir -p "$staging_dir/backup"
@@ -209,6 +284,20 @@ if [ -f "$deploy_path/.env" ]; then
   cp "$deploy_path/.env" "$staging_dir/backup/.env"
 fi
 rollback_needed=true
+if [ "$had_compose" = true ]; then
+  compose stop --timeout 60 app
+  arena_state=$(inspect_deploy_arena "$inspected_fixture_id")
+  assert_empty_offchain_arena "$arena_state"
+  if [ "$non_lobby_arenas" != 0 ]; then
+    SABG_IMAGE="$image" docker compose --project-directory "$deploy_path" \
+      -f "$deploy_path/compose.yml" run --rm --no-deps --interactive=false --no-TTY app \
+      node dist/db/seeds/reset-replay.js "$fixture_id" --force \
+      --require-empty-offchain --confirm-database=postgres:5432/arena \
+      || fail "guarded replay reset refused during deploy"
+    printf 'Reset %s empty replay arena(s) for fixture %s before deploy.\n' \
+      "$non_lobby_arenas" "$fixture_id"
+  fi
+fi
 install -m 0644 "$staging_dir/compose.yml" "$deploy_path/compose.yml"
 install -m 0644 "$staging_dir/deploy/Caddyfile" "$deploy_path/deploy/Caddyfile"
 install -m 0755 "$staging_dir/deploy/postgres-init.sh" "$deploy_path/deploy/postgres-init.sh"
@@ -224,7 +313,6 @@ umask 077
 } > "$deploy_path/.env.tmp"
 mv "$deploy_path/.env.tmp" "$deploy_path/.env"
 
-compose run --rm --no-deps caddy caddy validate --config /etc/caddy/Caddyfile
 if [ -n "$current_image" ] && [ "$current_image" != "$image" ] \
   && [ "$current_revision" = "$deployed_revision" ]; then
   {

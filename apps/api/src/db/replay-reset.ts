@@ -27,7 +27,15 @@ export interface ReplayResetAudit {
   }>;
 }
 
-export async function resetReplayFixture(fixtureId: number, database: string): Promise<ReplayResetAudit> {
+export interface ReplayResetOptions {
+  requireEmptyOffchain?: boolean;
+}
+
+export async function resetReplayFixture(
+  fixtureId: number,
+  database: string,
+  options: ReplayResetOptions = {},
+): Promise<ReplayResetAudit> {
   const releaseLock = await tryAcquireFixtureRuntimeLock(fixtureId);
   if (!releaseLock) {
     throw new Error(`Refusing to reset fixture ${fixtureId}: its gateway runtime is active`);
@@ -38,6 +46,7 @@ export async function resetReplayFixture(fixtureId: number, database: string): P
     if (existingMatch) {
       const existingArenas = await db.select().from(arenas).where(eq(arenas.matchId, existingMatch.id));
       for (const arena of existingArenas) {
+        if (options.requireEmptyOffchain) continue;
         if (arena.onchainArenaId != null) await assertArenaRecyclable(arena.onchainArenaId);
       }
     }
@@ -57,7 +66,13 @@ export async function resetReplayFixture(fixtureId: number, database: string): P
         return audit;
       }
 
-      const arenaRows = await tx.select().from(arenas).where(eq(arenas.matchId, match.id));
+      const arenaRows = await tx.select().from(arenas).where(eq(arenas.matchId, match.id)).for("update");
+      if (
+        options.requireEmptyOffchain &&
+        arenaRows.some((arena) => arena.activePlayersCount !== 0 || arena.onchainArenaId !== null)
+      ) {
+        throw new Error(`Refusing to reset fixture ${fixtureId}: an arena has active players or on-chain state`);
+      }
       const roundRows = await tx.select({ id: predictionRounds.id }).from(predictionRounds).where(eq(predictionRounds.matchId, match.id));
       const arenaIds = arenaRows.map((arena) => arena.id);
       const roundIds = roundRows.map((round) => round.id);

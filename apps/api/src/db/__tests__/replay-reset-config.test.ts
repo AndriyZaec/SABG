@@ -28,10 +28,24 @@ describe("parseReplayResetRequest", () => {
     expect(parseReplayResetRequest(["node", "reset-replay", "18179764", ...confirmedArgs], safeEnv)).toEqual({
       fixtureId: 18179764,
       database: "localhost:5433/arena",
+      requireEmptyOffchain: false,
     });
     expect(() =>
       parseReplayResetRequest(["node", "reset-replay", "18257739", ...confirmedArgs], safeEnv),
     ).toThrow("not resettable");
+  });
+
+  it("parses the deployment-only empty off-chain guard", () => {
+    expect(
+      parseReplayResetRequest(
+        ["node", "reset-replay", "18241006", ...confirmedArgs, "--require-empty-offchain"],
+        safeEnv,
+      ),
+    ).toEqual({
+      fixtureId: 18241006,
+      database: "localhost:5433/arena",
+      requireEmptyOffchain: true,
+    });
   });
 
   it("requires confirmation of the redacted database identity", () => {

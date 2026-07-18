@@ -7,13 +7,13 @@ import { parseReplayResetRequest } from "../replay-reset-config.js";
 dotenv.config();
 
 async function main(): Promise<void> {
-  const { fixtureId, database } = parseReplayResetRequest(process.argv, process.env);
+  const { fixtureId, database, requireEmptyOffchain } = parseReplayResetRequest(process.argv, process.env);
 
   const { closeDatabaseConnection } = await import("../client.js");
 
   try {
     const { resetReplayFixture } = await import("../replay-reset.js");
-    const audit = await resetReplayFixture(fixtureId, database);
+    const audit = await resetReplayFixture(fixtureId, database, { requireEmptyOffchain });
     const auditJson = `${JSON.stringify(audit, null, 2)}\n`;
     process.stdout.write(auditJson);
     const auditDir = process.env["REPLAY_RESET_AUDIT_DIR"];
