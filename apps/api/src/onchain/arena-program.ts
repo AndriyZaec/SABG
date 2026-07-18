@@ -7,7 +7,16 @@
 // against devnet for the first time (it had only ever run with ONCHAIN_ARENAS_ENABLED=false
 // before). The default import exposes all four correctly.
 import anchor from "@coral-xyz/anchor";
-import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, Transaction } from "@solana/web3.js";
+import {
+  ComputeBudgetInstruction,
+  ComputeBudgetProgram,
+  Connection,
+  Keypair,
+  LAMPORTS_PER_SOL,
+  PublicKey,
+  Transaction,
+  type TransactionInstruction,
+} from "@solana/web3.js";
 import { createHmac } from "node:crypto";
 import bs58 from "bs58";
 import nacl from "tweetnacl";
@@ -177,15 +186,17 @@ export function verifyPreparedEntryTransaction(
     const prepared = Transaction.from(Buffer.from(preparedTxBase64, "base64"));
     const signed = Transaction.from(Buffer.from(signedTxBase64, "base64"));
     const wallet = new PublicKey(walletAddress);
-    const preparedMessage = prepared.compileMessage();
-    const signedMessage = signed.compileMessage();
     if (
-      preparedMessage.header.numRequiredSignatures !== 1 ||
-      !preparedMessage.accountKeys[0]?.equals(wallet)
+      prepared.signatures.length !== 1 ||
+      signed.signatures.length !== 1 ||
+      !prepared.signatures[0]?.publicKey.equals(wallet) ||
+      !signed.signatures[0]?.publicKey.equals(wallet) ||
+      !prepared.feePayer?.equals(wallet) ||
+      !signed.feePayer?.equals(wallet)
     ) {
       return { ok: false, reason: "unexpected_signers" };
     }
-    if (!sameEntryMessageStructure(preparedMessage, signedMessage)) {
+    if (!sameEntryInstructions(prepared.instructions, signed.instructions)) {
       return { ok: false, reason: "message_changed" };
     }
     const walletSignature = signed.signatures.find(({ publicKey }) => publicKey.equals(wallet))?.signature;
@@ -195,34 +206,41 @@ export function verifyPreparedEntryTransaction(
     }
     return {
       ok: true,
-      blockhashRefreshed: preparedMessage.recentBlockhash !== signedMessage.recentBlockhash,
+      blockhashRefreshed: prepared.recentBlockhash !== signed.recentBlockhash,
     };
   } catch {
     return { ok: false, reason: "invalid_transaction" };
   }
 }
 
-function sameEntryMessageStructure(
-  prepared: ReturnType<Transaction["compileMessage"]>,
-  signed: ReturnType<Transaction["compileMessage"]>,
-): boolean {
-  if (
-    prepared.header.numRequiredSignatures !== signed.header.numRequiredSignatures ||
-    prepared.header.numReadonlySignedAccounts !== signed.header.numReadonlySignedAccounts ||
-    prepared.header.numReadonlyUnsignedAccounts !== signed.header.numReadonlyUnsignedAccounts ||
-    prepared.accountKeys.length !== signed.accountKeys.length ||
-    prepared.instructions.length !== signed.instructions.length
-  ) {
-    return false;
+function sameEntryInstructions(prepared: TransactionInstruction[], signed: TransactionInstruction[]): boolean {
+  const signedEntryInstructions: TransactionInstruction[] = [];
+  for (const instruction of signed) {
+    if (instruction.programId.equals(ComputeBudgetProgram.programId)) {
+      if (instruction.keys.length !== 0) return false;
+      try {
+        ComputeBudgetInstruction.decodeInstructionType(instruction);
+      } catch {
+        return false;
+      }
+      continue;
+    }
+    signedEntryInstructions.push(instruction);
   }
-  if (!prepared.accountKeys.every((key, index) => key.equals(signed.accountKeys[index]!))) return false;
-  return prepared.instructions.every((instruction, index) => {
-    const candidate = signed.instructions[index];
+  if (prepared.length !== signedEntryInstructions.length) return false;
+  return prepared.every((instruction, index) => {
+    const candidate = signedEntryInstructions[index];
     return candidate !== undefined &&
-      instruction.programIdIndex === candidate.programIdIndex &&
-      instruction.data === candidate.data &&
-      instruction.accounts.length === candidate.accounts.length &&
-      instruction.accounts.every((account, accountIndex) => account === candidate.accounts[accountIndex]);
+      instruction.programId.equals(candidate.programId) &&
+      instruction.data.equals(candidate.data) &&
+      instruction.keys.length === candidate.keys.length &&
+      instruction.keys.every((account, accountIndex) => {
+        const candidateAccount = candidate.keys[accountIndex];
+        return candidateAccount !== undefined &&
+          account.pubkey.equals(candidateAccount.pubkey) &&
+          account.isSigner === candidateAccount.isSigner &&
+          account.isWritable === candidateAccount.isWritable;
+      });
   });
 }
 

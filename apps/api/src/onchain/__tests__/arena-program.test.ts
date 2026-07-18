@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as anchor from "@coral-xyz/anchor";
-import { Keypair, PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
+import { ComputeBudgetProgram, Keypair, PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
 import bs58 from "bs58";
 import {
   assertAuthorityCanProvision,
@@ -112,6 +112,30 @@ describe("prepared entry transaction verification", () => {
       ),
     ).toEqual({ ok: true, blockhashRefreshed: true });
 
+    const withPriorityFee = Transaction.from(Buffer.from(prepared, "base64"));
+    withPriorityFee.instructions.unshift(ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1_000 }));
+    withPriorityFee.sign(wallet);
+    expect(
+      verifyPreparedEntryTransaction(
+        prepared,
+        withPriorityFee.serialize().toString("base64"),
+        wallet.publicKey.toBase58(),
+      ),
+    ).toEqual({ ok: true, blockhashRefreshed: false });
+
+    const withExtraTransfer = Transaction.from(Buffer.from(prepared, "base64"));
+    withExtraTransfer.add(
+      SystemProgram.transfer({ fromPubkey: wallet.publicKey, toPubkey: recipient, lamports: 1 }),
+    );
+    withExtraTransfer.sign(wallet);
+    expect(
+      verifyPreparedEntryTransaction(
+        prepared,
+        withExtraTransfer.serialize().toString("base64"),
+        wallet.publicKey.toBase58(),
+      ),
+    ).toEqual({ ok: false, reason: "message_changed" });
+
     expect(verifyPreparedEntryTransaction(prepared, prepared, wallet.publicKey.toBase58())).toEqual({
       ok: false,
       reason: "wallet_signature_missing",
@@ -188,7 +212,7 @@ describe("prepared entry transaction verification", () => {
         addedSigner.serialize({ requireAllSignatures: false }).toString("base64"),
         wallet.publicKey.toBase58(),
       ),
-    ).toEqual({ ok: false, reason: "message_changed" });
+    ).toEqual({ ok: false, reason: "unexpected_signers" });
 
     const unrelated = new Transaction({
       feePayer: wallet.publicKey,
