@@ -203,6 +203,39 @@ case "$command_name" in
     switched=true
     printf 'Event switched live on fixture %s\n' "$argument"
     ;;
+  switch-replay)
+    [ "$confirmation" = "GO REPLAY" ] || fail "confirmation must exactly match GO REPLAY"
+    exec 9>"$deploy_path/.operation.lock"
+    flock -n 9 || fail "another event operation is running"
+    current_source=$(read_env_value "$deploy_path/deploy/app.env" GAME_SOURCE || true)
+    [ "$current_source" = live ] || fail "event source must be live before switching to replay"
+
+    switched=false
+    cp "$deploy_path/deploy/app.env" "$deploy_path/deploy/app.env.before-replay"
+    cleanup_replay_switch() {
+      exit_code=$?
+      set +e
+      if [ "$switched" = false ]; then
+        compose stop --timeout 60 app >/dev/null 2>&1
+        mv "$deploy_path/deploy/app.env.before-replay" "$deploy_path/deploy/app.env"
+        compose_live up -d --wait --wait-timeout 180 app caddy >/dev/null 2>&1 \
+          || printf 'Live event could not be restarted automatically.\n' >&2
+      else
+        rm -f "$deploy_path/deploy/app.env.before-replay"
+      fi
+      exit "$exit_code"
+    }
+    trap cleanup_replay_switch EXIT HUP INT TERM
+
+    compose_live stop --timeout 60 app
+    write_app_source replay
+    compose up -d --wait --wait-timeout 180 app caddy
+    compose exec -T app node -e \
+      "fetch('http://127.0.0.1:4000/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+    compose_live stop mongo mongo-init >/dev/null 2>&1 || true
+    switched=true
+    printf 'Event switched to replay\n'
+    ;;
   logs)
     compose logs --since 15m app
     ;;
