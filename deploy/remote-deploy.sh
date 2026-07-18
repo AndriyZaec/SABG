@@ -73,6 +73,7 @@ had_compose=false
 had_caddyfile=false
 had_init_script=false
 had_mongo_init_script=false
+had_event_control_script=false
 had_metadata=false
 cleanup() {
   exit_code=$?
@@ -102,6 +103,11 @@ cleanup() {
       else
         rm -f "$deploy_path/deploy/mongo-init.sh"
       fi
+      if [ "$had_event_control_script" = true ]; then
+        cp "$staging_dir/backup/remote-event-control.sh" "$deploy_path/deploy/remote-event-control.sh"
+      else
+        rm -f "$deploy_path/deploy/remote-event-control.sh"
+      fi
       if [ "$had_metadata" = true ]; then
         cp "$staging_dir/backup/.env" "$deploy_path/.env"
       else
@@ -125,6 +131,7 @@ tar -xzf "$archive" -C "$staging_dir"
 [ -f "$staging_dir/deploy/Caddyfile" ] || fail "archive is missing deploy/Caddyfile"
 [ -f "$staging_dir/deploy/postgres-init.sh" ] || fail "archive is missing deploy/postgres-init.sh"
 [ -f "$staging_dir/deploy/mongo-init.sh" ] || fail "archive is missing deploy/mongo-init.sh"
+[ -f "$staging_dir/deploy/remote-event-control.sh" ] || fail "archive is missing deploy/remote-event-control.sh"
 for required_env in app postgres mongo migrate caddy; do
   [ -f "$deploy_path/deploy/$required_env.env" ] || fail "missing deploy/$required_env.env"
   [ "$(stat -c %a "$deploy_path/deploy/$required_env.env")" = 600 ] \
@@ -193,6 +200,10 @@ if [ -f "$deploy_path/deploy/mongo-init.sh" ]; then
   had_mongo_init_script=true
   cp "$deploy_path/deploy/mongo-init.sh" "$staging_dir/backup/mongo-init.sh"
 fi
+if [ -f "$deploy_path/deploy/remote-event-control.sh" ]; then
+  had_event_control_script=true
+  cp "$deploy_path/deploy/remote-event-control.sh" "$staging_dir/backup/remote-event-control.sh"
+fi
 if [ -f "$deploy_path/.env" ]; then
   had_metadata=true
   cp "$deploy_path/.env" "$staging_dir/backup/.env"
@@ -202,6 +213,7 @@ install -m 0644 "$staging_dir/compose.yml" "$deploy_path/compose.yml"
 install -m 0644 "$staging_dir/deploy/Caddyfile" "$deploy_path/deploy/Caddyfile"
 install -m 0755 "$staging_dir/deploy/postgres-init.sh" "$deploy_path/deploy/postgres-init.sh"
 install -m 0755 "$staging_dir/deploy/mongo-init.sh" "$deploy_path/deploy/mongo-init.sh"
+install -m 0755 "$staging_dir/deploy/remote-event-control.sh" "$deploy_path/deploy/remote-event-control.sh"
 
 umask 077
 {
@@ -242,6 +254,7 @@ if [ "$had_compose" = true ]; then
   [ "$had_caddyfile" = false ] || cp "$staging_dir/backup/Caddyfile" "$previous_release.tmp/deploy/Caddyfile"
   [ "$had_init_script" = false ] || cp "$staging_dir/backup/postgres-init.sh" "$previous_release.tmp/deploy/postgres-init.sh"
   [ "$had_mongo_init_script" = false ] || cp "$staging_dir/backup/mongo-init.sh" "$previous_release.tmp/deploy/mongo-init.sh"
+  [ "$had_event_control_script" = false ] || cp "$staging_dir/backup/remote-event-control.sh" "$previous_release.tmp/deploy/remote-event-control.sh"
   rm -rf "$previous_release"
   mv "$previous_release.tmp" "$previous_release"
 fi

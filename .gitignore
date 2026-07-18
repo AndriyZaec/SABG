@@ -28,6 +28,7 @@ PLAN.md
 handoff-v.md
 docs/infra/
 deploy/*.env
+deploy/event-control.env
 
 # Editor / OS
 .DS_Store

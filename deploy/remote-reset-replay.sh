@@ -31,6 +31,15 @@ compose() {
   docker compose --project-directory "$deploy_path" -f "$deploy_path/compose.yml" "$@"
 }
 
+current_source=
+while IFS='=' read -r key value; do
+  if [ "$key" = GAME_SOURCE ]; then
+    current_source=$value
+    break
+  fi
+done < "$deploy_path/deploy/app.env"
+[ "$current_source" = replay ] || fail "replay reset requires GAME_SOURCE=replay"
+
 image=
 revision=
 current_fixture=

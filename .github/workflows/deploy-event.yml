@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       commit_sha:
-        description: Full 40-character commit SHA from the default branch
+        description: Full 40-character SHA at the current default-branch HEAD
         required: true
         type: string
 
@@ -52,8 +52,8 @@ jobs:
           set -euo pipefail
           git fetch --no-tags origin "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH"
           [[ "$(git rev-parse HEAD)" == "$REQUESTED_SHA" ]]
-          git merge-base --is-ancestor "$REQUESTED_SHA" "refs/remotes/origin/$DEFAULT_BRANCH" || {
-            echo "$REQUESTED_SHA is not reachable from $DEFAULT_BRANCH" >&2
+          [[ "$REQUESTED_SHA" == "$(git rev-parse "refs/remotes/origin/$DEFAULT_BRANCH")" ]] || {
+            echo "$REQUESTED_SHA is not the current HEAD of $DEFAULT_BRANCH" >&2
             exit 1
           }
 
@@ -145,7 +145,7 @@ jobs:
       - name: Check out trusted operations scripts
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          ref: ${{ needs.publish.outputs.revision }}
           persist-credentials: false
 
       - name: Deploy to VPS
@@ -185,7 +185,7 @@ jobs:
           install -m 0600 /dev/null "$known_hosts_file"
           printf '%s\n' "$SSH_PRIVATE_KEY" > "$key_file"
           printf '%s\n' "$SSH_KNOWN_HOSTS" > "$known_hosts_file"
-          tar -czf "$archive" compose.yml deploy/Caddyfile deploy/postgres-init.sh deploy/mongo-init.sh
+          tar -czf "$archive" compose.yml deploy/Caddyfile deploy/postgres-init.sh deploy/mongo-init.sh deploy/remote-event-control.sh
 
           printf '%s' "$GHCR_TOKEN" | ssh -i "$key_file" -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$known_hosts_file" \
