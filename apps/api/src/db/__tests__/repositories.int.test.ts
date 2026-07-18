@@ -33,8 +33,8 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
   let WriteQueue: typeof import("../../gateway/stores/write-queue.js")["WriteQueue"];
   let createPgPredictionStore: typeof import("../../gateway/stores/pg-prediction-store.js")["createPgPredictionStore"];
   let createPgArenaPlayerStore: typeof import("../../gateway/stores/pg-arena-player-store.js")["createPgArenaPlayerStore"];
-  let tryAcquireDemoRuntimeLock: typeof import("../client.js")["tryAcquireDemoRuntimeLock"];
-  let resetDemoFixture: typeof import("../demo-reset.js")["resetDemoFixture"];
+  let tryAcquireFixtureRuntimeLock: typeof import("../client.js")["tryAcquireFixtureRuntimeLock"];
+  let resetReplayFixture: typeof import("../replay-reset.js")["resetReplayFixture"];
 
   // Unique per test run so repeated runs never collide on (walletAddress) / (homeTeam,awayTeam,startTime)
   // unique indexes, and so cleanup only ever removes rows this run created.
@@ -51,8 +51,8 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
   let roundId: string;
 
   beforeAll(async () => {
-    ({ db, tryAcquireDemoRuntimeLock } = await import("../client.js"));
-    ({ resetDemoFixture } = await import("../demo-reset.js"));
+    ({ db, tryAcquireFixtureRuntimeLock } = await import("../client.js"));
+    ({ resetReplayFixture } = await import("../replay-reset.js"));
     schema = await import("../schema.js");
     ({ userRepository } = await import("../repositories/user.repository.js"));
     ({ matchRepository } = await import("../repositories/match.repository.js"));
@@ -75,7 +75,7 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
     if (arenaId) await db.delete(schema.entryPasses).where(eq(schema.entryPasses.arenaId, arenaId));
     if (arenaId) await db.delete(schema.arenas).where(eq(schema.arenas.id, arenaId));
     if (matchId) await db.delete(schema.matches).where(eq(schema.matches.id, matchId));
-    await db.delete(schema.demoResetAudits).where(eq(schema.demoResetAudits.fixtureId, fixtureId));
+    await db.delete(schema.replayResetAudits).where(eq(schema.replayResetAudits.fixtureId, fixtureId));
     if (userId) await db.delete(schema.users).where(eq(schema.users.id, userId));
   });
 
@@ -253,7 +253,7 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
     expect(roster.find((p) => p.userId === userId)?.status).toBe("eliminated");
   });
 
-  it("demo reset lock excludes an active runtime, then reset deletes atomically and restart recreates a lobby", async () => {
+  it("replay reset lock excludes an active runtime, then reset deletes atomically and restart recreates a lobby", async () => {
     await db
       .update(schema.arenas)
       .set({ escrowAccount: "IntTestEscrow" })
@@ -268,16 +268,16 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
       confirmed: true,
     });
 
-    const releaseGatewayLock = await tryAcquireDemoRuntimeLock(fixtureId);
+    const releaseGatewayLock = await tryAcquireFixtureRuntimeLock(fixtureId);
     expect(releaseGatewayLock).toBeDefined();
-    expect(await tryAcquireDemoRuntimeLock(fixtureId)).toBeUndefined();
-    await expect(resetDemoFixture(fixtureId, "localhost:5433/arena")).rejects.toThrow(
+    expect(await tryAcquireFixtureRuntimeLock(fixtureId)).toBeUndefined();
+    await expect(resetReplayFixture(fixtureId, "localhost:5433/arena")).rejects.toThrow(
       "gateway runtime is active",
     );
     await releaseGatewayLock?.();
 
     const previousArenaId = arenaId;
-    const audit = await resetDemoFixture(fixtureId, "localhost:5433/arena");
+    const audit = await resetReplayFixture(fixtureId, "localhost:5433/arena");
 
     expect(audit).toMatchObject({
       fixtureId,
@@ -291,7 +291,7 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
     expect(await db.select().from(schema.predictions).where(eq(schema.predictions.roundId, roundId))).toHaveLength(0);
     expect(await db.select().from(schema.liveEvents).where(eq(schema.liveEvents.matchId, matchId))).toHaveLength(0);
     expect(
-      await db.select().from(schema.demoResetAudits).where(eq(schema.demoResetAudits.fixtureId, fixtureId)),
+      await db.select().from(schema.replayResetAudits).where(eq(schema.replayResetAudits.fixtureId, fixtureId)),
     ).toHaveLength(1);
 
     const recreatedMatch = await matchRepository.upsertByTxoddsFixtureId(fixtureId, { homeTeam, awayTeam, startTime });

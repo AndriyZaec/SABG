@@ -2,13 +2,13 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
 
-import { describeDatabase } from "../db/demo-reset-config.js";
-import { shouldResetAfterGatewayExit } from "./demo-cycle-policy.js";
+import { describeDatabase } from "../db/replay-reset-config.js";
+import { shouldResetAfterGatewayExit } from "./replay-cycle-policy.js";
 
 dotenv.config();
 
 const gatewayPath = fileURLToPath(new URL("./run.js", import.meta.url));
-const resetPath = fileURLToPath(new URL("../db/seeds/reset-demo.js", import.meta.url));
+const resetPath = fileURLToPath(new URL("../db/seeds/reset-replay.js", import.meta.url));
 
 let activeChild: ChildProcess | undefined;
 let stopping = false;
@@ -53,7 +53,7 @@ async function main(): Promise<void> {
 
     const databaseUrl = process.env["DATABASE_URL"];
     if (!databaseUrl) throw new Error("DATABASE_URL is not set (see .env.example)");
-    const fixtureId = process.env["GATEWAY_DEMO_FIXTURE_ID"] ?? "18179764";
+    const fixtureId = process.env["GATEWAY_REPLAY_FIXTURE_ID"] ?? "18179764";
     const database = describeDatabase(databaseUrl);
     const resetExitCode = await runChild(resetPath, [
       fixtureId,
@@ -62,7 +62,7 @@ async function main(): Promise<void> {
     ]);
     if (stopping) return;
     if (resetExitCode !== 0) {
-      throw new Error(`Demo reset failed with exit code ${String(resetExitCode)}`);
+      throw new Error(`Replay reset failed with exit code ${String(resetExitCode)}`);
     }
   }
 }

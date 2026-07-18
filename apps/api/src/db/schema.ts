@@ -212,8 +212,8 @@ export const payouts = pgTable("payout", {
   index("payout_arena_id_idx").on(t.arenaId),
 ]);
 
-/** Immutable record committed atomically with each destructive demo reset. */
-export const demoResetAudits = pgTable("demo_reset_audit", {
+/** Immutable record committed atomically with each destructive replay reset. */
+export const replayResetAudits = pgTable("demo_reset_audit", {
   id: uuid("id").primaryKey().defaultRandom(),
   recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull(),
   fixtureId: integer("fixture_id").notNull(),

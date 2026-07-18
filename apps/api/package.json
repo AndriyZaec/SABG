@@ -8,20 +8,20 @@
   "main": "./dist/gateway/run.js",
   "scripts": {
     "dev": "tsx watch src/mock/server.ts",
-    "live:dev": "GAME_SOURCE=live DEPLOYMENT_ENV=demo tsx watch src/gateway/run.ts",
+    "live:dev": "GAME_SOURCE=live tsx watch src/gateway/run.ts",
     "gateway:dev": "tsx watch src/gateway/run.ts",
     "replay:dev": "tsx src/replay/run.ts",
     "build": "tsc -p tsconfig.json && pnpm copy:assets",
     "copy:assets": "mkdir -p dist/db/seeds dist/db/migrations dist/ingestion/__fixtures__ dist/live/idl && cp src/db/seeds/matches.json dist/db/seeds/matches.json && cp -R src/db/migrations/. dist/db/migrations/ && cp src/ingestion/__fixtures__/*.json dist/ingestion/__fixtures__/ && cp src/live/idl/txoracle.json dist/live/idl/txoracle.json",
     "start": "node dist/gateway/run.js",
-    "start:demo-cycle": "node dist/gateway/demo-cycle.js",
+    "start:replay-cycle": "node dist/gateway/replay-cycle.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:migrate:prod": "node dist/db/migrate.js",
     "db:seed": "tsx src/db/seeds/seed-matches.ts",
-    "reset-demo": "tsx src/db/seeds/reset-demo.ts"
+    "reset-replay": "tsx src/db/seeds/reset-replay.ts"
   },
   "dependencies": {
     "@arena/auth": "workspace:*",

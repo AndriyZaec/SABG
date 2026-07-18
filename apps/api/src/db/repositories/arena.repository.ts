@@ -22,7 +22,7 @@ export const arenaRepository = {
   /**
    * GET /arenas?matchId= (lobby discovery). The schema has no uniqueness constraint on
    * matchId, so this is a genuine list query, not just `findByMatchId` wrapped in an array —
-   * today's demo bootstrap only ever creates one arena per match, but the query doesn't assume it.
+   * today's event bootstrap only ever creates one arena per match, but the query doesn't assume it.
    */
   async listByMatchId(matchId: Uuid): Promise<Arena[]> {
     const rows = await db.select().from(arenas).where(eq(arenas.matchId, matchId));
@@ -30,7 +30,7 @@ export const arenaRepository = {
   },
 
   /**
-   * Idempotent demo bootstrap (gateway/run.ts): one arena per match, created in `lobby` on first
+   * Idempotent event bootstrap (gateway/run.ts): one arena per match, created in `lobby` on first
    * boot and reused thereafter.
    */
   async upsertForMatch(

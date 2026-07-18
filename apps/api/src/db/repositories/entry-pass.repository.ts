@@ -9,7 +9,7 @@ import { entryPasses } from "../schema.js";
 import { entryPassRowToEntity } from "../mappers.js";
 
 export const entryPassRepository = {
-  /** For callers that need to check "already entered" before `create` (e.g. an idempotent demo bootstrap). */
+  /** For callers that need to check "already entered" before `create` (e.g. an idempotent event bootstrap). */
   async findByArenaAndUser(arenaId: Uuid, userId: Uuid): Promise<EntryPass | undefined> {
     const [row] = await db
       .select()

@@ -19,9 +19,9 @@ if (!databaseUrl) {
 
 const queryClient = postgres(databaseUrl);
 
-const DEMO_RUNTIME_LOCK_NAMESPACE = 1_397_315_407;
+const FIXTURE_RUNTIME_LOCK_NAMESPACE = 1_397_315_407;
 
-export type ReleaseDemoRuntimeLock = () => Promise<void>;
+export type ReleaseFixtureRuntimeLock = () => Promise<void>;
 
 export const db = drizzle(queryClient, { schema });
 
@@ -33,13 +33,13 @@ export async function checkDatabaseConnection(): Promise<void> {
  * Holds a fixture-scoped session advisory lock on a reserved connection. Reset tooling uses the
  * same lock, so destructive cleanup cannot race an active gateway even across containers.
  */
-export async function tryAcquireDemoRuntimeLock(
+export async function tryAcquireFixtureRuntimeLock(
   fixtureId: number,
-): Promise<ReleaseDemoRuntimeLock | undefined> {
+): Promise<ReleaseFixtureRuntimeLock | undefined> {
   const connection = await queryClient.reserve();
   try {
     const [row] = await connection<{ acquired: boolean }[]>`
-      select pg_try_advisory_lock(${DEMO_RUNTIME_LOCK_NAMESPACE}, ${fixtureId}) as acquired
+      select pg_try_advisory_lock(${FIXTURE_RUNTIME_LOCK_NAMESPACE}, ${fixtureId}) as acquired
     `;
     if (!row?.acquired) {
       connection.release();
@@ -56,7 +56,7 @@ export async function tryAcquireDemoRuntimeLock(
     released = true;
     try {
       await connection`
-        select pg_advisory_unlock(${DEMO_RUNTIME_LOCK_NAMESPACE}, ${fixtureId})
+        select pg_advisory_unlock(${FIXTURE_RUNTIME_LOCK_NAMESPACE}, ${fixtureId})
       `;
     } finally {
       connection.release();

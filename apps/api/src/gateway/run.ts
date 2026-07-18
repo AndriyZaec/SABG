@@ -1,14 +1,14 @@
 // Gateway entrypoint. Run via `pnpm gateway:dev` (apps/api) or
 // `pnpm --filter @arena/api gateway:dev`.
 //
-// Demo driver (scope decision): drives the real engine pipeline via `replayFixture` over a
-// recorded fixture (default 18241006, England v Argentina) — no Mongo/TxLINE credentials
-// needed. Override which recorded match plays via
-// GATEWAY_DEMO_FIXTURE_ID (see gateway/config.ts) — it must have a matching
+// Event gateway: drives the real engine pipeline from either a recorded replay or live feed.
+// Recorded replay defaults to 18241006 (England v Argentina) and needs no Mongo/TxLINE
+// credentials. Override which recorded match plays via
+// GATEWAY_REPLAY_FIXTURE_ID (see gateway/config.ts) — it must have a matching
 // ingestion/__fixtures__/fixture-<id>.json. The live worker (src/live/run.ts) can drive the same
 // ArenaRuntime later; the runtime itself is source-agnostic (just a MatchSignalBus consumer).
 //
-// Demo bootstrap is self-contained: it upserts its own match+arena keyed by `txoddsFixtureId`,
+// Event bootstrap is self-contained: it upserts its own match+arena keyed by `txoddsFixtureId`,
 // independent of `db:seed` (whose matches.json seeds a *different* fixture, 18209181, than the
 // replay uses — see match.repository.ts's doc comment).
 
@@ -26,25 +26,25 @@ import { createPgPredictionStore } from "./stores/pg-prediction-store.js";
 import { createPgArenaPlayerStore } from "./stores/pg-arena-player-store.js";
 import { payoutService } from "../payout/index.js";
 import { sleep } from "../shared/sleep.js";
-import { joinBots, withBotAnswers, type DemoBot } from "./demo-bots.js";
+import { joinBots, withBotAnswers, type ScriptedBot } from "./scripted-bots.js";
 import {
   checkDatabaseConnection,
   closeDatabaseConnection,
-  tryAcquireDemoRuntimeLock,
-  type ReleaseDemoRuntimeLock,
+  tryAcquireFixtureRuntimeLock,
+  type ReleaseFixtureRuntimeLock,
 } from "../db/client.js";
 import { createGameSource, type GameSource } from "./game-source.js";
-import { DEMO_REPLAY_CYCLE_EXIT_CODE, shouldCycleReplay } from "./demo-cycle-policy.js";
+import { REPLAY_CYCLE_EXIT_CODE, shouldCycleReplay } from "./replay-cycle-policy.js";
 import { closeEntrySubmissions } from "./entry-prepare-store.js";
 
-const DEMO_ENTRY_FEE_LAMPORTS = 10_000_000;
+const EVENT_ENTRY_FEE_LAMPORTS = 10_000_000;
 
 async function main(): Promise<void> {
   const abortController = new AbortController();
   const writeQueue = new WriteQueue();
   let gatewayServer: ReturnType<typeof createGatewayServer> | undefined;
   let gameSource: GameSource | undefined;
-  let releaseRuntimeLock: ReleaseDemoRuntimeLock | undefined;
+  let releaseRuntimeLock: ReleaseFixtureRuntimeLock | undefined;
   let activeWork: Promise<unknown> = Promise.resolve();
   let shutdownPromise: Promise<void> | undefined;
 
@@ -98,7 +98,7 @@ async function main(): Promise<void> {
     gameSource = await trackWork(
       createGameSource({
         kind: gatewayConfig.runtime.gameSource,
-        replayFixtureId: gatewayConfig.demo.fixtureId,
+        replayFixtureId: gatewayConfig.replay.fixtureId,
         secondsPerMatchMinute: gatewayConfig.clock.secondsPerMatchMinute,
         ...(gatewayConfig.live.fixtureId !== undefined ? { liveFixtureId: gatewayConfig.live.fixtureId } : {}),
         signal: abortController.signal,
@@ -113,7 +113,7 @@ async function main(): Promise<void> {
     await trackWork(checkDatabaseConnection());
     if (abortController.signal.aborted) return;
 
-    releaseRuntimeLock = await trackWork(tryAcquireDemoRuntimeLock(gameSource.fixture.fixtureId));
+    releaseRuntimeLock = await trackWork(tryAcquireFixtureRuntimeLock(gameSource.fixture.fixtureId));
     if (!releaseRuntimeLock) {
       throw new Error(`Fixture ${gameSource.fixture.fixtureId} already has an active gateway runtime`);
     }
@@ -129,19 +129,19 @@ async function main(): Promise<void> {
     if (abortController.signal.aborted) return;
     const arena = await trackWork(
       arenaRepository.upsertForMatch(match.id, {
-        entryFeeLamports: DEMO_ENTRY_FEE_LAMPORTS,
+        entryFeeLamports: EVENT_ENTRY_FEE_LAMPORTS,
         prizePoolLamports: 0,
       }),
     );
     if (abortController.signal.aborted) return;
     if (arena.status !== "lobby") {
       throw new Error(
-        `Fixture ${gameSource.fixture.fixtureId} already has an arena in status ${arena.status}; run an explicit demo reset before starting`,
+        `Fixture ${gameSource.fixture.fixtureId} already has an arena in status ${arena.status}; run an explicit replay reset before starting`,
       );
     }
     logger.info(
       { matchId: match.id, arenaId: arena.id, fixtureId: gameSource.fixture.fixtureId },
-      "demo match/arena ready",
+      "event match/arena ready",
     );
 
     gatewayServer = createGatewayServer();
@@ -167,11 +167,11 @@ async function main(): Promise<void> {
 
     const bus = new MatchSignalBus();
     // Bots answer each round via a broadcaster wrapper; getters break the runtime/broadcaster cycle.
-    let demoBots: DemoBot[] = [];
+    let scriptedBots: ScriptedBot[] = [];
     let runtime!: ArenaRuntime;
     const broadcaster = gatewayConfig.bots.enabled
       ? withBotAnswers(wsGateway, {
-          getBots: () => demoBots,
+          getBots: () => scriptedBots,
           getRuntime: () => runtime,
           isActive: (userId) => arenaPlayerStore.getStatus(userId) === "active",
         })
@@ -203,9 +203,9 @@ async function main(): Promise<void> {
     logger.info({ port: gatewayConfig.port }, `gateway listening — REST http://localhost:${gatewayConfig.port}/api, WS ws://localhost:${gatewayConfig.port}/ws`);
 
     if (gatewayConfig.bots.enabled) {
-      demoBots = await trackWork(joinBots(arena.id, runtime, gatewayConfig.bots.count, DEMO_ENTRY_FEE_LAMPORTS));
+      scriptedBots = await trackWork(joinBots(arena.id, runtime, gatewayConfig.bots.count, EVENT_ENTRY_FEE_LAMPORTS));
       if (abortController.signal.aborted) return;
-      logger.info({ arenaId: arena.id, bots: demoBots.length }, "demo bots joined the lobby");
+      logger.info({ arenaId: arena.id, bots: scriptedBots.length }, "scripted bots joined the lobby");
     }
 
     // Pre-kickoff lobby window: arena stays `lobby` so the human can buy in + join, then flips `live`.
@@ -227,16 +227,16 @@ async function main(): Promise<void> {
     if (abortController.signal.aborted) return;
     logger.info({ arenaId: arena.id, source: gameSource.kind }, "game source finished");
 
-    if (shouldCycleReplay(gameSource.kind, gatewayConfig.demo.autoRestart)) {
+    if (shouldCycleReplay(gameSource.kind, gatewayConfig.replay.autoRestart)) {
       await trackWork(writeQueue.drain());
       logger.info(
-        { arenaId: arena.id, restartDelaySeconds: gatewayConfig.demo.restartDelaySeconds },
-        "demo replay finished — keeping final state visible before restart",
+        { arenaId: arena.id, restartDelaySeconds: gatewayConfig.replay.restartDelaySeconds },
+        "replay finished — keeping final state visible before restart",
       );
-      await trackWork(sleep(gatewayConfig.demo.restartDelaySeconds * 1_000, abortController.signal));
+      await trackWork(sleep(gatewayConfig.replay.restartDelaySeconds * 1_000, abortController.signal));
       if (abortController.signal.aborted) return;
-      await shutdown("demo replay cycle complete");
-      process.exitCode = DEMO_REPLAY_CYCLE_EXIT_CODE;
+      await shutdown("replay cycle complete");
+      process.exitCode = REPLAY_CYCLE_EXIT_CODE;
     }
   } catch (err) {
     const interruptedBySignal = abortController.signal.aborted;

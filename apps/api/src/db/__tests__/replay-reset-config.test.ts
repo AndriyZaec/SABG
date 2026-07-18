@@ -1,41 +1,41 @@
 import { describe, expect, it } from "vitest";
 
-import { describeDatabase, parseDemoResetRequest } from "../demo-reset-config.js";
+import { describeDatabase, parseReplayResetRequest } from "../replay-reset-config.js";
 
 const safeEnv = {
-  DEPLOYMENT_ENV: "demo",
+  GAME_SOURCE: "replay",
   SOLANA_NETWORK: "devnet",
   DATABASE_URL: "postgres://arena:secret@localhost:5433/arena",
 };
 const confirmedArgs = ["--force", "--confirm-database=localhost:5433/arena"];
 
-describe("parseDemoResetRequest", () => {
-  it("requires explicit demo/devnet mode and force confirmation", () => {
-    expect(() => parseDemoResetRequest(["node", "reset-demo", ...confirmedArgs], {})).toThrow(
-      "DEPLOYMENT_ENV=demo",
+describe("parseReplayResetRequest", () => {
+  it("requires explicit replay/devnet mode and force confirmation", () => {
+    expect(() => parseReplayResetRequest(["node", "reset-replay", ...confirmedArgs], {})).toThrow(
+      "GAME_SOURCE=replay",
     );
     expect(() =>
-      parseDemoResetRequest(["node", "reset-demo", ...confirmedArgs], {
-        DEPLOYMENT_ENV: "demo",
+      parseReplayResetRequest(["node", "reset-replay", ...confirmedArgs], {
+        GAME_SOURCE: "replay",
         SOLANA_NETWORK: "mainnet-beta",
         DATABASE_URL: safeEnv.DATABASE_URL,
       }),
     ).toThrow("SOLANA_NETWORK=devnet");
-    expect(() => parseDemoResetRequest(["node", "reset-demo"], safeEnv)).toThrow("--force");
+    expect(() => parseReplayResetRequest(["node", "reset-replay"], safeEnv)).toThrow("--force");
   });
 
   it("only accepts allowlisted fixtures", () => {
-    expect(parseDemoResetRequest(["node", "reset-demo", "18179764", ...confirmedArgs], safeEnv)).toEqual({
+    expect(parseReplayResetRequest(["node", "reset-replay", "18179764", ...confirmedArgs], safeEnv)).toEqual({
       fixtureId: 18179764,
       database: "localhost:5433/arena",
     });
     expect(() =>
-      parseDemoResetRequest(["node", "reset-demo", "18257739", ...confirmedArgs], safeEnv),
+      parseReplayResetRequest(["node", "reset-replay", "18257739", ...confirmedArgs], safeEnv),
     ).toThrow("not resettable");
   });
 
   it("requires confirmation of the redacted database identity", () => {
-    expect(() => parseDemoResetRequest(["node", "reset-demo", "--force"], safeEnv)).toThrow(
+    expect(() => parseReplayResetRequest(["node", "reset-replay", "--force"], safeEnv)).toThrow(
       "--confirm-database=localhost:5433/arena",
     );
   });

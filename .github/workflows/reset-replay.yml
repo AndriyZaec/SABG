@@ -1,4 +1,4 @@
-name: Reset Demo
+name: Reset Replay
 
 on:
   workflow_dispatch:
@@ -19,7 +19,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: demo-operations
+  group: event-operations
   cancel-in-progress: false
 
 jobs:
@@ -27,7 +27,7 @@ jobs:
     name: Guarded reset and restart
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    environment: demo
+    environment: event
     env:
       DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
       FIXTURE_ID: ${{ inputs.fixture_id }}
@@ -38,7 +38,7 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$GITHUB_REF" == "refs/heads/$DEFAULT_BRANCH" ]] || {
-            echo "Reset Demo must be dispatched from $DEFAULT_BRANCH" >&2
+            echo "Reset Replay must be dispatched from $DEFAULT_BRANCH" >&2
             exit 1
           }
           [[ "$FIXTURE_ID" == 18179764 || "$FIXTURE_ID" == 18241006 ]]
@@ -53,18 +53,18 @@ jobs:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
 
-      - name: Reset demo on VPS
+      - name: Reset replay on VPS
         shell: bash
         env:
-          DEPLOY_PATH: ${{ vars.DEMO_DEPLOY_PATH }}
-          SSH_HOST: ${{ secrets.DEMO_SSH_HOST }}
-          SSH_USER: ${{ secrets.DEMO_SSH_USER }}
-          SSH_PRIVATE_KEY: ${{ secrets.DEMO_SSH_PRIVATE_KEY }}
-          SSH_KNOWN_HOSTS: ${{ secrets.DEMO_SSH_KNOWN_HOSTS }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
         run: |
           set -euo pipefail
           [[ "$DEPLOY_PATH" =~ ^/[A-Za-z0-9._/-]+$ ]] || {
-            echo "DEMO_DEPLOY_PATH must be an absolute path with no whitespace" >&2
+            echo "DEPLOY_PATH must be an absolute path with no whitespace" >&2
             exit 1
           }
           [[ "$SSH_HOST" =~ ^[A-Za-z0-9:._-]+$ ]]
@@ -82,14 +82,14 @@ jobs:
           ssh -i "$key_file" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
             -o "UserKnownHostsFile=$known_hosts_file" "$SSH_USER@$SSH_HOST" \
             "sh -s -- '$DEPLOY_PATH' '$FIXTURE_ID' '$CONFIRMATION'" \
-            < deploy/remote-reset.sh
+            < deploy/remote-reset-replay.sh
 
       - name: Publish reset summary
         if: success()
         shell: bash
         run: |
           {
-            echo '### Demo reset complete'
+            echo '### Replay reset complete'
             echo
             echo "- Fixture: \`$FIXTURE_ID\`"
           } >> "$GITHUB_STEP_SUMMARY"

@@ -20,7 +20,7 @@ describe("game source", () => {
 
     expect(source).toMatchObject({
       kind: "replay",
-      label: "DEMO - RECORDED REPLAY",
+      label: "RECORDED REPLAY",
       fixture: { fixtureId: 18179764, homeTeam: "England", awayTeam: "Senegal" },
     });
     expect(signalCount).toBeGreaterThan(0);

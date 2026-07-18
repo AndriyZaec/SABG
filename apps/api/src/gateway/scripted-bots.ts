@@ -1,5 +1,5 @@
-// Shared demo-bot helpers: seed scripted bots into an arena through the real DB-backed entry flow,
-// and wrap a broadcaster so those bots actually answer each round. Used by the gateway demo
+// Shared scripted-bot helpers: seed bots into an arena through the real DB-backed entry flow,
+// and wrap a broadcaster so those bots actually answer each round. Used by replay tooling
 // (gateway/run.ts) and the live worker (live/run.ts) so the join/answer logic lives in one place.
 //
 // Bots are DB-only: a real users row + entry_pass + active-player/prize-pool bumps + runtime.join,
@@ -13,13 +13,13 @@ import { entryPassRepository } from "../db/repositories/entry-pass.repository.js
 import { arenaRepository } from "../db/repositories/arena.repository.js";
 import { createBots } from "../replay/bots.js";
 
-export interface DemoBot {
+export interface ScriptedBot {
   userId: Uuid;
   answerFor(round: PredictionRound): Answer;
 }
 
 function botWallet(index: number): string {
-  return `demo-bot-wallet-${index}`;
+  return `scripted-bot-wallet-${index}`;
 }
 
 /**
@@ -34,9 +34,9 @@ export async function joinBots(
   runtime: ArenaRuntime,
   count: number,
   entryFeeLamports: number,
-): Promise<DemoBot[]> {
+): Promise<ScriptedBot[]> {
   const scripted = createBots(count);
-  const bots: DemoBot[] = [];
+  const bots: ScriptedBot[] = [];
 
   for (const [index, bot] of scripted.entries()) {
     const user = await userRepository.upsertByWallet(botWallet(index), bot.username);
@@ -48,7 +48,7 @@ export async function joinBots(
         userId: user.id,
         walletAddress: user.walletAddress,
         amountLamports: entryFeeLamports,
-        txSignature: `demo-bot-${index}`,
+        txSignature: `scripted-bot-${index}`,
       });
       await arenaRepository.bumpActivePlayers(arenaId, 1);
       await arenaRepository.bumpPrizePool(arenaId, entryFeeLamports);
@@ -70,7 +70,7 @@ export async function joinBots(
 export function withBotAnswers(
   inner: GatewayBroadcaster,
   ctx: {
-    getBots: () => DemoBot[];
+    getBots: () => ScriptedBot[];
     getRuntime: () => ArenaRuntime;
     isActive: (userId: Uuid) => boolean;
   },

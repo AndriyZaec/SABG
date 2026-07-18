@@ -24,7 +24,7 @@ import { matchRepository } from "../db/repositories/match.repository.js";
 import { arenaRepository } from "../db/repositories/arena.repository.js";
 import { predictionRoundRepository } from "../db/repositories/prediction-round.repository.js";
 import { payoutService } from "../payout/index.js";
-import { joinBots, withBotAnswers, type DemoBot } from "../gateway/demo-bots.js";
+import { joinBots, withBotAnswers, type ScriptedBot } from "../gateway/scripted-bots.js";
 
 const LIVE_ENTRY_FEE_LAMPORTS = 10_000_000;
 const LIVE_BOT_COUNT = 3;
@@ -88,7 +88,7 @@ const persistence: ArenaPersistence = {
 const bus = new MatchSignalBus();
 
 // Populated by joinBots() below, before the worker starts — the answer wrapper reads it live.
-let liveBots: DemoBot[] = [];
+let liveBots: ScriptedBot[] = [];
 
 let runtime!: ArenaRuntime; // assigned below, before any signal on `bus` can fire
 // This worker has no WS server, so the transport just logs; the wrapper makes bots answer on open.

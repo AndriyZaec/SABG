@@ -91,7 +91,7 @@ describe("payout service — settleArena", () => {
 
   it("skips winners whose wallet isn't a valid on-chain pubkey", async () => {
     const { deps, created } = makeDeps({
-      findWallet: vi.fn(async (userId: Uuid) => (userId === "u2" ? "demo-bot-wallet-2" : WALLET[userId])),
+      findWallet: vi.fn(async (userId: Uuid) => (userId === "u2" ? "scripted-bot-wallet-2" : WALLET[userId])),
     });
     await createPayoutService(deps).settleArena("arena-1", ["u1", "u2"]);
     expect(created).toHaveLength(1);

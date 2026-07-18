@@ -43,9 +43,8 @@ describe("production gateway server", () => {
 
   it("exposes only public runtime source metadata", async () => {
     const runtimeConfig = {
-      deploymentEnvironment: "demo" as const,
       gameSource: "live" as const,
-      sourceLabel: "DEMO - LIVE FEED",
+      sourceLabel: "LIVE FEED",
     };
     const baseUrl = await listen(createGatewayServer({ healthCheck: async () => {}, runtimeConfig }));
 

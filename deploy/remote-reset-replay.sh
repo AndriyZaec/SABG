@@ -19,13 +19,13 @@ case "$fixture_id" in
   *) fail "fixture is not allowlisted" ;;
 esac
 [ "$confirmation" = "RESET $fixture_id" ] || fail "confirmation must exactly match RESET $fixture_id"
-[ -f "$deploy_path/compose.yml" ] || fail "demo stack is not installed"
+[ -f "$deploy_path/compose.yml" ] || fail "event stack is not installed"
 [ -f "$deploy_path/.env" ] || fail "deployment metadata is missing"
 command -v docker >/dev/null 2>&1 || fail "docker is not installed"
 command -v flock >/dev/null 2>&1 || fail "flock is not installed"
 
 exec 9>"$deploy_path/.operation.lock"
-flock -n 9 || fail "another demo operation is running"
+flock -n 9 || fail "another event operation is running"
 
 compose() {
   docker compose --project-directory "$deploy_path" -f "$deploy_path/compose.yml" "$@"
@@ -38,7 +38,7 @@ while IFS='=' read -r key value; do
   case "$key" in
     SABG_IMAGE) image=$value ;;
     SABG_VCS_REF) revision=$value ;;
-    GATEWAY_DEMO_FIXTURE_ID) current_fixture=$value ;;
+    GATEWAY_REPLAY_FIXTURE_ID) current_fixture=$value ;;
   esac
 done < "$deploy_path/.env"
 case "$image" in
@@ -60,12 +60,12 @@ case "$current_fixture" in
 esac
 
 compose stop --timeout 60 app
-if ! compose run --rm --no-deps app node dist/db/seeds/reset-demo.js \
+if ! compose run --rm --no-deps app node dist/db/seeds/reset-replay.js \
   "$current_fixture" --force --confirm-database=postgres:5432/arena; then
   fail "guarded reset refused; app remains stopped for investigation"
 fi
 if [ "$fixture_id" != "$current_fixture" ] && ! compose run --rm --no-deps app \
-  node dist/db/seeds/reset-demo.js "$fixture_id" --force --confirm-database=postgres:5432/arena; then
+  node dist/db/seeds/reset-replay.js "$fixture_id" --force --confirm-database=postgres:5432/arena; then
   fail "target fixture reset refused; app remains stopped for investigation"
 fi
 
@@ -89,7 +89,7 @@ trap cleanup EXIT HUP INT TERM
   printf 'SABG_IMAGE=%s\n' "$image"
   printf 'SABG_PLATFORM=linux/amd64\n'
   printf 'SABG_VCS_REF=%s\n' "$revision"
-  printf 'GATEWAY_DEMO_FIXTURE_ID=%s\n' "$fixture_id"
+  printf 'GATEWAY_REPLAY_FIXTURE_ID=%s\n' "$fixture_id"
 } > "$deploy_path/.env.tmp"
 mv "$deploy_path/.env.tmp" "$deploy_path/.env"
 

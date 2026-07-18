@@ -1,10 +1,10 @@
 import { eq, inArray } from "drizzle-orm";
 
-import { db, tryAcquireDemoRuntimeLock } from "./client.js";
+import { db, tryAcquireFixtureRuntimeLock } from "./client.js";
 import {
   arenaPlayers,
   arenas,
-  demoResetAudits,
+  replayResetAudits,
   entryPasses,
   liveEvents,
   matches,
@@ -14,7 +14,7 @@ import {
 } from "./schema.js";
 import { assertArenaRecyclable } from "../onchain/index.js";
 
-export interface DemoResetAudit {
+export interface ReplayResetAudit {
   timestamp: string;
   fixtureId: number;
   database: string;
@@ -27,8 +27,8 @@ export interface DemoResetAudit {
   }>;
 }
 
-export async function resetDemoFixture(fixtureId: number, database: string): Promise<DemoResetAudit> {
-  const releaseLock = await tryAcquireDemoRuntimeLock(fixtureId);
+export async function resetReplayFixture(fixtureId: number, database: string): Promise<ReplayResetAudit> {
+  const releaseLock = await tryAcquireFixtureRuntimeLock(fixtureId);
   if (!releaseLock) {
     throw new Error(`Refusing to reset fixture ${fixtureId}: its gateway runtime is active`);
   }
@@ -47,7 +47,7 @@ export async function resetDemoFixture(fixtureId: number, database: string): Pro
       const timestamp = new Date().toISOString();
       if (!match) {
         const audit = { timestamp, fixtureId, database, outcome: "nothing_to_reset" as const, arenas: [] };
-        await tx.insert(demoResetAudits).values({
+        await tx.insert(replayResetAudits).values({
           recordedAt: new Date(timestamp),
           fixtureId,
           database,
@@ -73,7 +73,7 @@ export async function resetDemoFixture(fixtureId: number, database: string): Pro
       await tx.delete(liveEvents).where(eq(liveEvents.matchId, match.id));
       await tx.delete(matches).where(eq(matches.id, match.id));
 
-      const audit: DemoResetAudit = {
+      const audit: ReplayResetAudit = {
         timestamp,
         fixtureId,
         database,
@@ -85,7 +85,7 @@ export async function resetDemoFixture(fixtureId: number, database: string): Pro
           escrowAccount: arena.escrowAccount,
         })),
       };
-      await tx.insert(demoResetAudits).values({
+      await tx.insert(replayResetAudits).values({
         recordedAt: new Date(timestamp),
         fixtureId,
         database,

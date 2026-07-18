@@ -50,7 +50,7 @@ function createReplaySource(fixtureId: number, secondsPerMatchMinute: number): G
 
   return {
     kind: "replay",
-    label: "DEMO - RECORDED REPLAY",
+    label: "RECORDED REPLAY",
     fixture: { fixtureId, ...teams, startTime: new Date() },
     async prepare() {},
     async run({ bus, matchId, signal }) {
@@ -100,7 +100,7 @@ async function createLiveSource(fixtureId: number | undefined, signal: AbortSign
 
     return {
       kind: "live",
-      label: "DEMO - LIVE FEED",
+      label: "LIVE FEED",
       fixture: {
         fixtureId: discovered.fixtureId,
         homeTeam: discovered.homeTeam,

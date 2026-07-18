@@ -1,4 +1,4 @@
-name: sabg-demo
+name: sabg-event
 
 x-logging: &default-logging
   driver: json-file
@@ -92,7 +92,7 @@ services:
       - path: ${SABG_APP_ENV_FILE:-./deploy/app.env}
         format: raw
     environment:
-      GATEWAY_DEMO_FIXTURE_ID: ${GATEWAY_DEMO_FIXTURE_ID:-18179764}
+      GATEWAY_REPLAY_FIXTURE_ID: ${GATEWAY_REPLAY_FIXTURE_ID:-18179764}
     depends_on:
       postgres:
         condition: service_healthy
@@ -108,7 +108,7 @@ services:
     cap_drop:
       - ALL
     volumes:
-      - reset_audits:/app/audit
+      - replay_reset_audits:/app/audit
     networks:
       - edge
       - backend
@@ -143,6 +143,6 @@ networks:
 
 volumes:
   postgres_data:
-  reset_audits:
+  replay_reset_audits:
   caddy_data:
   caddy_config:

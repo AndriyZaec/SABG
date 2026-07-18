@@ -1,7 +1,7 @@
 // The arena runtime: wires one arena's engine set (all reused unchanged) onto a fresh
 // MatchSignalBus, and connects every engine callback to (a) persistence and (b) a broadcast
 // port. This is the piece the mock server scripted by hand; here the real engines drive it off
-// whatever publishes onto `bus` (replayFixture for the demo entrypoint, run.ts's live worker
+// whatever publishes onto `bus` (a recorded replay or run.ts's live worker
 // later — the runtime itself is source-agnostic).
 //
 // Message-ordering note: within one round's settle, this runtime emits, in this order:

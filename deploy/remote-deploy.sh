@@ -34,7 +34,7 @@ command -v flock >/dev/null 2>&1 || fail "flock is not installed"
 
 mkdir -p "$deploy_path"
 exec 9>"$deploy_path/.operation.lock"
-flock -n 9 || fail "another demo operation is running"
+flock -n 9 || fail "another event operation is running"
 
 compose() {
   docker compose --project-directory "$deploy_path" -f "$deploy_path/compose.yml" "$@"
@@ -127,7 +127,7 @@ if [ -f "$deploy_path/.env" ]; then
     case "$key" in
       SABG_IMAGE) current_image=$value ;;
       SABG_VCS_REF) current_revision=$value ;;
-      GATEWAY_DEMO_FIXTURE_ID) fixture_id=$value ;;
+      GATEWAY_REPLAY_FIXTURE_ID) fixture_id=$value ;;
     esac
   done < "$deploy_path/.env"
 fi
@@ -173,7 +173,7 @@ umask 077
   printf 'SABG_IMAGE=%s\n' "$image"
   printf 'SABG_PLATFORM=linux/amd64\n'
   printf 'SABG_VCS_REF=%s\n' "$revision"
-  printf 'GATEWAY_DEMO_FIXTURE_ID=%s\n' "$fixture_id"
+  printf 'GATEWAY_REPLAY_FIXTURE_ID=%s\n' "$fixture_id"
 } > "$deploy_path/.env.tmp"
 mv "$deploy_path/.env.tmp" "$deploy_path/.env"
 
