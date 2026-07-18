@@ -91,7 +91,12 @@ function reduce(view: ArenaView, msg: ServerMessage, myUserId?: string): ArenaVi
       };
     }
     case "player.status": {
-      const next = { ...view, myStatus: msg.status };
+      // A declared winner never reverts: the arena-player store only tracks eliminations, so a
+      // reconnect's personal status resync (ws.ts's `runtime.statusFor`) would otherwise still
+      // read "active" for a winner and downgrade them right after the arena.finished resync sets
+      // myStatus to "winner" — see the arena.finished case below.
+      const status = view.myStatus === "winner" ? "winner" : msg.status;
+      const next = { ...view, myStatus: status };
       // A resync push (subscribe/reconnect) carries no roundId and isn't a fresh event to
       // announce — except "winner", which has no roundId even live (harmless to show again).
       if (msg.roundId === undefined && msg.status !== "winner") return next;
@@ -103,11 +108,17 @@ function reduce(view: ArenaView, msg: ServerMessage, myUserId?: string): ArenaVi
     case "player.pending":
       // Full-list snapshot from the server (re-sent on lock/settle/subscribe) — replace, don't merge.
       return { ...view, pendingPredictions: msg.predictions };
-    case "arena.finished":
+    case "arena.finished": {
+      // Cached and replayed on every (re)subscribe (ws.ts's handleSubscribe), so this is what
+      // makes the winner banner survive a page reload — myStatus is set here from the winners
+      // list itself, not just from the live personal player.status push.
+      const iWon = myUserId != null && msg.winners.includes(myUserId);
       return {
         ...view,
+        ...(iWon ? { myStatus: "winner" as const } : {}),
         feed: prepend(view.feed, { id: `fin-${Date.now()}`, kind: "info", text: "Match finished", minute: view.minute }),
       };
+    }
     default:
       return view;
   }

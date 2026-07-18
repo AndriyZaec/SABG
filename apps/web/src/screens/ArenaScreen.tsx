@@ -5,6 +5,7 @@ import { PredictionCard } from "../arena/live/PredictionCard.js";
 import { PendingPredictionsList } from "../arena/live/PendingPredictionsList.js";
 import { EliminationFeed } from "../arena/live/EliminationFeed.js";
 import { LeaderboardRail } from "../arena/live/LeaderboardRail.js";
+import { WinnerBanner } from "../arena/live/WinnerBanner.js";
 import { Loading } from "../ui/Loading.js";
 
 export function ArenaScreen() {
@@ -44,6 +45,7 @@ export function ArenaScreen() {
       )}
       <div className="nb-arena-grid">
         <div style={{ display: "grid", gap: 20 }}>
+          {view.myStatus === "winner" && <WinnerBanner />}
           <MatchHeader view={view} />
           {view.round && (
             // key={round.roundId} forces a fresh mount per round — PredictionCard's `picked`
