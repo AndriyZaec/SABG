@@ -230,6 +230,12 @@ export class ArenaRuntime {
    * Spec §8: only ever this user's own answer, never others'.
    */
   pendingPredictionsFor(userId: Uuid): PendingPrediction[] {
+    // An eliminated player holds no live rounds — even one they legitimately answered while still
+    // active (the round overlap window: they can answer round N+1 before round N settles and
+    // eliminates them). Without this, "Awaiting results" would keep showing that round as if they
+    // were still in it, and it would quietly resolve for them at settle (spectator-only from here).
+    if (this.statusFor(userId) === "eliminated") return [];
+
     const pending: PendingPrediction[] = [];
     for (const round of this.roundEngine.roundsByWindow.values()) {
       if (round.status !== "locked") continue;
@@ -350,6 +356,15 @@ export class ArenaRuntime {
         status: event.status,
         roundId,
       });
+      // Elimination is final for participation: clear any in-flight round(s) this player had
+      // answered while still active (round overlap — see pendingPredictionsFor) right away,
+      // rather than leaving them in "Awaiting results" until each of those rounds settles too.
+      if (event.status === "eliminated") {
+        this.broadcaster.sendToUser(this.arenaId, event.userId, {
+          type: "player.pending",
+          predictions: this.pendingPredictionsFor(event.userId),
+        });
+      }
     }
   }
 

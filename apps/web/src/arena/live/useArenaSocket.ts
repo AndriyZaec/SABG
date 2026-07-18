@@ -192,7 +192,9 @@ export function useArenaSocket(arenaId: string): ArenaSocket {
     (answer: Answer) => {
       const ws = wsRef.current;
       const roundId = view?.round?.roundId;
-      if (!isDemo && ws && ws.readyState === WebSocket.OPEN && roundId) {
+      // Belt-and-suspenders: PredictionCard already hides the buttons once eliminated, and the
+      // backend rejects an eliminated player's answer regardless — but never even send it.
+      if (!isDemo && ws && ws.readyState === WebSocket.OPEN && roundId && view?.myStatus !== "eliminated") {
         ws.send(JSON.stringify({ type: "answer", roundId, answer }));
       }
     },
