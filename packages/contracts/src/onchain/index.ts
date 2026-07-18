@@ -3,7 +3,7 @@
 // `anchor build`. Do not edit `arena.ts` / `arena.idl.json` by hand.
 
 import type { Arena } from "./arena.js";
-import arenaIdl from "./arena.idl.json";
+import arenaIdl from "./arena.idl.json" with { type: "json" };
 
 /** Generated Anchor program type. Renamed to avoid clashing with the `Arena` entity. */
 export type { Arena as ArenaProgram } from "./arena.js";
