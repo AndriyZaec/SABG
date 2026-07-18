@@ -40,6 +40,8 @@ const envSchema = z.object({
    * match instead.
    */
   GATEWAY_DEMO_FIXTURE_ID: z.coerce.number().int().positive().default(18241006),
+  DEMO_REPLAY_AUTO_RESTART: z.enum(["true", "false"]).default("false"),
+  DEMO_REPLAY_RESTART_DELAY_SECONDS: z.coerce.number().int().nonnegative().default(120),
   /**
    * Pre-kickoff lobby window: the demo arena stays `lobby` this long after the server is up so bots
    * and the human can join, then flips `live` and the replay starts. Longer when filming an on-chain
@@ -91,6 +93,8 @@ export const gatewayConfig = {
   },
   demo: {
     fixtureId: env.GATEWAY_DEMO_FIXTURE_ID,
+    autoRestart: env.DEMO_REPLAY_AUTO_RESTART === "true",
+    restartDelaySeconds: env.DEMO_REPLAY_RESTART_DELAY_SECONDS,
   },
   live: {
     fixtureId: env.TXODDS_LIVE_FIXTURE_ID,

@@ -27,8 +27,15 @@ import { createPgArenaPlayerStore } from "./stores/pg-arena-player-store.js";
 import { payoutService } from "../payout/index.js";
 import { sleep } from "../shared/sleep.js";
 import { joinBots, withBotAnswers, type DemoBot } from "./demo-bots.js";
-import { checkDatabaseConnection, closeDatabaseConnection } from "../db/client.js";
+import {
+  checkDatabaseConnection,
+  closeDatabaseConnection,
+  tryAcquireDemoRuntimeLock,
+  type ReleaseDemoRuntimeLock,
+} from "../db/client.js";
 import { createGameSource, type GameSource } from "./game-source.js";
+import { DEMO_REPLAY_CYCLE_EXIT_CODE, shouldCycleReplay } from "./demo-cycle-policy.js";
+import { closeEntrySubmissions } from "./entry-prepare-store.js";
 
 const DEMO_ENTRY_FEE_LAMPORTS = 10_000_000;
 
@@ -37,6 +44,7 @@ async function main(): Promise<void> {
   const writeQueue = new WriteQueue();
   let gatewayServer: ReturnType<typeof createGatewayServer> | undefined;
   let gameSource: GameSource | undefined;
+  let releaseRuntimeLock: ReleaseDemoRuntimeLock | undefined;
   let activeWork: Promise<unknown> = Promise.resolve();
   let shutdownPromise: Promise<void> | undefined;
 
@@ -70,6 +78,7 @@ async function main(): Promise<void> {
       await settle("websocket", wsClosing);
       await settle("http", httpClosing);
       await settle("write-queue", writeQueue.drain());
+      await settle("runtime-lock", releaseRuntimeLock?.() ?? Promise.resolve());
       await settle("postgres", closeDatabaseConnection());
       logger.info({ signal }, "gateway shutdown complete");
       if (shutdownErrors.length > 0) throw new AggregateError(shutdownErrors, "Gateway shutdown was incomplete");
@@ -102,6 +111,12 @@ async function main(): Promise<void> {
     );
 
     await trackWork(checkDatabaseConnection());
+    if (abortController.signal.aborted) return;
+
+    releaseRuntimeLock = await trackWork(tryAcquireDemoRuntimeLock(gameSource.fixture.fixtureId));
+    if (!releaseRuntimeLock) {
+      throw new Error(`Fixture ${gameSource.fixture.fixtureId} already has an active gateway runtime`);
+    }
     if (abortController.signal.aborted) return;
 
     const match = await trackWork(
@@ -202,6 +217,8 @@ async function main(): Promise<void> {
     logger.info({ arenaId: arena.id, lobbySeconds: lobbyMs / 1_000 }, "lobby open — waiting for players");
     await trackWork(sleep(lobbyMs, abortController.signal));
     if (abortController.signal.aborted) return;
+    await trackWork(closeEntrySubmissions(arena.id));
+    if (abortController.signal.aborted) return;
     await trackWork(arenaRepository.setStatus(arena.id, "live"));
     if (abortController.signal.aborted) return;
     logger.info({ arenaId: arena.id }, "kickoff — arena live");
@@ -209,6 +226,18 @@ async function main(): Promise<void> {
     await trackWork(gameSource.run({ bus, matchId: match.id, signal: abortController.signal }));
     if (abortController.signal.aborted) return;
     logger.info({ arenaId: arena.id, source: gameSource.kind }, "game source finished");
+
+    if (shouldCycleReplay(gameSource.kind, gatewayConfig.demo.autoRestart)) {
+      await trackWork(writeQueue.drain());
+      logger.info(
+        { arenaId: arena.id, restartDelaySeconds: gatewayConfig.demo.restartDelaySeconds },
+        "demo replay finished — keeping final state visible before restart",
+      );
+      await trackWork(sleep(gatewayConfig.demo.restartDelaySeconds * 1_000, abortController.signal));
+      if (abortController.signal.aborted) return;
+      await shutdown("demo replay cycle complete");
+      process.exitCode = DEMO_REPLAY_CYCLE_EXIT_CODE;
+    }
   } catch (err) {
     const interruptedBySignal = abortController.signal.aborted;
     await shutdown("runtime failure").catch(() => undefined);

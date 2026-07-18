@@ -211,3 +211,24 @@ export const payouts = pgTable("payout", {
 }, (t) => [
   index("payout_arena_id_idx").on(t.arenaId),
 ]);
+
+/** Immutable record committed atomically with each destructive demo reset. */
+export const demoResetAudits = pgTable("demo_reset_audit", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull(),
+  fixtureId: integer("fixture_id").notNull(),
+  database: text("database").notNull(),
+  outcome: text("outcome").$type<"reset" | "nothing_to_reset">().notNull(),
+  arenas: jsonb("arenas")
+    .$type<
+      Array<{
+        id: string;
+        status: string;
+        onchainArenaId: number | null;
+        escrowAccount: string;
+      }>
+    >()
+    .notNull(),
+}, (t) => [
+  index("demo_reset_audit_fixture_id_idx").on(t.fixtureId),
+]);

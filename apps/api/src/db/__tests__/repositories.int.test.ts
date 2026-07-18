@@ -7,7 +7,7 @@
 // dynamically imported inside beforeAll — which never runs when describe.skipIf skips the suite —
 // rather than as static top-level imports, which vitest would still evaluate even when skipped.
 
-import { randomUUID } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import dotenv from "dotenv";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -33,6 +33,8 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
   let WriteQueue: typeof import("../../gateway/stores/write-queue.js")["WriteQueue"];
   let createPgPredictionStore: typeof import("../../gateway/stores/pg-prediction-store.js")["createPgPredictionStore"];
   let createPgArenaPlayerStore: typeof import("../../gateway/stores/pg-arena-player-store.js")["createPgArenaPlayerStore"];
+  let tryAcquireDemoRuntimeLock: typeof import("../client.js")["tryAcquireDemoRuntimeLock"];
+  let resetDemoFixture: typeof import("../demo-reset.js")["resetDemoFixture"];
 
   // Unique per test run so repeated runs never collide on (walletAddress) / (homeTeam,awayTeam,startTime)
   // unique indexes, and so cleanup only ever removes rows this run created.
@@ -40,6 +42,8 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
   const walletAddress = `int-test-wallet-${runId}`;
   const homeTeam = `IntTestHome-${runId}`;
   const awayTeam = `IntTestAway-${runId}`;
+  const fixtureId = randomInt(1_000_000_000, 2_000_000_000);
+  const startTime = new Date();
 
   let userId: string;
   let matchId: string;
@@ -47,7 +51,8 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
   let roundId: string;
 
   beforeAll(async () => {
-    ({ db } = await import("../client.js"));
+    ({ db, tryAcquireDemoRuntimeLock } = await import("../client.js"));
+    ({ resetDemoFixture } = await import("../demo-reset.js"));
     schema = await import("../schema.js");
     ({ userRepository } = await import("../repositories/user.repository.js"));
     ({ matchRepository } = await import("../repositories/match.repository.js"));
@@ -70,6 +75,7 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
     if (arenaId) await db.delete(schema.entryPasses).where(eq(schema.entryPasses.arenaId, arenaId));
     if (arenaId) await db.delete(schema.arenas).where(eq(schema.arenas.id, arenaId));
     if (matchId) await db.delete(schema.matches).where(eq(schema.matches.id, matchId));
+    await db.delete(schema.demoResetAudits).where(eq(schema.demoResetAudits.fixtureId, fixtureId));
     if (userId) await db.delete(schema.users).where(eq(schema.users.id, userId));
   });
 
@@ -90,8 +96,6 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
   });
 
   it("match.repository: upsertByTxoddsFixtureId is idempotent, and updateLive mirrors live snapshots", async () => {
-    const fixtureId = Number(`9${Date.now()}`.slice(0, 9)); // unique-enough per run
-    const startTime = new Date();
     const first = await matchRepository.upsertByTxoddsFixtureId(fixtureId, { homeTeam, awayTeam, startTime });
     matchId = first.id;
     const second = await matchRepository.upsertByTxoddsFixtureId(fixtureId, { homeTeam, awayTeam, startTime });
@@ -247,5 +251,59 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
     await writeQueue.enqueue(arenaId, async () => {});
     const roster = await arenaPlayerRepository.list(arenaId);
     expect(roster.find((p) => p.userId === userId)?.status).toBe("eliminated");
+  });
+
+  it("demo reset lock excludes an active runtime, then reset deletes atomically and restart recreates a lobby", async () => {
+    await db
+      .update(schema.arenas)
+      .set({ escrowAccount: "IntTestEscrow" })
+      .where(eq(schema.arenas.id, arenaId));
+    await db.insert(schema.payouts).values({ arenaId, userId, amountLamports: 1000, status: "pending" });
+    await db.insert(schema.liveEvents).values({
+      matchId,
+      eventType: "shot",
+      team: "home",
+      matchMinute: 42,
+      timestamp: new Date(),
+      confirmed: true,
+    });
+
+    const releaseGatewayLock = await tryAcquireDemoRuntimeLock(fixtureId);
+    expect(releaseGatewayLock).toBeDefined();
+    expect(await tryAcquireDemoRuntimeLock(fixtureId)).toBeUndefined();
+    await expect(resetDemoFixture(fixtureId, "localhost:5433/arena")).rejects.toThrow(
+      "gateway runtime is active",
+    );
+    await releaseGatewayLock?.();
+
+    const previousArenaId = arenaId;
+    const audit = await resetDemoFixture(fixtureId, "localhost:5433/arena");
+
+    expect(audit).toMatchObject({
+      fixtureId,
+      database: "localhost:5433/arena",
+      outcome: "reset",
+      arenas: [{ id: previousArenaId, status: "live", onchainArenaId: null, escrowAccount: "IntTestEscrow" }],
+    });
+    expect(await db.select().from(schema.matches).where(eq(schema.matches.id, matchId))).toHaveLength(0);
+    expect(await db.select().from(schema.arenas).where(eq(schema.arenas.id, previousArenaId))).toHaveLength(0);
+    expect(await db.select().from(schema.predictionRounds).where(eq(schema.predictionRounds.id, roundId))).toHaveLength(0);
+    expect(await db.select().from(schema.predictions).where(eq(schema.predictions.roundId, roundId))).toHaveLength(0);
+    expect(await db.select().from(schema.liveEvents).where(eq(schema.liveEvents.matchId, matchId))).toHaveLength(0);
+    expect(
+      await db.select().from(schema.demoResetAudits).where(eq(schema.demoResetAudits.fixtureId, fixtureId)),
+    ).toHaveLength(1);
+
+    const recreatedMatch = await matchRepository.upsertByTxoddsFixtureId(fixtureId, { homeTeam, awayTeam, startTime });
+    const recreatedArena = await arenaRepository.upsertForMatch(recreatedMatch.id, {
+      entryFeeLamports: 1000,
+      prizePoolLamports: 0,
+    });
+    expect(recreatedArena).toMatchObject({ status: "lobby" });
+    expect(recreatedArena.id).not.toBe(previousArenaId);
+
+    matchId = recreatedMatch.id;
+    arenaId = recreatedArena.id;
+    roundId = "";
   });
 });

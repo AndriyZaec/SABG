@@ -18,6 +18,7 @@ export interface PendingEntry {
 const TTL_MS = 90_000;
 
 const pending = new Map<string, PendingEntry>();
+const entryGates = new Map<Uuid, { closed: boolean; active: number; waiters: Array<() => void> }>();
 
 export function stashPrepare(arenaId: Uuid, walletAddress: string, tx: string): string {
   const prepareId = randomUUID();
@@ -31,4 +32,27 @@ export function takePrepare(prepareId: string): PendingEntry | undefined {
   pending.delete(prepareId);
   if (entry === undefined || Date.now() > entry.expiresAt) return undefined;
   return entry;
+}
+
+export function beginEntrySubmission(arenaId: Uuid): (() => void) | undefined {
+  const gate = entryGates.get(arenaId) ?? { closed: false, active: 0, waiters: [] };
+  entryGates.set(arenaId, gate);
+  if (gate.closed) return undefined;
+  gate.active += 1;
+  let finished = false;
+  return () => {
+    if (finished) return;
+    finished = true;
+    gate.active -= 1;
+    if (gate.active === 0) gate.waiters.splice(0).forEach((resolve) => resolve());
+  };
+}
+
+/** Stops new irreversible submits and waits for every accepted submit to finish seating. */
+export async function closeEntrySubmissions(arenaId: Uuid): Promise<void> {
+  const gate = entryGates.get(arenaId) ?? { closed: false, active: 0, waiters: [] };
+  entryGates.set(arenaId, gate);
+  gate.closed = true;
+  if (gate.active === 0) return;
+  await new Promise<void>((resolve) => gate.waiters.push(resolve));
 }

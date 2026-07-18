@@ -36,8 +36,14 @@ import { predictionRepository } from "../db/repositories/prediction.repository.j
 import { entryPassRepository } from "../db/repositories/entry-pass.repository.js";
 import { issueToken, requireAuth, type AuthedRequest } from "./auth.js";
 import { issueNonce, consumeNonce } from "./nonce-store.js";
-import { stashPrepare, takePrepare } from "./entry-prepare-store.js";
-import { buildEntryTx, submitEntryTx } from "../onchain/index.js";
+import { beginEntrySubmission, stashPrepare, takePrepare } from "./entry-prepare-store.js";
+import {
+  buildEntryTx,
+  isOnchainArenaProvisioningEnabled,
+  isValidSolanaWalletAddress,
+  submitEntryTx,
+  verifyPreparedEntryTransaction,
+} from "../onchain/index.js";
 import { gatewayConfig } from "./config.js";
 import { logger } from "./logger.js";
 import type { ArenaRuntimeLookup } from "./arena-runtime.js";
@@ -178,6 +184,13 @@ export function createRestRouter(runtimeLookup: ArenaRuntimeLookup): RouterType 
         res.status(401).json({ error: "unauthorized", message: "user not found" });
         return;
       }
+      if (isOnchainArenaProvisioningEnabled() || arena.onchainArenaId != null) {
+        res.status(409).json({
+          error: "arena_not_onchain",
+          message: "Use the prepare/submit entry flow for an on-chain arena",
+        });
+        return;
+      }
 
       const entryPass = await entryPassRepository.create({
         arenaId,
@@ -217,18 +230,24 @@ export function createRestRouter(runtimeLookup: ArenaRuntimeLookup): RouterType 
         res.status(409).json({ error: "arena_not_joinable", message: "Arena has already started or finished" });
         return;
       }
-      if (arena.onchainArenaId == null) {
-        res.status(409).json({ error: "arena_not_onchain", message: "Arena is not provisioned on-chain" });
-        return;
-      }
       const { walletAddress } = req.body;
       if (!walletAddress) {
         res.status(400).json({ error: "bad_request", message: "walletAddress is required" });
         return;
       }
+      if (!(await isValidSolanaWalletAddress(walletAddress))) {
+        res.status(400).json({ error: "bad_request", message: "walletAddress is not a valid Solana address" });
+        return;
+      }
 
       try {
-        const tx = await buildEntryTx(arena.onchainArenaId, walletAddress);
+        const provisionedArena =
+          arena.onchainArenaId == null ? await arenaRepository.ensureOnchain(arenaId) : arena;
+        if (provisionedArena.onchainArenaId == null) {
+          res.status(409).json({ error: "arena_not_onchain", message: "Arena is not provisioned on-chain" });
+          return;
+        }
+        const tx = await buildEntryTx(provisionedArena.onchainArenaId, walletAddress);
         const prepareId = stashPrepare(arenaId, walletAddress, tx);
         res.json({ prepareId, tx });
       } catch (err: unknown) {
@@ -266,50 +285,65 @@ export function createRestRouter(runtimeLookup: ArenaRuntimeLookup): RouterType 
         return;
       }
 
-      // Joinable re-check at the last safe moment: lobby, or the grace into live before the first
-      // round locks (seating past a lock would eliminate the player for a round they couldn't
-      // answer). Not joinable → do NOT submit → the user's SOL never moves (no strand).
+      // Closing the lobby first blocks new submits; kickoff then waits for accepted submits to
+      // finish both the irreversible on-chain transfer and DB seating.
       const runtime = runtimeLookup.getRuntime(arenaId);
-      const joinable = arena.status === "lobby" || (arena.status === "live" && runtime?.hasLockedRound() === false);
+      const joinable = arena.status === "lobby";
       if (!joinable) {
         res.status(409).json({ error: "arena_not_joinable", message: "Arena is no longer joinable" });
         return;
       }
-
-      const user = await userRepository.upsertByWallet(pending.walletAddress, `fan_${pending.walletAddress.slice(0, 6)}`);
-
-      // Idempotent: already seated (double submit / reconcile) → return the seat, don't buy again.
-      const existing = await entryPassRepository.findByArenaAndUser(arenaId, user.id);
-      if (existing) {
-        const player = await arenaPlayerRepository.join(arenaId, user.id);
-        runtime?.join(user.id, user.username, player.joinedAt);
-        res.json({ token: issueToken(user.id), entryPassId: existing.id, player, arena });
+      const finishSubmission = beginEntrySubmission(arenaId);
+      if (!finishSubmission) {
+        res.status(409).json({ error: "arena_not_joinable", message: "Arena is closing its lobby" });
         return;
       }
-
-      let signature: string;
       try {
-        signature = await submitEntryTx(signedTx);
-      } catch (err: unknown) {
-        logger.error({ err, arenaId, wallet: pending.walletAddress }, "entry submit failed on-chain");
-        res.status(502).json({ error: "onchain_submit_failed", message: "Entry transaction failed on-chain" });
-        return;
+        const user = await userRepository.upsertByWallet(
+          pending.walletAddress,
+          `fan_${pending.walletAddress.slice(0, 6)}`,
+        );
+
+        // Idempotent: already seated (double submit / reconcile) → return the seat, don't buy again.
+        const existing = await entryPassRepository.findByArenaAndUser(arenaId, user.id);
+        if (existing) {
+          const player = await arenaPlayerRepository.join(arenaId, user.id);
+          runtime?.join(user.id, user.username, player.joinedAt);
+          res.json({ token: issueToken(user.id), entryPassId: existing.id, player, arena });
+          return;
+        }
+
+        if (!(await verifyPreparedEntryTransaction(pending.tx, signedTx, pending.walletAddress))) {
+          res.status(400).json({ error: "bad_request", message: "signedTx does not match the prepared entry" });
+          return;
+        }
+
+        let signature: string;
+        try {
+          signature = await submitEntryTx(signedTx);
+        } catch (err: unknown) {
+          logger.error({ err, arenaId, wallet: pending.walletAddress }, "entry submit failed on-chain");
+          res.status(502).json({ error: "onchain_submit_failed", message: "Entry transaction failed on-chain" });
+          return;
+        }
+
+        const entryPass = await entryPassRepository.create({
+          arenaId,
+          userId: user.id,
+          walletAddress: user.walletAddress,
+          amountLamports: arena.entryFeeLamports,
+          txSignature: signature,
+        });
+        const player = await arenaPlayerRepository.join(arenaId, user.id);
+        await arenaRepository.bumpActivePlayers(arenaId, 1);
+        await arenaRepository.bumpPrizePool(arenaId, arena.entryFeeLamports);
+        runtime?.join(user.id, user.username, player.joinedAt);
+
+        const updatedArena = (await arenaRepository.findById(arenaId)) ?? arena;
+        res.json({ token: issueToken(user.id), entryPassId: entryPass.id, player, arena: updatedArena });
+      } finally {
+        finishSubmission();
       }
-
-      const entryPass = await entryPassRepository.create({
-        arenaId,
-        userId: user.id,
-        walletAddress: user.walletAddress,
-        amountLamports: arena.entryFeeLamports,
-        txSignature: signature,
-      });
-      const player = await arenaPlayerRepository.join(arenaId, user.id);
-      await arenaRepository.bumpActivePlayers(arenaId, 1);
-      await arenaRepository.bumpPrizePool(arenaId, arena.entryFeeLamports);
-      runtime?.join(user.id, user.username, player.joinedAt);
-
-      const updatedArena = (await arenaRepository.findById(arenaId)) ?? arena;
-      res.json({ token: issueToken(user.id), entryPassId: entryPass.id, player, arena: updatedArena });
     },
   );
 

@@ -13,6 +13,7 @@
     "build": "tsc -p tsconfig.json && pnpm copy:assets",
     "copy:assets": "mkdir -p dist/db/seeds dist/ingestion/__fixtures__ dist/live/idl && cp src/db/seeds/matches.json dist/db/seeds/matches.json && cp src/ingestion/__fixtures__/*.json dist/ingestion/__fixtures__/ && cp src/live/idl/txoracle.json dist/live/idl/txoracle.json",
     "start": "node dist/gateway/run.js",
+    "start:demo-cycle": "node dist/gateway/demo-cycle.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
