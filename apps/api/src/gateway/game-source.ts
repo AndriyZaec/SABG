@@ -37,6 +37,17 @@ export interface GameSourceOptions {
   signal: AbortSignal;
 }
 
+export function calculateLobbyDurationMs(
+  source: GameSourceKind,
+  fixtureStartTime: Date,
+  configuredReplayLobbyMs: number,
+  nowMs = Date.now(),
+): number {
+  return source === "live"
+    ? Math.max(0, fixtureStartTime.getTime() - nowMs)
+    : configuredReplayLobbyMs;
+}
+
 export async function createGameSource(options: GameSourceOptions): Promise<GameSource> {
   if (options.kind === "replay") {
     return createReplaySource(options.replayFixtureId, options.secondsPerMatchMinute);

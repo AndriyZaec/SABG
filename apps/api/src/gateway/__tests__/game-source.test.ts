@@ -1,8 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { MatchSignalBus } from "../../ingestion/event-bus.js";
-import { createGameSource } from "../game-source.js";
+import { calculateLobbyDurationMs, createGameSource } from "../game-source.js";
 
 describe("game source", () => {
+  it("keeps live entry open until kickoff", () => {
+    const now = new Date("2026-07-18T20:40:00.000Z");
+    const kickoff = new Date("2026-07-18T21:00:00.000Z");
+
+    expect(calculateLobbyDurationMs("live", kickoff, 180_000, now.getTime())).toBe(20 * 60_000);
+    expect(calculateLobbyDurationMs("live", kickoff, 180_000, kickoff.getTime() + 1)).toBe(0);
+    expect(calculateLobbyDurationMs("replay", kickoff, 180_000, now.getTime())).toBe(180_000);
+  });
+
   it("runs a recorded fixture without importing live dependencies", async () => {
     const source = await createGameSource({
       kind: "replay",

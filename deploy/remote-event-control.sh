@@ -66,7 +66,7 @@ run_live_preflight() {
     compose_live run --rm --no-deps -e "TXODDS_LIVE_FIXTURE_ID=$fixture_id" app \
       node dist/live/preflight.js
   else
-    compose_live run --rm --no-deps -e TXODDS_LIVE_FIXTURE_ID= app \
+    compose_live run --rm --no-deps app \
       node dist/live/preflight.js
   fi
 }

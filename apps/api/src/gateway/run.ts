@@ -32,7 +32,7 @@ import {
   tryAcquireFixtureRuntimeLock,
   type ReleaseFixtureRuntimeLock,
 } from "../db/client.js";
-import { createGameSource, type GameSource } from "./game-source.js";
+import { calculateLobbyDurationMs, createGameSource, type GameSource } from "./game-source.js";
 import { REPLAY_CYCLE_EXIT_CODE, shouldCycleReplay } from "./replay-cycle-policy.js";
 import { closeEntrySubmissions } from "./entry-prepare-store.js";
 
@@ -192,10 +192,11 @@ async function main(): Promise<void> {
 
     // Pre-kickoff lobby window: arena stays `lobby` so the human can buy in + join, then flips `live`.
     const configuredLobbyMs = gatewayConfig.lobby.seconds * 1_000;
-    const lobbyMs =
-      gameSource.kind === "live"
-        ? Math.max(0, Math.min(configuredLobbyMs, gameSource.fixture.startTime.getTime() - Date.now()))
-        : configuredLobbyMs;
+    const lobbyMs = calculateLobbyDurationMs(
+      gameSource.kind,
+      gameSource.fixture.startTime,
+      configuredLobbyMs,
+    );
     logger.info({ arenaId: arena.id, lobbySeconds: lobbyMs / 1_000 }, "lobby open — waiting for players");
     await trackWork(sleep(lobbyMs, abortController.signal));
     if (abortController.signal.aborted) return;
