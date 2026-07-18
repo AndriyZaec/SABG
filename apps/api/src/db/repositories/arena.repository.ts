@@ -22,7 +22,7 @@ export const arenaRepository = {
   /**
    * GET /arenas?matchId= (lobby discovery). The schema has no uniqueness constraint on
    * matchId, so this is a genuine list query, not just `findByMatchId` wrapped in an array —
-   * today's demo bootstrap only ever creates one arena per match, but the query doesn't assume it.
+   * today's event bootstrap only ever creates one arena per match, but the query doesn't assume it.
    */
   async listByMatchId(matchId: Uuid): Promise<Arena[]> {
     const rows = await db.select().from(arenas).where(eq(arenas.matchId, matchId));
@@ -30,7 +30,7 @@ export const arenaRepository = {
   },
 
   /**
-   * Idempotent demo bootstrap (gateway/run.ts): one arena per match, created in `lobby` on first
+   * Idempotent event bootstrap (gateway/run.ts): one arena per match, created in `lobby` on first
    * boot and reused thereafter.
    */
   async upsertForMatch(
@@ -40,9 +40,6 @@ export const arenaRepository = {
     const existing = await this.findByMatchId(matchId);
     if (existing) return existing;
 
-    // Real escrow + on-chain id when provisioning is enabled; placeholder otherwise (demo path).
-    const onchain = await maybeProvisionArena(defaults.entryFeeLamports);
-
     const [row] = await db
       .insert(arenas)
       .values({
@@ -51,12 +48,34 @@ export const arenaRepository = {
         activePlayersCount: 0,
         entryFeeLamports: defaults.entryFeeLamports,
         prizePoolLamports: defaults.prizePoolLamports,
-        escrowAccount: onchain?.escrowAccount ?? PLACEHOLDER_ESCROW,
-        onchainArenaId: onchain?.onchainArenaId ?? null,
+        escrowAccount: PLACEHOLDER_ESCROW,
+        onchainArenaId: null,
       })
       .returning();
     if (!row) throw new Error(`upsertForMatch(${matchId}) returned no row`);
     return arenaRowToEntity(row);
+  },
+
+  /** Provision lazily on the first real entry prepare, so empty replay cycles spend no authority SOL. */
+  async ensureOnchain(id: Uuid): Promise<Arena> {
+    return db.transaction(async (tx) => {
+      // One authority funds every fixture; the transaction lock makes its balance check + spend serial.
+      await tx.execute(sql`select pg_advisory_xact_lock(1397315407, 1)`);
+      const [row] = await tx.select().from(arenas).where(eq(arenas.id, id)).for("update");
+      if (!row) throw new Error(`Arena ${id} not found during on-chain provisioning`);
+      if (row.onchainArenaId != null) return arenaRowToEntity(row);
+      if (row.status !== "lobby") throw new Error(`Arena ${id} is no longer in lobby`);
+
+      const onchain = await maybeProvisionArena(row.entryFeeLamports, row.id);
+      if (!onchain) return arenaRowToEntity(row);
+      const [updated] = await tx
+        .update(arenas)
+        .set({ escrowAccount: onchain.escrowAccount, onchainArenaId: onchain.onchainArenaId })
+        .where(eq(arenas.id, id))
+        .returning();
+      if (!updated) throw new Error(`Arena ${id} disappeared during on-chain provisioning`);
+      return arenaRowToEntity(updated);
+    });
   },
 
   async setStatus(id: Uuid, status: Arena["status"]): Promise<void> {

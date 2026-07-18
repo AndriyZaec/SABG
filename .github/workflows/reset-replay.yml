@@ -1,0 +1,95 @@
+name: Reset Replay
+
+on:
+  workflow_dispatch:
+    inputs:
+      fixture_id:
+        description: Recorded fixture to start after reset
+        required: true
+        type: choice
+        options:
+          - "18241006"
+          - "18179764"
+      confirmation:
+        description: Type RESET followed by a space and the selected fixture ID
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: event-operations
+  cancel-in-progress: false
+
+jobs:
+  reset:
+    name: Guarded reset and restart
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: event
+    env:
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      FIXTURE_ID: ${{ inputs.fixture_id }}
+      CONFIRMATION: ${{ inputs.confirmation }}
+    steps:
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == "refs/heads/$DEFAULT_BRANCH" ]] || {
+            echo "Reset Replay must be dispatched from $DEFAULT_BRANCH" >&2
+            exit 1
+          }
+          [[ "$FIXTURE_ID" == 18179764 || "$FIXTURE_ID" == 18241006 ]]
+          [[ "$CONFIRMATION" == "RESET $FIXTURE_ID" ]] || {
+            echo "confirmation must exactly match RESET $FIXTURE_ID" >&2
+            exit 1
+          }
+
+      - name: Check out operations scripts
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Reset replay on VPS
+        shell: bash
+        env:
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          [[ "$DEPLOY_PATH" =~ ^/[A-Za-z0-9._/-]+$ ]] || {
+            echo "DEPLOY_PATH must be an absolute path with no whitespace" >&2
+            exit 1
+          }
+          [[ "$SSH_HOST" =~ ^[A-Za-z0-9:._-]+$ ]]
+          [[ "$SSH_USER" =~ ^[A-Za-z0-9._-]+$ ]]
+
+          key_file="$RUNNER_TEMP/demo_reset_key"
+          known_hosts_file="$RUNNER_TEMP/demo_known_hosts"
+          cleanup() { rm -f "$key_file" "$known_hosts_file"; }
+          trap cleanup EXIT
+          install -m 0600 /dev/null "$key_file"
+          install -m 0600 /dev/null "$known_hosts_file"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$key_file"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$known_hosts_file"
+
+          ssh -i "$key_file" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o "UserKnownHostsFile=$known_hosts_file" "$SSH_USER@$SSH_HOST" \
+            "sh -s -- '$DEPLOY_PATH' '$FIXTURE_ID' '$CONFIRMATION'" \
+            < deploy/remote-reset-replay.sh
+
+      - name: Publish reset summary
+        if: success()
+        shell: bash
+        run: |
+          {
+            echo '### Replay reset complete'
+            echo
+            echo "- Fixture: \`$FIXTURE_ID\`"
+          } >> "$GITHUB_STEP_SUMMARY"

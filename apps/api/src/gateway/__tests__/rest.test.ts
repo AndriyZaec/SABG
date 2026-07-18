@@ -19,7 +19,7 @@ vi.mock("../../db/repositories/match.repository.js", () => ({
   matchRepository: { list: vi.fn(), findById: vi.fn() },
 }));
 vi.mock("../../db/repositories/arena.repository.js", () => ({
-  arenaRepository: { findById: vi.fn(), bumpActivePlayers: vi.fn(), bumpPrizePool: vi.fn(), listByMatchId: vi.fn() },
+  arenaRepository: { findById: vi.fn(), ensureOnchain: vi.fn(), bumpActivePlayers: vi.fn(), bumpPrizePool: vi.fn(), listByMatchId: vi.fn() },
 }));
 vi.mock("../../db/repositories/arena-player.repository.js", () => ({
   arenaPlayerRepository: { join: vi.fn() },
@@ -33,6 +33,13 @@ vi.mock("../../db/repositories/prediction.repository.js", () => ({
 vi.mock("../../db/repositories/entry-pass.repository.js", () => ({
   entryPassRepository: { create: vi.fn() },
 }));
+vi.mock("../../onchain/index.js", () => ({
+  buildEntryTx: vi.fn(),
+  isOnchainArenaProvisioningEnabled: vi.fn(),
+  isValidSolanaWalletAddress: vi.fn(),
+  submitEntryTx: vi.fn(),
+  verifyPreparedEntryTransaction: vi.fn(),
+}));
 
 const { userRepository } = await import("../../db/repositories/user.repository.js");
 const { matchRepository } = await import("../../db/repositories/match.repository.js");
@@ -41,6 +48,7 @@ const { arenaPlayerRepository } = await import("../../db/repositories/arena-play
 const { predictionRoundRepository } = await import("../../db/repositories/prediction-round.repository.js");
 const { predictionRepository } = await import("../../db/repositories/prediction.repository.js");
 const { entryPassRepository } = await import("../../db/repositories/entry-pass.repository.js");
+const { buildEntryTx, isOnchainArenaProvisioningEnabled, isValidSolanaWalletAddress, verifyPreparedEntryTransaction } = await import("../../onchain/index.js");
 const { createRestRouter } = await import("../rest.js");
 const { issueToken } = await import("../auth.js");
 
@@ -103,6 +111,9 @@ describe("REST gateway routes", () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    vi.mocked(isOnchainArenaProvisioningEnabled).mockReturnValue(false);
+    vi.mocked(isValidSolanaWalletAddress).mockResolvedValue(true);
+    vi.mocked(verifyPreparedEntryTransaction).mockResolvedValue({ ok: true, blockhashRefreshed: false });
     runtimeLookup = { getRuntime: vi.fn().mockReturnValue(undefined) };
 
     const app = express();
@@ -299,6 +310,24 @@ describe("REST gateway routes", () => {
       expect(res.status).toBe(409);
     });
 
+    it("rejects the unverified legacy flow for an already provisioned arena", async () => {
+      vi.mocked(arenaRepository.findById).mockResolvedValue(fakeArena({ onchainArenaId: 42 }));
+      vi.mocked(userRepository.findById).mockResolvedValue({
+        id: "u1",
+        walletAddress: "wallet1",
+        username: "fan_wallet",
+      });
+
+      const res = await fetch(`${baseUrl}/arenas/${ARENA_ID}/entry`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${issueToken("u1")}` },
+        body: JSON.stringify({ txSignature: "unverified" }),
+      });
+
+      expect(res.status).toBe(409);
+      expect(entryPassRepository.create).not.toHaveBeenCalled();
+    });
+
     it("joins the arena and calls the runtime's join on success", async () => {
       const arena = fakeArena();
       vi.mocked(arenaRepository.findById).mockResolvedValue(arena);
@@ -341,6 +370,40 @@ describe("REST gateway routes", () => {
       expect(arenaRepository.bumpActivePlayers).toHaveBeenCalledWith(ARENA_ID, 1);
       expect(arenaRepository.bumpPrizePool).toHaveBeenCalledWith(ARENA_ID, 1000);
       expect(runtimeJoin).toHaveBeenCalledWith("u1", "fan_wallet", player.joinedAt);
+    });
+  });
+
+  describe("POST /arenas/:id/entry/prepare", () => {
+    it("rejects an invalid wallet before spending authority SOL", async () => {
+      vi.mocked(arenaRepository.findById).mockResolvedValue(fakeArena());
+      vi.mocked(isValidSolanaWalletAddress).mockResolvedValue(false);
+
+      const res = await fetch(`${baseUrl}/arenas/${ARENA_ID}/entry/prepare`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ walletAddress: "invalid" }),
+      });
+
+      expect(res.status).toBe(400);
+      expect(arenaRepository.ensureOnchain).not.toHaveBeenCalled();
+    });
+
+    it("provisions lazily before building the first real entry transaction", async () => {
+      const arena = fakeArena();
+      const provisioned = fakeArena({ onchainArenaId: 42, escrowAccount: "Escrow42" });
+      vi.mocked(arenaRepository.findById).mockResolvedValue(arena);
+      vi.mocked(arenaRepository.ensureOnchain).mockResolvedValue(provisioned);
+      vi.mocked(buildEntryTx).mockResolvedValue("unsigned-transaction");
+
+      const res = await fetch(`${baseUrl}/arenas/${ARENA_ID}/entry/prepare`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ walletAddress: "11111111111111111111111111111111" }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(arenaRepository.ensureOnchain).toHaveBeenCalledWith(ARENA_ID);
+      expect(buildEntryTx).toHaveBeenCalledWith(42, "11111111111111111111111111111111");
     });
   });
 

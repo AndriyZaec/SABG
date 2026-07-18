@@ -16,6 +16,25 @@ import type {
   WalletAddress,
 } from "./entities.js";
 
+export type GameSourceMode = "replay" | "live";
+
+/** GET /api/runtime-config — public display metadata, never secrets. */
+export interface RuntimeConfigResponse {
+  gameSource: GameSourceMode;
+  sourceLabel: string;
+}
+
+/** GET /api/access/session — event-level visibility gate, separate from wallet identity. */
+export type EventAccessSessionResponse =
+  | { status: "not_required" }
+  | { status: "authenticated" }
+  | { status: "unauthenticated" };
+
+/** POST /api/access/session — exchange the shared event code for a secure session cookie. */
+export interface EventAccessSignInRequest {
+  code: string;
+}
+
 /** POST /auth/nonce — request a fresh nonce to embed in the sign-in message. */
 export interface WalletNonceRequest {
   walletAddress: WalletAddress;

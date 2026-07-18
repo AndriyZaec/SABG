@@ -9,7 +9,17 @@ const isProd = gatewayConfig.log.nodeEnv === "production";
 export const logger = pino({
   level: gatewayConfig.log.level,
   redact: {
-    paths: ["token", "*.token", "*.authorization", "*.Authorization", "headers.authorization"],
+    paths: [
+      "token",
+      "*.token",
+      "*.authorization",
+      "*.Authorization",
+      "headers.authorization",
+      "err.config.headers.authorization",
+      "err.config.headers.Authorization",
+      'err.config.headers["x-api-token"]',
+      'err.config.headers["X-Api-Token"]',
+    ],
     censor: "[REDACTED]",
   },
   ...(isProd

@@ -28,4 +28,9 @@ export class WriteQueue {
     this.tails.set(key, next);
     return next;
   }
+
+  /** Waits until every write accepted before this call has completed. */
+  async drain(): Promise<void> {
+    await Promise.all(this.tails.values());
+  }
 }

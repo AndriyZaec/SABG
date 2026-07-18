@@ -1,6 +1,6 @@
 // Match persistence. `updateLive` is how MatchState snapshots land in Postgres
 // (arena-runtime.ts's matchState onSnapshot callback); `upsertByTxoddsFixtureId` backs the
-// gateway's self-contained demo bootstrap (gateway/run.ts) — independent of db:seed, which seeds a
+// gateway's self-contained event bootstrap (gateway/run.ts) — independent of db:seed, which seeds a
 // different fixture than the replay uses.
 
 import { eq } from "drizzle-orm";
@@ -26,7 +26,7 @@ export const matchRepository = {
   },
 
   /**
-   * Idempotent demo bootstrap (gateway/run.ts, live/run.ts): ensures a match row exists for a
+   * Idempotent event bootstrap (gateway/run.ts, live/run.ts): ensures a match row exists for a
    * fixture, keyed by `txoddsFixtureId`. The TXODDS feed itself carries only home/away sides, not
    * team names — callers resolve real names from `db/seeds/fixture-metadata.ts` and pass them in
    * here; `"Home"`/`"Away"` is only a fallback for a fixture that isn't seeded yet.

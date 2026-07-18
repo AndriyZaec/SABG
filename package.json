@@ -15,7 +15,7 @@
     "test": "pnpm -r --if-present test",
     "dev:api": "pnpm --filter @arena/api dev",
     "dev:web": "pnpm --filter @arena/web dev",
-    "contracts:build": "pnpm --filter @arena/contracts build",
+    "contracts:build": "pnpm --filter @arena/contracts build && pnpm --filter @arena/auth build",
     "anchor:build": "cd programs/arena && anchor build",
     "idl:sync": "pnpm --filter @arena/contracts idl:sync"
   },

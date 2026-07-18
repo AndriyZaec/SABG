@@ -1,6 +1,6 @@
 // Resolves a TXODDS fixture id to real team names from the local seed (matches.json) — the
 // scores feed itself carries no team names (only numeric participant ids), so this is the one
-// place a demo bootstrap's team names come from. Returns undefined for an unlisted fixture; the
+// place a replay bootstrap's team names come from. Returns undefined for an unlisted fixture; the
 // caller decides the placeholder in that case (see match.repository.ts's doc comment).
 
 import { readFileSync } from "node:fs";

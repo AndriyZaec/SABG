@@ -23,7 +23,7 @@ SABG/
 
 ```bash
 pnpm install
-pnpm contracts:build   # build shared @arena/contracts
+pnpm contracts:build   # build shared @arena/contracts and @arena/auth
 pnpm dev:web           # run the frontend
 ```
 

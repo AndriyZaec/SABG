@@ -8,12 +8,12 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./src/index.ts",
-      "default": "./src/index.ts"
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     },
     "./onchain": {
-      "types": "./src/onchain/index.ts",
-      "default": "./src/onchain/index.ts"
+      "types": "./dist/onchain/index.d.ts",
+      "default": "./dist/onchain/index.js"
     }
   },
   "scripts": {

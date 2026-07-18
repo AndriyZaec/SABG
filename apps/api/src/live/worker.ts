@@ -34,8 +34,15 @@ export class LiveIngestionWorker {
   private lastEventId: string | undefined;
   private errorStreak = 0;
   private abort: AbortController | undefined;
+  private stopController = new AbortController();
   private settleTimer: NodeJS.Timeout | undefined;
   private finished = false;
+  private runPromise: Promise<void> | undefined;
+  private readyPromise: Promise<boolean> = Promise.resolve(false);
+  private resolveReady: ((ready: boolean) => void) | undefined;
+  private readonly activationPromise: Promise<void>;
+  private resolveActivation: (() => void) | undefined;
+  private activated = false;
   private readonly producer: MatchSignalProducer;
 
   constructor(
@@ -43,22 +50,64 @@ export class LiveIngestionWorker {
     private readonly bus: MatchSignalBus,
   ) {
     this.producer = createMatchSignalProducer(matchId);
+    this.activationPromise = new Promise<void>((resolve) => {
+      this.resolveActivation = resolve;
+    });
   }
 
   async start(fixtureId: number): Promise<void> {
     if (this.running) return;
+    if (this.stopController.signal.aborted) throw new Error("Cannot start a stopped live ingestion worker");
+    this.readyPromise = new Promise<boolean>((resolve) => {
+      this.resolveReady = resolve;
+    });
+    const latest = await StreamEventRepository.findLatest(fixtureId);
+    if (this.stopController.signal.aborted) {
+      this.markReady(false);
+      return;
+    }
     this.running = true;
     this.finished = false;
+    this.lastSeq = latest?.seq ?? -1;
 
     logger.info({ fixtureId }, "live ingestion worker starting");
 
-    void this.runLoop(fixtureId).catch((err) => {
-      logger.error({ err, fixtureId }, "live ingestion worker loop crashed");
-    });
+    this.runPromise = this.runLoop(fixtureId)
+      .catch((err) => {
+        logger.error({ err, fixtureId }, "live ingestion worker loop crashed");
+      })
+      .finally(() => {
+        this.running = false;
+      });
+  }
+
+  async waitUntilStopped(): Promise<void> {
+    await this.runPromise;
+  }
+
+  async waitUntilReady(timeoutMs: number): Promise<void> {
+    const timeoutController = new AbortController();
+    const stopTimeout = () => timeoutController.abort();
+    this.stopController.signal.addEventListener("abort", stopTimeout, { once: true });
+    const ready = await Promise.race([this.readyPromise, sleep(timeoutMs, timeoutController.signal).then(() => false)]);
+    this.stopController.signal.removeEventListener("abort", stopTimeout);
+    timeoutController.abort();
+    if (!ready) throw new Error(`Live ingestion stream did not become ready within ${timeoutMs}ms`);
+  }
+
+  activate(): void {
+    if (this.activated) return;
+    this.activated = true;
+    this.resolveActivation?.();
+    this.resolveActivation = undefined;
   }
 
   stop(): void {
     this.running = false;
+    this.markReady(false);
+    this.resolveActivation?.();
+    this.resolveActivation = undefined;
+    this.stopController.abort();
     this.abort?.abort();
     this.abort = undefined;
     if (this.settleTimer) clearTimeout(this.settleTimer);
@@ -79,7 +128,7 @@ export class LiveIngestionWorker {
     while (this.running) {
       const now = Date.now();
       if (now < RateLimitState.retryAfterUntil) {
-        await sleep(RateLimitState.retryAfterUntil - now);
+        await sleep(RateLimitState.retryAfterUntil - now, this.stopController.signal);
         continue;
       }
 
@@ -87,6 +136,9 @@ export class LiveIngestionWorker {
       try {
         const messages = streamEvents(fixtureId, this.lastEventId, this.abort.signal);
         for await (const msg of messages) {
+          if (!this.running) break;
+          this.markReady(true);
+          if (!this.activated) await this.activationPromise;
           if (!this.running) break;
           this.errorStreak = 0;
           await this.handleMessage(fixtureId, msg);
@@ -108,7 +160,7 @@ export class LiveIngestionWorker {
       if (!this.running || this.finished) break;
       const backoff = RECONNECT_BACKOFF_MS[Math.min(this.errorStreak, RECONNECT_BACKOFF_MS.length - 1)] ?? 30_000;
       this.errorStreak += 1;
-      await sleep(backoff);
+      await sleep(backoff, this.stopController.signal);
     }
   }
 
@@ -123,7 +175,12 @@ export class LiveIngestionWorker {
       return; // already-seen frame (e.g. replayed after a Last-Event-ID reconnect)
     }
 
-    await StreamEventRepository.insert(fixtureId, event, msg.id);
+    const inserted = await StreamEventRepository.insert(fixtureId, event, msg.id);
+    if (inserted === 0 && event.Seq !== undefined) {
+      this.lastSeq = event.Seq;
+      if (msg.id !== undefined) this.lastEventId = msg.id;
+      return;
+    }
 
     for (const signal of this.producer.process(event)) {
       this.publish(signal);
@@ -139,6 +196,11 @@ export class LiveIngestionWorker {
 
   private publish(signal: MatchSignal): void {
     this.bus.publish(signal);
+  }
+
+  private markReady(ready: boolean): void {
+    this.resolveReady?.(ready);
+    this.resolveReady = undefined;
   }
 
   private armSettle(fixtureId: number): void {

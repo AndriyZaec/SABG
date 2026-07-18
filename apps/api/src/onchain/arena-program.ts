@@ -7,8 +7,19 @@
 // against devnet for the first time (it had only ever run with ONCHAIN_ARENAS_ENABLED=false
 // before). The default import exposes all four correctly.
 import anchor from "@coral-xyz/anchor";
-import { Connection, Keypair, PublicKey, Transaction } from "@solana/web3.js";
+import {
+  ComputeBudgetInstruction,
+  ComputeBudgetProgram,
+  Connection,
+  Keypair,
+  LAMPORTS_PER_SOL,
+  PublicKey,
+  Transaction,
+  type TransactionInstruction,
+} from "@solana/web3.js";
+import { createHmac } from "node:crypto";
 import bs58 from "bs58";
+import nacl from "tweetnacl";
 import { ARENA_IDL } from "@arena/contracts/onchain";
 import { onchainConfig } from "./config.js";
 
@@ -43,6 +54,41 @@ type RpcBuilder = {
 };
 type LooseMethods = Record<string, (...args: unknown[]) => RpcBuilder>;
 
+const ARENA_ACCOUNT_SPACE = 137;
+const TRANSACTION_FEE_HEADROOM_LAMPORTS = 10_000;
+
+export function assertAuthorityCanProvision(
+  balanceLamports: number,
+  arenaRentLamports: number,
+  reserveLamports: number,
+): void {
+  const requiredLamports = arenaRentLamports + TRANSACTION_FEE_HEADROOM_LAMPORTS + reserveLamports;
+  if (balanceLamports < requiredLamports) {
+    throw new Error(
+      `Arena authority balance ${(balanceLamports / LAMPORTS_PER_SOL).toFixed(4)} SOL is below the required ${(requiredLamports / LAMPORTS_PER_SOL).toFixed(4)} SOL (arena rent + fee headroom + reserve)`,
+    );
+  }
+}
+
+export function assertEscrowEmpty(balanceLamports: number, onchainArenaId: number): void {
+  if (balanceLamports > 0) {
+    throw new Error(
+      `Refusing to recycle on-chain arena ${onchainArenaId}: escrow still holds ${balanceLamports} lamports`,
+    );
+  }
+}
+
+export function assertArenaRecyclableState(
+  settled: boolean,
+  escrowBalanceLamports: number,
+  onchainArenaId: number,
+): void {
+  if (!settled) {
+    throw new Error(`Refusing to recycle on-chain arena ${onchainArenaId}: arena is not settled`);
+  }
+  assertEscrowEmpty(escrowBalanceLamports, onchainArenaId);
+}
+
 /** entry_pass PDA — same seeds as the program & frontend (deriveEntryPass). */
 function deriveEntryPass(programId: PublicKey, arena: PublicKey, player: PublicKey): PublicKey {
   const [entryPass] = PublicKey.findProgramAddressSync(
@@ -67,15 +113,48 @@ function buildProgram(): { program: anchor.Program; authority: Keypair } {
 export interface ProvisionedArena {
   onchainArenaId: number;
   escrowAccount: string;
-  signature: string;
+  signature?: string;
 }
 
-/** Create a fresh on-chain arena as the service authority; returns the ids to persist. */
-export async function provisionArena(entryFeeLamports: number): Promise<ProvisionedArena> {
+/** Stable 52-bit seed lets a retry recover the same PDA after Solana succeeds but DB commit fails. */
+export function deriveOnchainArenaId(databaseArenaId: string, authoritySecretKey: Uint8Array): number {
+  const compact = databaseArenaId.replaceAll("-", "");
+  if (!/^[0-9a-f]{32}$/i.test(compact)) throw new Error(`Invalid database arena UUID: ${databaseArenaId}`);
+  const digest = createHmac("sha256", authoritySecretKey).update(compact).digest("hex");
+  return Number.parseInt(digest.slice(0, 13), 16);
+}
+
+/** Create or recover an on-chain arena as the service authority; returns the ids to persist. */
+export async function provisionArena(
+  entryFeeLamports: number,
+  databaseArenaId: string,
+): Promise<ProvisionedArena> {
   const { program, authority } = buildProgram();
-  const onchainArenaId = Math.floor(Math.random() * Number.MAX_SAFE_INTEGER);
+  const onchainArenaId = deriveOnchainArenaId(databaseArenaId, authority.secretKey);
+  const connection = program.provider.connection;
   const arenaId = new anchor.BN(onchainArenaId);
   const { arena, escrow } = deriveArenaPdas(program.programId, arenaId);
+  const existing = await connection.getAccountInfo(arena, "confirmed");
+  if (existing) {
+    const decoded = program.coder.accounts.decode("Arena", existing.data) as {
+      authority: PublicKey;
+      entryFeeLamports: anchor.BN;
+    };
+    if (!decoded.authority.equals(authority.publicKey) || !decoded.entryFeeLamports.eq(new anchor.BN(entryFeeLamports))) {
+      throw new Error(`On-chain arena ${onchainArenaId} exists with unexpected authority or entry fee`);
+    }
+    return { onchainArenaId, escrowAccount: escrow.toBase58() };
+  }
+
+  const [balanceLamports, arenaRentLamports] = await Promise.all([
+    connection.getBalance(authority.publicKey, "confirmed"),
+    connection.getMinimumBalanceForRentExemption(ARENA_ACCOUNT_SPACE, "confirmed"),
+  ]);
+  assertAuthorityCanProvision(
+    balanceLamports,
+    arenaRentLamports,
+    onchainConfig.authorityReserveLamports,
+  );
 
   // Backend is both authority and payout_authority; platform fee 0 for MVP.
   const signature = await (program.methods as unknown as LooseMethods)
@@ -84,6 +163,98 @@ export async function provisionArena(entryFeeLamports: number): Promise<Provisio
     .rpc();
 
   return { onchainArenaId, escrowAccount: escrow.toBase58(), signature };
+}
+
+export type PreparedEntryVerification =
+  | { ok: true; blockhashRefreshed: boolean }
+  | {
+      ok: false;
+      reason:
+        | "invalid_transaction"
+        | "unexpected_signers"
+        | "message_changed"
+        | "wallet_signature_missing"
+        | "wallet_signature_invalid";
+    };
+
+export function verifyPreparedEntryTransaction(
+  preparedTxBase64: string,
+  signedTxBase64: string,
+  walletAddress: string,
+): PreparedEntryVerification {
+  try {
+    const prepared = Transaction.from(Buffer.from(preparedTxBase64, "base64"));
+    const signed = Transaction.from(Buffer.from(signedTxBase64, "base64"));
+    const wallet = new PublicKey(walletAddress);
+    if (
+      prepared.signatures.length !== 1 ||
+      signed.signatures.length !== 1 ||
+      !prepared.signatures[0]?.publicKey.equals(wallet) ||
+      !signed.signatures[0]?.publicKey.equals(wallet) ||
+      !prepared.feePayer?.equals(wallet) ||
+      !signed.feePayer?.equals(wallet)
+    ) {
+      return { ok: false, reason: "unexpected_signers" };
+    }
+    if (!sameEntryInstructions(prepared.instructions, signed.instructions)) {
+      return { ok: false, reason: "message_changed" };
+    }
+    const walletSignature = signed.signatures.find(({ publicKey }) => publicKey.equals(wallet))?.signature;
+    if (walletSignature == null) return { ok: false, reason: "wallet_signature_missing" };
+    if (!nacl.sign.detached.verify(signed.serializeMessage(), walletSignature, wallet.toBytes())) {
+      return { ok: false, reason: "wallet_signature_invalid" };
+    }
+    return {
+      ok: true,
+      blockhashRefreshed: prepared.recentBlockhash !== signed.recentBlockhash,
+    };
+  } catch {
+    return { ok: false, reason: "invalid_transaction" };
+  }
+}
+
+function sameEntryInstructions(prepared: TransactionInstruction[], signed: TransactionInstruction[]): boolean {
+  const signedEntryInstructions: TransactionInstruction[] = [];
+  for (const instruction of signed) {
+    if (instruction.programId.equals(ComputeBudgetProgram.programId)) {
+      if (instruction.keys.length !== 0) return false;
+      try {
+        ComputeBudgetInstruction.decodeInstructionType(instruction);
+      } catch {
+        return false;
+      }
+      continue;
+    }
+    signedEntryInstructions.push(instruction);
+  }
+  if (prepared.length !== signedEntryInstructions.length) return false;
+  return prepared.every((instruction, index) => {
+    const candidate = signedEntryInstructions[index];
+    return candidate !== undefined &&
+      instruction.programId.equals(candidate.programId) &&
+      instruction.data.equals(candidate.data) &&
+      instruction.keys.length === candidate.keys.length &&
+      instruction.keys.every((account, accountIndex) => {
+        const candidateAccount = candidate.keys[accountIndex];
+        return candidateAccount !== undefined &&
+          account.pubkey.equals(candidateAccount.pubkey) &&
+          account.isSigner === candidateAccount.isSigner &&
+          account.isWritable === candidateAccount.isWritable;
+      });
+  });
+}
+
+/** Auto-cycle must never delete DB references while player funds remain in the old escrow. */
+export async function assertArenaRecyclable(onchainArenaId: number): Promise<void> {
+  const { program } = buildProgram();
+  const { arena, escrow } = deriveArenaPdas(program.programId, new anchor.BN(onchainArenaId));
+  const [arenaAccount, balanceLamports] = await Promise.all([
+    program.provider.connection.getAccountInfo(arena, "finalized"),
+    program.provider.connection.getBalance(escrow, "finalized"),
+  ]);
+  if (!arenaAccount) throw new Error(`On-chain arena ${onchainArenaId} does not exist`);
+  const decoded = program.coder.accounts.decode("arena", arenaAccount.data) as { settled: boolean };
+  assertArenaRecyclableState(decoded.settled, balanceLamports, onchainArenaId);
 }
 
 /**
