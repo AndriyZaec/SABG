@@ -25,6 +25,11 @@ export function ArenaScreen() {
   // state) — this list is only the other rounds still awaiting settlement.
   const pending = (view.pendingPredictions ?? []).filter((p) => p.roundId !== view.round?.roundId);
 
+  // A spectator (no pass) never receives a personal player.status push, so myStatus stays
+  // undefined for them — see useArenaSocket.ts / the gateway's handleSubscribe. The demo has no
+  // socket at all and sets no myStatus, so it's always treated as a participant.
+  const isParticipant = isDemo || view.myStatus !== undefined;
+
   return (
     <div className="nb-container">
       {!isDemo && !connected && (
@@ -56,6 +61,7 @@ export function ArenaScreen() {
               round={view.round}
               onAnswer={submitAnswer}
               eliminated={view.myStatus === "eliminated"}
+              participant={isParticipant}
             />
           )}
           {pending.length > 0 && <PendingPredictionsList predictions={pending} />}

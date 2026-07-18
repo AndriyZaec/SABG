@@ -14,10 +14,14 @@ export function PredictionCard({
   round,
   onAnswer,
   eliminated = false,
+  participant = true,
 }: {
   round: RoundView;
   onAnswer?: (a: Answer) => void;
   eliminated?: boolean;
+  /** Whether the viewer actually joined this arena (owns a pass) — spectators can watch a round
+   *  play out but must not get the answer actions. Defaults true for the demo/legacy callers. */
+  participant?: boolean;
 }) {
   const [picked, setPicked] = useState<Answer | undefined>(round.myAnswer);
   const { remainingMs, locked } = useCountdown(round.lockAt);
@@ -47,7 +51,7 @@ export function PredictionCard({
         <div className="nb-timer__bar" style={{ width: locked ? "0%" : `${pct}%` }} />
       </div>
 
-      {isOpen && !eliminated && (
+      {isOpen && participant && !eliminated && (
         <div className="nb-yesno">
           <Button variant="survive" lg block onClick={() => answer("yes")} style={picked === "yes" ? pressed : undefined}>
             Yes
@@ -58,8 +62,12 @@ export function PredictionCard({
         </div>
       )}
 
-      {isOpen && eliminated && (
+      {isOpen && participant && eliminated && (
         <p className="nb-label" style={{ marginTop: 12 }}>You&apos;re eliminated — spectating only.</p>
+      )}
+
+      {isOpen && !participant && (
+        <p className="nb-label" style={{ marginTop: 12 }}>You&apos;re spectating — join an arena to play.</p>
       )}
 
       {picked && round.status !== "settled" && (
