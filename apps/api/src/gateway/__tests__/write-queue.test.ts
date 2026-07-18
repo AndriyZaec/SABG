@@ -65,4 +65,24 @@ describe("WriteQueue", () => {
 
     expect(calls.mock.calls.map((c) => c[0])).toEqual(["first", "second"]);
   });
+
+  it("drains every write accepted before shutdown", async () => {
+    const queue = new WriteQueue();
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let completed = false;
+
+    void queue.enqueue("arena-1", async () => {
+      await blocked;
+      completed = true;
+    });
+
+    const draining = queue.drain();
+    expect(completed).toBe(false);
+    release();
+    await draining;
+    expect(completed).toBe(true);
+  });
 });

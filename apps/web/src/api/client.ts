@@ -15,9 +15,8 @@ import type {
 } from "@arena/contracts";
 import { generateNonce, verifyWalletSignInRequest } from "@arena/auth";
 
-// Until the backend is wired up, run against an in-process mock so the flow is
-// demoable end-to-end. Set VITE_MOCK_API=false to hit the real API.
-const USE_MOCK = (import.meta.env.VITE_MOCK_API ?? "true") !== "false";
+// Development remains standalone by default; production builds use the same-origin real backend.
+const USE_MOCK = (import.meta.env.VITE_MOCK_API ?? (import.meta.env.PROD ? "false" : "true")) !== "false";
 
 // Session token from wallet sign-in; attached to authenticated calls.
 let authToken: string | null = null;

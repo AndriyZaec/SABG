@@ -43,6 +43,7 @@ interface ArenaCache {
 }
 
 export class GatewayWebSocketServer implements GatewayBroadcaster, ArenaRuntimeLookup {
+  private wss: WebSocketServer | undefined;
   private readonly runtimes = new Map<Uuid, ArenaRuntime>();
   private readonly connectionsByArena = new Map<Uuid, Set<Connection>>();
   private readonly cacheByArena = new Map<Uuid, ArenaCache>();
@@ -58,8 +59,19 @@ export class GatewayWebSocketServer implements GatewayBroadcaster, ArenaRuntimeL
   }
 
   attach(server: HttpServer): void {
+    if (this.wss !== undefined) throw new Error("WebSocket gateway is already attached");
     const wss = new WebSocketServer({ server, path: "/ws" });
+    this.wss = wss;
     wss.on("connection", (socket, req) => this.handleConnection(socket, req));
+  }
+
+  async close(): Promise<void> {
+    const wss = this.wss;
+    if (wss === undefined) return;
+    this.wss = undefined;
+    for (const socket of wss.clients) socket.terminate();
+    await new Promise<void>((resolve) => wss.close(() => resolve()));
+    this.connectionsByArena.clear();
   }
 
   private handleConnection(socket: WebSocket, req: IncomingMessage): void {

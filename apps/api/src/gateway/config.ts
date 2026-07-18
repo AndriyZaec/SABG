@@ -5,10 +5,12 @@
 
 import dotenv from "dotenv";
 import { z } from "zod";
+import { fileURLToPath } from "node:url";
 
 dotenv.config();
 
 const envSchema = z.object({
+  PORT: z.coerce.number().int().positive().optional(),
   GATEWAY_PORT: z.coerce.number().int().positive().default(4000),
   /** HMAC secret for session tokens (auth.ts). Dev-only default — set a real secret in prod. */
   AUTH_SECRET: z.string().min(1).default("dev-insecure-auth-secret"),
@@ -44,6 +46,7 @@ const envSchema = z.object({
   GATEWAY_BOT_COUNT: z.coerce.number().int().positive().default(8),
   LOG_LEVEL: z.string().default("info"),
   NODE_ENV: z.string().default("development"),
+  WEB_DIST_DIR: z.string().min(1).optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -55,8 +58,15 @@ if (!parsed.success) {
 
 const env = parsed.data;
 
+if (
+  env.NODE_ENV === "production" &&
+  (env.AUTH_SECRET === "dev-insecure-auth-secret" || env.AUTH_SECRET.length < 32)
+) {
+  throw new Error("AUTH_SECRET must be set to a non-default value of at least 32 characters in production");
+}
+
 export const gatewayConfig = {
-  port: env.GATEWAY_PORT,
+  port: env.PORT ?? env.GATEWAY_PORT,
   auth: {
     secret: env.AUTH_SECRET,
     requireSignature: env.AUTH_REQUIRE_SIGNATURE === "true",
@@ -80,5 +90,10 @@ export const gatewayConfig = {
   log: {
     level: env.LOG_LEVEL,
     nodeEnv: env.NODE_ENV,
+  },
+  web: {
+    distDir:
+      env.WEB_DIST_DIR ??
+      (env.NODE_ENV === "production" ? fileURLToPath(new URL("../../../web/dist/", import.meta.url)) : undefined),
   },
 };

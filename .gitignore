@@ -26,6 +26,7 @@ wallet*.json
 TASK.md
 PLAN.md
 handoff-v.md
+docs/infra/
 
 # Editor / OS
 .DS_Store

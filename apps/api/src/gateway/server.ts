@@ -4,8 +4,11 @@
 // /ws) is unchanged — only what's behind it is now real.
 
 import { createServer, type Server as HttpServer } from "node:http";
+import { existsSync } from "node:fs";
+import path from "node:path";
 import cors from "cors";
 import express from "express";
+import { checkDatabaseConnection } from "../db/client.js";
 import { gatewayConfig } from "./config.js";
 import { createRestRouter } from "./rest.js";
 import { GatewayWebSocketServer } from "./ws.js";
@@ -15,15 +18,45 @@ export interface GatewayServer {
   wsGateway: GatewayWebSocketServer;
 }
 
-export function createGatewayServer(): GatewayServer {
+export interface GatewayServerOptions {
+  healthCheck?: () => Promise<void>;
+  webDistDir?: string;
+}
+
+export function createGatewayServer(options: GatewayServerOptions = {}): GatewayServer {
   const wsGateway = new GatewayWebSocketServer();
+  const healthCheck = options.healthCheck ?? checkDatabaseConnection;
+  const webDistDir = options.webDistDir ?? gatewayConfig.web.distDir;
 
   const app = express();
   app.use(cors({ origin: gatewayConfig.cors.origins }));
   app.use(express.json());
+  app.get("/healthz", async (_req, res) => {
+    try {
+      await healthCheck();
+      res.status(200).json({ status: "ok" });
+    } catch {
+      res.status(503).json({ status: "unavailable" });
+    }
+  });
   // wsGateway also implements ArenaRuntimeLookup — REST and WS share the one runtime registry
   // (see arena-runtime.ts's doc comment on that interface).
   app.use("/api", createRestRouter(wsGateway));
+
+  if (webDistDir !== undefined) {
+    const indexPath = path.join(webDistDir, "index.html");
+    if (!existsSync(indexPath)) {
+      throw new Error(`Web production build not found at ${indexPath}`);
+    }
+    app.use(express.static(webDistDir, { index: false }));
+    app.use((req, res, next) => {
+      if (req.method !== "GET" || req.path.startsWith("/api") || req.path.startsWith("/ws")) {
+        next();
+        return;
+      }
+      res.sendFile(indexPath);
+    });
+  }
 
   const httpServer = createServer(app);
   wsGateway.attach(httpServer);

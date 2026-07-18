@@ -20,3 +20,11 @@ if (!databaseUrl) {
 const queryClient = postgres(databaseUrl);
 
 export const db = drizzle(queryClient, { schema });
+
+export async function checkDatabaseConnection(): Promise<void> {
+  await queryClient`select 1`;
+}
+
+export async function closeDatabaseConnection(): Promise<void> {
+  await queryClient.end({ timeout: 5 });
+}
