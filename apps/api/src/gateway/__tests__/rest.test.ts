@@ -113,7 +113,7 @@ describe("REST gateway routes", () => {
     vi.clearAllMocks();
     vi.mocked(isOnchainArenaProvisioningEnabled).mockReturnValue(false);
     vi.mocked(isValidSolanaWalletAddress).mockResolvedValue(true);
-    vi.mocked(verifyPreparedEntryTransaction).mockResolvedValue(true);
+    vi.mocked(verifyPreparedEntryTransaction).mockResolvedValue({ ok: true, blockhashRefreshed: false });
     runtimeLookup = { getRuntime: vi.fn().mockReturnValue(undefined) };
 
     const app = express();

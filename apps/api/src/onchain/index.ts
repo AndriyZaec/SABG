@@ -23,7 +23,7 @@ export async function verifyPreparedEntryTransaction(
   preparedTxBase64: string,
   signedTxBase64: string,
   walletAddress: string,
-): Promise<boolean> {
+): Promise<import("./arena-program.js").PreparedEntryVerification> {
   const { verifyPreparedEntryTransaction: verify } = await import("./arena-program.js");
   return verify(preparedTxBase64, signedTxBase64, walletAddress);
 }

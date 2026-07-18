@@ -92,8 +92,103 @@ describe("prepared entry transaction verification", () => {
     transaction.sign(wallet);
     const signed = transaction.serialize().toString("base64");
 
-    expect(verifyPreparedEntryTransaction(prepared, signed, wallet.publicKey.toBase58())).toBe(true);
-    expect(verifyPreparedEntryTransaction(prepared, signed, recipient.toBase58())).toBe(false);
+    expect(verifyPreparedEntryTransaction(prepared, signed, wallet.publicKey.toBase58())).toEqual({
+      ok: true,
+      blockhashRefreshed: false,
+    });
+    expect(verifyPreparedEntryTransaction(prepared, signed, recipient.toBase58())).toEqual({
+      ok: false,
+      reason: "unexpected_signers",
+    });
+
+    const refreshed = Transaction.from(Buffer.from(prepared, "base64"));
+    refreshed.recentBlockhash = Keypair.generate().publicKey.toBase58();
+    refreshed.sign(wallet);
+    expect(
+      verifyPreparedEntryTransaction(
+        prepared,
+        refreshed.serialize().toString("base64"),
+        wallet.publicKey.toBase58(),
+      ),
+    ).toEqual({ ok: true, blockhashRefreshed: true });
+
+    expect(verifyPreparedEntryTransaction(prepared, prepared, wallet.publicKey.toBase58())).toEqual({
+      ok: false,
+      reason: "wallet_signature_missing",
+    });
+
+    const tamperedSignature = Transaction.from(Buffer.from(signed, "base64"));
+    const signatureBytes = tamperedSignature.signatures[0]?.signature;
+    if (signatureBytes === null || signatureBytes === undefined) throw new Error("test signature is missing");
+    signatureBytes[0] = (signatureBytes[0] ?? 0) ^ 1;
+    expect(
+      verifyPreparedEntryTransaction(
+        prepared,
+        tamperedSignature.serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64"),
+        wallet.publicKey.toBase58(),
+      ),
+    ).toEqual({ ok: false, reason: "wallet_signature_invalid" });
+
+    const changedProgram = Transaction.from(Buffer.from(prepared, "base64"));
+    changedProgram.instructions[0]!.programId = Keypair.generate().publicKey;
+    changedProgram.sign(wallet);
+    expect(
+      verifyPreparedEntryTransaction(
+        prepared,
+        changedProgram.serialize().toString("base64"),
+        wallet.publicKey.toBase58(),
+      ),
+    ).toEqual({ ok: false, reason: "message_changed" });
+
+    const changedAccounts = Transaction.from(Buffer.from(prepared, "base64"));
+    changedAccounts.instructions[0]!.keys[1]!.pubkey = Keypair.generate().publicKey;
+    changedAccounts.sign(wallet);
+    expect(
+      verifyPreparedEntryTransaction(
+        prepared,
+        changedAccounts.serialize().toString("base64"),
+        wallet.publicKey.toBase58(),
+      ),
+    ).toEqual({ ok: false, reason: "message_changed" });
+
+    const reorderedAccounts = Transaction.from(Buffer.from(prepared, "base64"));
+    reorderedAccounts.instructions[0]!.keys.reverse();
+    reorderedAccounts.sign(wallet);
+    expect(
+      verifyPreparedEntryTransaction(
+        prepared,
+        reorderedAccounts.serialize().toString("base64"),
+        wallet.publicKey.toBase58(),
+      ),
+    ).toEqual({ ok: false, reason: "message_changed" });
+
+    const changedData = Transaction.from(Buffer.from(prepared, "base64"));
+    const instructionData = changedData.instructions[0]?.data;
+    if (instructionData === undefined) throw new Error("test instruction data is missing");
+    instructionData[0] = (instructionData[0] ?? 0) ^ 1;
+    changedData.sign(wallet);
+    expect(
+      verifyPreparedEntryTransaction(
+        prepared,
+        changedData.serialize().toString("base64"),
+        wallet.publicKey.toBase58(),
+      ),
+    ).toEqual({ ok: false, reason: "message_changed" });
+
+    const addedSigner = Transaction.from(Buffer.from(prepared, "base64"));
+    addedSigner.instructions[0]!.keys.push({
+      pubkey: Keypair.generate().publicKey,
+      isSigner: true,
+      isWritable: false,
+    });
+    addedSigner.partialSign(wallet);
+    expect(
+      verifyPreparedEntryTransaction(
+        prepared,
+        addedSigner.serialize({ requireAllSignatures: false }).toString("base64"),
+        wallet.publicKey.toBase58(),
+      ),
+    ).toEqual({ ok: false, reason: "message_changed" });
 
     const unrelated = new Transaction({
       feePayer: wallet.publicKey,
@@ -102,6 +197,6 @@ describe("prepared entry transaction verification", () => {
     unrelated.sign(wallet);
     expect(
       verifyPreparedEntryTransaction(prepared, unrelated.serialize().toString("base64"), wallet.publicKey.toBase58()),
-    ).toBe(false);
+    ).toEqual({ ok: false, reason: "message_changed" });
   });
 });

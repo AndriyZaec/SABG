@@ -313,9 +313,14 @@ export function createRestRouter(runtimeLookup: ArenaRuntimeLookup): RouterType 
           return;
         }
 
-        if (!(await verifyPreparedEntryTransaction(pending.tx, signedTx, pending.walletAddress))) {
+        const verification = await verifyPreparedEntryTransaction(pending.tx, signedTx, pending.walletAddress);
+        if (!verification.ok) {
+          logger.warn({ arenaId, reason: verification.reason }, "prepared entry transaction rejected");
           res.status(400).json({ error: "bad_request", message: "signedTx does not match the prepared entry" });
           return;
+        }
+        if (verification.blockhashRefreshed) {
+          logger.info({ arenaId }, "entry wallet refreshed the transaction blockhash");
         }
 
         let signature: string;

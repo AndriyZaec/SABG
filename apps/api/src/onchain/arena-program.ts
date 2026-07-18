@@ -10,6 +10,7 @@ import anchor from "@coral-xyz/anchor";
 import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, Transaction } from "@solana/web3.js";
 import { createHmac } from "node:crypto";
 import bs58 from "bs58";
+import nacl from "tweetnacl";
 import { ARENA_IDL } from "@arena/contracts/onchain";
 import { onchainConfig } from "./config.js";
 
@@ -155,21 +156,74 @@ export async function provisionArena(
   return { onchainArenaId, escrowAccount: escrow.toBase58(), signature };
 }
 
+export type PreparedEntryVerification =
+  | { ok: true; blockhashRefreshed: boolean }
+  | {
+      ok: false;
+      reason:
+        | "invalid_transaction"
+        | "unexpected_signers"
+        | "message_changed"
+        | "wallet_signature_missing"
+        | "wallet_signature_invalid";
+    };
+
 export function verifyPreparedEntryTransaction(
   preparedTxBase64: string,
   signedTxBase64: string,
   walletAddress: string,
-): boolean {
+): PreparedEntryVerification {
   try {
     const prepared = Transaction.from(Buffer.from(preparedTxBase64, "base64"));
     const signed = Transaction.from(Buffer.from(signedTxBase64, "base64"));
-    if (!prepared.serializeMessage().equals(signed.serializeMessage())) return false;
     const wallet = new PublicKey(walletAddress);
+    const preparedMessage = prepared.compileMessage();
+    const signedMessage = signed.compileMessage();
+    if (
+      preparedMessage.header.numRequiredSignatures !== 1 ||
+      !preparedMessage.accountKeys[0]?.equals(wallet)
+    ) {
+      return { ok: false, reason: "unexpected_signers" };
+    }
+    if (!sameEntryMessageStructure(preparedMessage, signedMessage)) {
+      return { ok: false, reason: "message_changed" };
+    }
     const walletSignature = signed.signatures.find(({ publicKey }) => publicKey.equals(wallet))?.signature;
-    return walletSignature != null && signed.verifySignatures(false);
+    if (walletSignature == null) return { ok: false, reason: "wallet_signature_missing" };
+    if (!nacl.sign.detached.verify(signed.serializeMessage(), walletSignature, wallet.toBytes())) {
+      return { ok: false, reason: "wallet_signature_invalid" };
+    }
+    return {
+      ok: true,
+      blockhashRefreshed: preparedMessage.recentBlockhash !== signedMessage.recentBlockhash,
+    };
   } catch {
+    return { ok: false, reason: "invalid_transaction" };
+  }
+}
+
+function sameEntryMessageStructure(
+  prepared: ReturnType<Transaction["compileMessage"]>,
+  signed: ReturnType<Transaction["compileMessage"]>,
+): boolean {
+  if (
+    prepared.header.numRequiredSignatures !== signed.header.numRequiredSignatures ||
+    prepared.header.numReadonlySignedAccounts !== signed.header.numReadonlySignedAccounts ||
+    prepared.header.numReadonlyUnsignedAccounts !== signed.header.numReadonlyUnsignedAccounts ||
+    prepared.accountKeys.length !== signed.accountKeys.length ||
+    prepared.instructions.length !== signed.instructions.length
+  ) {
     return false;
   }
+  if (!prepared.accountKeys.every((key, index) => key.equals(signed.accountKeys[index]!))) return false;
+  return prepared.instructions.every((instruction, index) => {
+    const candidate = signed.instructions[index];
+    return candidate !== undefined &&
+      instruction.programIdIndex === candidate.programIdIndex &&
+      instruction.data === candidate.data &&
+      instruction.accounts.length === candidate.accounts.length &&
+      instruction.accounts.every((account, accountIndex) => account === candidate.accounts[accountIndex]);
+  });
 }
 
 /** Auto-cycle must never delete DB references while player funds remain in the old escrow. */
