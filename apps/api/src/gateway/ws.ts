@@ -9,6 +9,7 @@
 
 import type { IncomingMessage } from "node:http";
 import type { Server as HttpServer } from "node:http";
+import type { Duplex } from "node:stream";
 import { WebSocketServer, type WebSocket } from "ws";
 import type {
   Answer,
@@ -25,6 +26,7 @@ import type {
 import { authenticateWsUrl } from "./auth.js";
 import { logger } from "./logger.js";
 import type { ArenaRuntime, ArenaRuntimeLookup, GatewayBroadcaster } from "./arena-runtime.js";
+import type { EventAccessAuthorization } from "./event-access.js";
 
 interface Connection {
   socket: WebSocket;
@@ -44,9 +46,15 @@ interface ArenaCache {
 
 export class GatewayWebSocketServer implements GatewayBroadcaster, ArenaRuntimeLookup {
   private wss: WebSocketServer | undefined;
+  private httpServer: HttpServer | undefined;
+  private upgradeHandler: ((request: IncomingMessage, socket: Duplex, head: Buffer) => void) | undefined;
   private readonly runtimes = new Map<Uuid, ArenaRuntime>();
   private readonly connectionsByArena = new Map<Uuid, Set<Connection>>();
   private readonly cacheByArena = new Map<Uuid, ArenaCache>();
+
+  constructor(
+    private readonly authorizeAccess: (request: IncomingMessage) => EventAccessAuthorization = () => ({ authorized: true }),
+  ) {}
 
   /** Called once per arena as its ArenaRuntime is constructed (this gateway is its broadcaster). */
   registerRuntime(arenaId: Uuid, runtime: ArenaRuntime): void {
@@ -60,30 +68,59 @@ export class GatewayWebSocketServer implements GatewayBroadcaster, ArenaRuntimeL
 
   attach(server: HttpServer): void {
     if (this.wss !== undefined) throw new Error("WebSocket gateway is already attached");
-    const wss = new WebSocketServer({ server, path: "/ws" });
+    const wss = new WebSocketServer({ noServer: true });
+    const upgradeHandler = (request: IncomingMessage, socket: Duplex, head: Buffer) => {
+      const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
+      if (pathname !== "/ws") {
+        rejectUpgrade(socket, 404, "Not Found");
+        return;
+      }
+      const access = this.authorizeAccess(request);
+      if (!access.authorized) {
+        rejectUpgrade(socket, 401, "Unauthorized");
+        return;
+      }
+      wss.handleUpgrade(request, socket, head, (webSocket) => {
+        this.handleConnection(webSocket, request, access.expiresAt);
+      });
+    };
     this.wss = wss;
-    wss.on("connection", (socket, req) => this.handleConnection(socket, req));
+    this.httpServer = server;
+    this.upgradeHandler = upgradeHandler;
+    server.on("upgrade", upgradeHandler);
   }
 
   async close(): Promise<void> {
     const wss = this.wss;
     if (wss === undefined) return;
     this.wss = undefined;
+    if (this.httpServer !== undefined && this.upgradeHandler !== undefined) {
+      this.httpServer.off("upgrade", this.upgradeHandler);
+    }
+    this.httpServer = undefined;
+    this.upgradeHandler = undefined;
     for (const socket of wss.clients) socket.terminate();
     await new Promise<void>((resolve) => wss.close(() => resolve()));
     this.connectionsByArena.clear();
   }
 
-  private handleConnection(socket: WebSocket, req: IncomingMessage): void {
+  private handleConnection(socket: WebSocket, req: IncomingMessage, accessExpiresAt?: number): void {
+    const expiryTimer = accessExpiresAt === undefined
+      ? undefined
+      : setTimeout(() => socket.close(4403, "event access expired"), Math.max(0, accessExpiresAt - Date.now()));
     const userId = authenticateWsUrl(req.url);
     if (userId === undefined) {
       socket.close(4401, "unauthorized");
+      if (expiryTimer !== undefined) clearTimeout(expiryTimer);
       return;
     }
 
     const conn: Connection = { socket, userId, arenaId: undefined };
     socket.on("message", (data) => this.handleMessage(conn, data.toString()));
-    socket.on("close", () => this.removeConnection(conn));
+    socket.on("close", () => {
+      if (expiryTimer !== undefined) clearTimeout(expiryTimer);
+      this.removeConnection(conn);
+    });
   }
 
   private handleMessage(conn: Connection, raw: string): void {
@@ -204,4 +241,8 @@ export class GatewayWebSocketServer implements GatewayBroadcaster, ArenaRuntimeL
         break; // personal — never cached/replayed generically.
     }
   }
+}
+
+function rejectUpgrade(socket: Duplex, status: number, reason: string): void {
+  socket.end(`HTTP/1.1 ${status} ${reason}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
 }

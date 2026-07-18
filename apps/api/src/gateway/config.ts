@@ -7,6 +7,7 @@ import dotenv from "dotenv";
 import { z } from "zod";
 import { fileURLToPath } from "node:url";
 import type { GameSourceMode } from "@arena/contracts";
+import { isEventAccessCodeHash } from "./event-access.js";
 
 dotenv.config();
 
@@ -18,6 +19,7 @@ const envSchema = z.object({
   TXODDS_LIVE_FIXTURE_ID: z.coerce.number().int().positive().optional(),
   /** HMAC secret for session tokens (auth.ts). Dev-only default — set a real secret in prod. */
   AUTH_SECRET: z.string().min(1).default("dev-insecure-auth-secret"),
+  EVENT_ACCESS_CODE_HASH: z.string().min(1).optional(),
   /**
    * Require a verified wallet signature over a server-issued nonce on POST /auth/wallet.
    * Default on (real security). Set "false" only for a local mock that signs in with just a wallet
@@ -70,6 +72,14 @@ if (
   throw new Error("AUTH_SECRET must be set to a non-default value of at least 32 characters in production");
 }
 
+if (env.EVENT_ACCESS_CODE_HASH !== undefined && !isEventAccessCodeHash(env.EVENT_ACCESS_CODE_HASH)) {
+  throw new Error("EVENT_ACCESS_CODE_HASH must be a valid scrypt event access hash");
+}
+
+if (env.NODE_ENV === "production" && env.EVENT_ACCESS_CODE_HASH === undefined) {
+  throw new Error("EVENT_ACCESS_CODE_HASH must be set to a valid scrypt event access hash in production");
+}
+
 const gameSource: GameSourceMode = env.GAME_SOURCE;
 
 export const gatewayConfig = {
@@ -77,6 +87,10 @@ export const gatewayConfig = {
   auth: {
     secret: env.AUTH_SECRET,
     requireSignature: env.AUTH_REQUIRE_SIGNATURE === "true",
+  },
+  eventAccess: {
+    codeHash: env.EVENT_ACCESS_CODE_HASH,
+    secureCookies: env.NODE_ENV === "production",
   },
   cors: {
     origins: env.CORS_ORIGINS === "*" ? true : env.CORS_ORIGINS.split(",").map((o) => o.trim()),

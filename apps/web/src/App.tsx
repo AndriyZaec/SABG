@@ -7,6 +7,7 @@ import { StyleScreen } from "./screens/StyleScreen.js";
 import { Masthead } from "./ui/Masthead.js";
 import { Footer } from "./ui/Footer.js";
 import { Loading } from "./ui/Loading.js";
+import { EventAccessGate } from "./access/EventAccessGate.js";
 
 // Landing (Lobby) loads eagerly; heavier in-arena screens are split out.
 const ArenaScreen = lazy(() =>
@@ -27,9 +28,10 @@ const PayoutScreen = lazy(() =>
 
 export function App() {
   return (
-    <SolanaProviders>
-      <AuthProvider>
-        <BrowserRouter>
+    <EventAccessGate>
+      <SolanaProviders>
+        <AuthProvider>
+          <BrowserRouter>
           <div className="nb-shell">
           <Masthead />
           <main className="nb-main">
@@ -48,8 +50,9 @@ export function App() {
           </main>
           <Footer />
           </div>
-        </BrowserRouter>
-      </AuthProvider>
-    </SolanaProviders>
+          </BrowserRouter>
+        </AuthProvider>
+      </SolanaProviders>
+    </EventAccessGate>
   );
 }

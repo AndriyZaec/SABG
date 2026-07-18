@@ -10,12 +10,22 @@ import { WebSocketServer } from "ws";
 
 import { handleClientMessage, startMockTimeline } from "./timeline.js";
 import { mockRouter } from "./routes.js";
+import type { EventAccessSessionResponse } from "@arena/contracts";
 
 const PORT = Number(process.env["MOCK_PORT"] ?? 4000);
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.get("/api/access/session", (_req, res) => {
+  const response: EventAccessSessionResponse = { status: "not_required" };
+  res.json(response);
+});
+app.post("/api/access/session", (_req, res) => {
+  const response: EventAccessSessionResponse = { status: "not_required" };
+  res.json(response);
+});
+app.delete("/api/access/session", (_req, res) => res.status(204).end());
 app.use("/api", mockRouter);
 
 const httpServer = createServer(app);

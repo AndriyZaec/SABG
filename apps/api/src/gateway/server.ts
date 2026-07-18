@@ -13,6 +13,7 @@ import { checkDatabaseConnection } from "../db/client.js";
 import { gatewayConfig } from "./config.js";
 import { createRestRouter } from "./rest.js";
 import { GatewayWebSocketServer } from "./ws.js";
+import { createEventAccess, type EventAccessOptions } from "./event-access.js";
 
 export interface GatewayServer {
   httpServer: HttpServer;
@@ -23,15 +24,24 @@ export interface GatewayServerOptions {
   healthCheck?: () => Promise<void>;
   webDistDir?: string;
   runtimeConfig?: RuntimeConfigResponse;
+  eventAccess?: EventAccessOptions;
 }
 
 export function createGatewayServer(options: GatewayServerOptions = {}): GatewayServer {
-  const wsGateway = new GatewayWebSocketServer();
   const healthCheck = options.healthCheck ?? checkDatabaseConnection;
   const webDistDir = options.webDistDir ?? gatewayConfig.web.distDir;
   const runtimeConfig = options.runtimeConfig ?? gatewayConfig.runtime;
+  const eventAccess = createEventAccess(
+    options.eventAccess ?? {
+      codeHash: gatewayConfig.eventAccess.codeHash,
+      sessionSecret: gatewayConfig.auth.secret,
+      secureCookies: gatewayConfig.eventAccess.secureCookies,
+    },
+  );
+  const wsGateway = new GatewayWebSocketServer(eventAccess.authorizeWebSocket);
 
   const app = express();
+  app.set("trust proxy", 1);
   app.use(cors({ origin: gatewayConfig.cors.origins }));
   app.use(express.json());
   app.get("/healthz", async (_req, res) => {
@@ -42,6 +52,8 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
       res.status(503).json({ status: "unavailable" });
     }
   });
+  app.use("/api/access", eventAccess.router);
+  app.use("/api", eventAccess.requireAccess);
   app.get("/api/runtime-config", (_req, res) => res.json(runtimeConfig));
   // wsGateway also implements ArenaRuntimeLookup — REST and WS share the one runtime registry
   // (see arena-runtime.ts's doc comment on that interface).

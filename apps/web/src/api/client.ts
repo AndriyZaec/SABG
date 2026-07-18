@@ -3,6 +3,8 @@ import type {
   ArenaDetailResponse,
   ArenaListResponse,
   BuyEntryResponse,
+  EventAccessSessionResponse,
+  EventAccessSignInRequest,
   LeaderboardResponse,
   Match,
   MatchListResponse,
@@ -18,6 +20,11 @@ import { generateNonce, verifyWalletSignInRequest } from "@arena/auth";
 
 // Development remains standalone by default; production builds use the same-origin real backend.
 const USE_MOCK = (import.meta.env.VITE_MOCK_API ?? (import.meta.env.PROD ? "false" : "true")) !== "false";
+export const EVENT_ACCESS_REQUIRED_EVENT = "sabg:event-access-required";
+
+export function notifyEventAccessRequired(): void {
+  window.dispatchEvent(new Event(EVENT_ACCESS_REQUIRED_EVENT));
+}
 
 // Session token from wallet sign-in; attached to authenticated calls.
 let authToken: string | null = null;
@@ -32,8 +39,37 @@ export async function fetchRuntimeConfig(): Promise<RuntimeConfigResponse> {
   return get<RuntimeConfigResponse>("/runtime-config");
 }
 
+export async function fetchEventAccessSession(): Promise<EventAccessSessionResponse> {
+  const res = await fetch("/api/access/session");
+  if (!res.ok) throw new Error(`access session failed (${res.status})`);
+  return (await res.json()) as EventAccessSessionResponse;
+}
+
+export type EventAccessSignInResult =
+  | { ok: true; session: EventAccessSessionResponse }
+  | { ok: false; reason: "invalid" | "rate_limited" };
+
+export async function signInToEvent(code: string): Promise<EventAccessSignInResult> {
+  const body: EventAccessSignInRequest = { code };
+  const res = await fetch("/api/access/session", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (res.status === 401) return { ok: false, reason: "invalid" };
+  if (res.status === 429) return { ok: false, reason: "rate_limited" };
+  if (!res.ok) throw new Error(`event sign-in failed (${res.status})`);
+  return { ok: true, session: (await res.json()) as EventAccessSessionResponse };
+}
+
+export async function signOutOfEvent(): Promise<void> {
+  const res = await fetch("/api/access/session", { method: "DELETE" });
+  if (!res.ok) throw new Error(`event sign-out failed (${res.status})`);
+}
+
 async function get<TRes>(path: string): Promise<TRes> {
   const res = await fetch(`/api${path}`);
+  await reportEventAccessFailure(res);
   if (!res.ok) throw new Error(`${path} failed (${res.status})`);
   return (await res.json()) as TRes;
 }
@@ -42,8 +78,19 @@ async function post<TReq, TRes>(path: string, body: TReq, authed = false): Promi
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (authed && authToken) headers["authorization"] = `Bearer ${authToken}`;
   const res = await fetch(`/api${path}`, { method: "POST", headers, body: JSON.stringify(body) });
+  await reportEventAccessFailure(res);
   if (!res.ok) throw new Error(`${path} failed (${res.status})`);
   return (await res.json()) as TRes;
+}
+
+async function reportEventAccessFailure(response: Response): Promise<void> {
+  if (response.status !== 401) return;
+  try {
+    const body = (await response.clone().json()) as { error?: string };
+    if (body.error === "event_access_required") notifyEventAccessRequired();
+  } catch {
+    // A non-JSON 401 belongs to another authentication boundary.
+  }
 }
 
 export async function requestNonce(

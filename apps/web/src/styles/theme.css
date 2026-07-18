@@ -45,6 +45,85 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* ---- Event access gate ---- */
+.nb-access {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  padding: 28px 18px;
+  position: relative;
+  background: var(--yellow);
+}
+.nb-access::before,
+.nb-access::after {
+  content: "";
+  position: absolute;
+  background: var(--ink);
+  z-index: 0;
+}
+.nb-access::before { width: 145%; height: 74px; transform: rotate(-7deg); top: 8%; left: -20%; }
+.nb-access::after { width: 110px; height: 145%; transform: rotate(12deg); right: 7%; top: -20%; background: var(--blue); border: var(--bw-thick) solid var(--ink); }
+.nb-access__court {
+  position: absolute;
+  inset: 0;
+  opacity: 0.16;
+  background-image:
+    linear-gradient(var(--ink) 3px, transparent 3px),
+    linear-gradient(90deg, var(--ink) 3px, transparent 3px);
+  background-size: 72px 72px;
+}
+.nb-access__ticket {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 540px);
+  background: var(--paper);
+  border: var(--bw-thick) solid var(--ink);
+  box-shadow: var(--shadow-lg);
+  transform: rotate(-1deg);
+}
+.nb-access__ticket-head,
+.nb-access__ticket-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background: var(--ink);
+  color: var(--white);
+  padding: 12px 18px;
+  text-transform: uppercase;
+}
+.nb-access__mark { font-family: var(--font-display); font-size: 2rem; line-height: 1; letter-spacing: 0.04em; }
+.nb-access__admit { color: var(--yellow); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.12em; }
+.nb-access__ticket-body { padding: clamp(28px, 7vw, 52px); }
+.nb-access__eyebrow { margin: 0 0 10px; text-transform: uppercase; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.14em; color: var(--blue); }
+.nb-access__intro { max-width: 420px; margin: 18px 0 28px; }
+.nb-access__form { display: grid; gap: 12px; }
+.nb-access__form label { text-transform: uppercase; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.1em; }
+.nb-access__form input {
+  width: 100%;
+  min-height: 54px;
+  padding: 10px 14px;
+  border: var(--bw) solid var(--ink);
+  border-radius: 0;
+  background: var(--white);
+  color: var(--ink);
+  font: 1rem var(--font-mono);
+  outline: none;
+}
+.nb-access__form input:focus { box-shadow: 4px 4px 0 var(--blue); }
+.nb-access__error { margin: 0; color: #a30000; font-size: 0.8rem; font-weight: 700; }
+.nb-access__text-button { border: 0; background: transparent; color: inherit; font: inherit; text-decoration: underline; cursor: pointer; margin-left: 8px; }
+.nb-access__ticket-foot { justify-content: space-around; background: var(--survive); color: var(--ink); border-top: var(--bw) dashed var(--ink); font-size: 0.62rem; font-weight: 700; letter-spacing: 0.06em; }
+.nb-access__loading { position: relative; z-index: 1; display: grid; justify-items: center; gap: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; }
+.nb-access__loading .nb-access__mark { border: var(--bw-thick) solid var(--ink); background: var(--white); padding: 14px 20px; box-shadow: var(--shadow); }
+@media (max-width: 560px) {
+  .nb-access { place-items: center; padding: 20px 14px; }
+  .nb-access::after { right: -65px; }
+  .nb-access__ticket { transform: none; }
+  .nb-access__ticket-foot { flex-wrap: wrap; gap: 8px 16px; }
+}
+
 h1, h2, h3 {
   font-family: var(--font-display);
   font-weight: 400;
@@ -340,6 +419,18 @@ a { color: var(--ink); text-decoration: none; }
   padding: 8px 10px 5px;
   border: var(--bw) solid var(--ink);
   box-shadow: var(--shadow-sm);
+}
+.nb-masthead__exit {
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  padding: 6px 2px;
+  font: 700 0.67rem var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
 }
 
 /* ---- Lobby: matchday broadcast hero ---- */

@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Answer, ArenaDetailResponse, ServerMessage } from "@arena/contracts";
-import { fetchArenaDetail, fetchLeaderboard } from "../../api/client.js";
+import {
+  fetchArenaDetail,
+  fetchEventAccessSession,
+  fetchLeaderboard,
+  notifyEventAccessRequired,
+} from "../../api/client.js";
 import { useAuth } from "../../auth/AuthContext.js";
 import type { ArenaView, FeedItem, LeaderRow } from "../arenaView.js";
 import { makeDemoView } from "../arenaView.js";
@@ -173,7 +178,15 @@ export function useArenaSocket(arenaId: string): ArenaSocket {
       setConnected(true);
       ws.send(JSON.stringify({ type: "subscribe", arenaId }));
     };
-    ws.onclose = () => setConnected(false);
+    ws.onclose = (event) => {
+      setConnected(false);
+      if (event.code !== 1006 && event.code !== 4403) return;
+      void fetchEventAccessSession()
+        .then((session) => {
+          if (session.status === "unauthenticated") notifyEventAccessRequired();
+        })
+        .catch(() => undefined);
+    };
     ws.onmessage = (ev) => {
       try {
         const msg = JSON.parse(ev.data as string) as ServerMessage;
