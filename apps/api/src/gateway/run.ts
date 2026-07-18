@@ -26,7 +26,6 @@ import { createPgPredictionStore } from "./stores/pg-prediction-store.js";
 import { createPgArenaPlayerStore } from "./stores/pg-arena-player-store.js";
 import { payoutService } from "../payout/index.js";
 import { sleep } from "../shared/sleep.js";
-import { joinBots, withBotAnswers, type ScriptedBot } from "./scripted-bots.js";
 import {
   checkDatabaseConnection,
   closeDatabaseConnection,
@@ -166,25 +165,14 @@ async function main(): Promise<void> {
     };
 
     const bus = new MatchSignalBus();
-    // Bots answer each round via a broadcaster wrapper; getters break the runtime/broadcaster cycle.
-    let scriptedBots: ScriptedBot[] = [];
-    let runtime!: ArenaRuntime;
-    const broadcaster = gatewayConfig.bots.enabled
-      ? withBotAnswers(wsGateway, {
-          getBots: () => scriptedBots,
-          getRuntime: () => runtime,
-          isActive: (userId) => arenaPlayerStore.getStatus(userId) === "active",
-        })
-      : wsGateway;
-
-    runtime = new ArenaRuntime({
+    const runtime = new ArenaRuntime({
       matchId: match.id,
       arenaId: arena.id,
       bus,
       predictionStore,
       arenaPlayerStore,
       roster: [],
-      broadcaster,
+      broadcaster: wsGateway,
       persistence,
       ...(gameSource.kind === "replay"
         ? { secondsPerMatchMinute: gatewayConfig.clock.secondsPerMatchMinute }
@@ -197,16 +185,10 @@ async function main(): Promise<void> {
     await trackWork(gameSource.prepare({ bus, matchId: match.id, signal: abortController.signal }));
     if (abortController.signal.aborted) return;
 
-    // Listen before the lobby window so bots and the browser can join while the arena is still `lobby`.
+    // Listen before the lobby window so players can join while the arena is still `lobby`.
     await trackWork(listenHttpServer(httpServer, gatewayConfig.port, abortController.signal));
     if (abortController.signal.aborted) return;
     logger.info({ port: gatewayConfig.port }, `gateway listening — REST http://localhost:${gatewayConfig.port}/api, WS ws://localhost:${gatewayConfig.port}/ws`);
-
-    if (gatewayConfig.bots.enabled) {
-      scriptedBots = await trackWork(joinBots(arena.id, runtime, gatewayConfig.bots.count, EVENT_ENTRY_FEE_LAMPORTS));
-      if (abortController.signal.aborted) return;
-      logger.info({ arenaId: arena.id, bots: scriptedBots.length }, "scripted bots joined the lobby");
-    }
 
     // Pre-kickoff lobby window: arena stays `lobby` so the human can buy in + join, then flips `live`.
     const configuredLobbyMs = gatewayConfig.lobby.seconds * 1_000;

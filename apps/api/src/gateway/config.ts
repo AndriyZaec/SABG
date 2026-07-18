@@ -47,9 +47,6 @@ const envSchema = z.object({
    * buy so the wallet tx confirms before kickoff.
    */
   GATEWAY_LOBBY_SECONDS: z.coerce.number().int().nonnegative().default(180),
-  /** Seed scripted bots into a replay arena so the board/feed are populated. */
-  GATEWAY_SEED_BOTS: z.enum(["true", "false"]).default("true"),
-  GATEWAY_BOT_COUNT: z.coerce.number().int().positive().default(8),
   LOG_LEVEL: z.string().default("info"),
   NODE_ENV: z.string().default("development"),
   WEB_DIST_DIR: z.string().min(1).optional(),
@@ -97,10 +94,6 @@ export const gatewayConfig = {
   },
   lobby: {
     seconds: env.GATEWAY_LOBBY_SECONDS,
-  },
-  bots: {
-    enabled: gameSource === "replay" && env.GATEWAY_SEED_BOTS === "true",
-    count: env.GATEWAY_BOT_COUNT,
   },
   log: {
     level: env.LOG_LEVEL,

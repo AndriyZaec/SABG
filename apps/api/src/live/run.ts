@@ -2,10 +2,7 @@
 //
 // Drives the real engine pipeline via `ArenaRuntime` (the same source-agnostic composition root
 // gateway/run.ts uses) off the live TXODDS `/scores/stream` feed instead of a recorded fixture.
-// Bots join through the real, DB-backed flow — `userRepository.upsertByWallet` +
-// `entryPassRepository.create` + `runtime.join(...)`, mirroring POST /arenas/:id/entry
-// (gateway/rest.ts) — rather than a hardcoded in-memory roster. Needs Postgres in addition to
-// Mongo/TxLINE.
+// Needs Postgres in addition to Mongo/TxLINE.
 
 import { GuestJwtService } from "./auth/guest-jwt.service.js";
 import { TxLineService } from "./auth/txline.service.js";
@@ -24,10 +21,8 @@ import { matchRepository } from "../db/repositories/match.repository.js";
 import { arenaRepository } from "../db/repositories/arena.repository.js";
 import { predictionRoundRepository } from "../db/repositories/prediction-round.repository.js";
 import { payoutService } from "../payout/index.js";
-import { joinBots, withBotAnswers, type ScriptedBot } from "../gateway/scripted-bots.js";
 
 const LIVE_ENTRY_FEE_LAMPORTS = 10_000_000;
-const LIVE_BOT_COUNT = 3;
 
 process.on("unhandledRejection", (reason) => {
   logger.error({ err: reason }, "unhandled promise rejection");
@@ -87,11 +82,7 @@ const persistence: ArenaPersistence = {
 
 const bus = new MatchSignalBus();
 
-// Populated by joinBots() below, before the worker starts — the answer wrapper reads it live.
-let liveBots: ScriptedBot[] = [];
-
-let runtime!: ArenaRuntime; // assigned below, before any signal on `bus` can fire
-// This worker has no WS server, so the transport just logs; the wrapper makes bots answer on open.
+// This worker has no WS server, so the transport just logs.
 const logBroadcaster: GatewayBroadcaster = {
   broadcast(_arenaId, message) {
     logger.info({ message }, `[broadcast] ${message.type}`);
@@ -100,27 +91,17 @@ const logBroadcaster: GatewayBroadcaster = {
     logger.info({ userId, message }, `[personal] ${message.type}`);
   },
 };
-const broadcaster = withBotAnswers(logBroadcaster, {
-  getBots: () => liveBots,
-  getRuntime: () => runtime,
-  isActive: (userId) => arenaPlayerStore.getStatus(userId) === "active",
-});
-
-runtime = new ArenaRuntime({
+const runtime = new ArenaRuntime({
   matchId: match.id,
   arenaId: arena.id,
   bus,
   predictionStore,
   arenaPlayerStore,
-  // Roster starts empty — bots join below through the real path (runtime.join), same as
-  // POST /arenas/:id/entry.
   roster: [],
-  broadcaster,
+  broadcaster: logBroadcaster,
   persistence,
   teamNames: { home: match.homeTeam, away: match.awayTeam },
 });
-
-liveBots = await joinBots(arena.id, runtime, LIVE_BOT_COUNT, LIVE_ENTRY_FEE_LAMPORTS);
 
 // Join is only valid pre-kickoff (spec §9) — flip to "live" now, right before kickoff starts.
 await arenaRepository.setStatus(arena.id, "live");
