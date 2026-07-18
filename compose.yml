@@ -91,6 +91,8 @@ services:
     env_file:
       - path: ${SABG_APP_ENV_FILE:-./deploy/app.env}
         format: raw
+    environment:
+      GATEWAY_DEMO_FIXTURE_ID: ${GATEWAY_DEMO_FIXTURE_ID:-18179764}
     depends_on:
       postgres:
         condition: service_healthy
