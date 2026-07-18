@@ -235,7 +235,7 @@ export async function assertArenaRecyclable(onchainArenaId: number): Promise<voi
     program.provider.connection.getBalance(escrow, "finalized"),
   ]);
   if (!arenaAccount) throw new Error(`On-chain arena ${onchainArenaId} does not exist`);
-  const decoded = program.coder.accounts.decode("Arena", arenaAccount.data) as { settled: boolean };
+  const decoded = program.coder.accounts.decode("arena", arenaAccount.data) as { settled: boolean };
   assertArenaRecyclableState(decoded.settled, balanceLamports, onchainArenaId);
 }
 
