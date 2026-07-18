@@ -37,6 +37,9 @@ export interface RoundEngineOptions {
   /** Real home/away team names, forwarded to the QuestionProvider on every open (see
    *  question-provider.ts's QuestionContext). Falls back to "Home"/"Away" when omitted. */
   teamNames?: { home: string; away: string };
+  /** True once the arena has finished (winners declared). When set, no further rounds are
+   *  created — the clock keeps ticking but the game is over (spec §7). */
+  isArenaFinished?: () => boolean;
   onTransition?: (event: RoundLifecycleEvent) => void;
 }
 
@@ -92,9 +95,18 @@ export class RoundEngine {
     });
     this.plannerState = state;
 
+    // Once winners are declared, stop opening new rounds — but still let a round that was
+    // already open at that moment lock and settle normally rather than dangling forever open.
+    // Re-checked per action (not cached once): a lock and the next window's open often land in
+    // the same tick, and settling that lock can synchronously declare the finish (early-settle
+    // -> leaderboard finish, via onTransition below) before this loop reaches the open action.
     for (const action of actions) {
-      if (action.kind === "open") this.handleOpen(action.windowStart, signal.matchMinute);
-      else this.handleLock(action.windowStart);
+      if (action.kind === "open") {
+        if (this.options.isArenaFinished?.() === true) continue; // game over — no further rounds
+        this.handleOpen(action.windowStart, signal.matchMinute);
+      } else {
+        this.handleLock(action.windowStart);
+      }
     }
   }
 

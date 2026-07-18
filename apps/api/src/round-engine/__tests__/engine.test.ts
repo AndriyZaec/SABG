@@ -139,4 +139,85 @@ describe("RoundEngine", () => {
       expect(round.status).toBe("locked");
     }
   });
+
+  it("opens no rounds once isArenaFinished is true (winners already declared)", () => {
+    const bus = new MatchSignalBus();
+    const events: RoundLifecycleEvent[] = [];
+    const engine = new RoundEngine(FIXTURE_MATCH_ID, ARENA_ID, {
+      onTransition: (e) => events.push(e),
+      isArenaFinished: () => true,
+    });
+    engine.subscribeTo(bus);
+
+    bus.publish({ kind: "clock", period: "pre", matchMinute: 0, running: false, timestamp: "t0" });
+    bus.publish({ kind: "clock", period: "first_half", matchMinute: 5, running: true, timestamp: "t1" });
+
+    expect(events).toHaveLength(0);
+    expect(engine.roundsByWindow.size).toBe(0);
+  });
+
+  it("stops opening further rounds once the arena finishes mid-match, but still locks the round already open at that moment", () => {
+    const bus = new MatchSignalBus();
+    const events: RoundLifecycleEvent[] = [];
+    let finished = false;
+    const engine = new RoundEngine(FIXTURE_MATCH_ID, ARENA_ID, {
+      onTransition: (e) => events.push(e),
+      isArenaFinished: () => finished,
+    });
+    engine.subscribeTo(bus);
+
+    bus.publish({ kind: "clock", period: "pre", matchMinute: 0, running: false, timestamp: "t0" });
+    expect(engine.roundsByWindow.get(5)?.status).toBe("open");
+
+    // Arena finishes (e.g. one-survivor early finish) before the next window would open.
+    finished = true;
+
+    bus.publish({ kind: "clock", period: "first_half", matchMinute: 5, running: true, timestamp: "t1" });
+    bus.publish({ kind: "clock", period: "first_half", matchMinute: 10, running: true, timestamp: "t2" });
+    bus.publish({ kind: "clock", period: "first_half", matchMinute: 15, running: true, timestamp: "t3" });
+
+    const openedSequence = events
+      .filter((e): e is Extract<RoundLifecycleEvent, { type: "open" }> => e.type === "open")
+      .map((e) => e.round.windowStartMinute);
+    expect(openedSequence).toEqual([5]); // only the pre-finish round ever opened
+
+    // The round that was already open before the finish still locks normally — it doesn't dangle.
+    const lockedSequence = events
+      .filter((e): e is Extract<RoundLifecycleEvent, { type: "lock" }> => e.type === "lock")
+      .map((e) => e.windowStartMinute);
+    expect(lockedSequence).toEqual([5]);
+    expect(engine.roundsByWindow.get(5)?.status).toBe("locked");
+
+    // No phantom rounds materialize for the later windows the planner "thinks" it opened.
+    expect(engine.roundsByWindow.size).toBe(1);
+  });
+
+  it("re-checks isArenaFinished per action, so a same-tick lock->open doesn't slip through when the lock synchronously declares finish", () => {
+    const bus = new MatchSignalBus();
+    const events: RoundLifecycleEvent[] = [];
+    let finished = false;
+    const engine = new RoundEngine(FIXTURE_MATCH_ID, ARENA_ID, {
+      isArenaFinished: () => finished,
+      onTransition: (e) => {
+        events.push(e);
+        // Mirrors arena-runtime.ts: settling a locked round can synchronously declare the finish
+        // (early-settle -> leaderboard finish) before the planner's queued "open" for the next
+        // window is executed in this same apply() call.
+        if (e.type === "lock") finished = true;
+      },
+    });
+    engine.subscribeTo(bus);
+
+    bus.publish({ kind: "clock", period: "pre", matchMinute: 0, running: false, timestamp: "t0" });
+    // Window 5 locks and window 10 would open in this single tick — the planner queues both.
+    bus.publish({ kind: "clock", period: "first_half", matchMinute: 5, running: true, timestamp: "t1" });
+
+    const openedSequence = events
+      .filter((e): e is Extract<RoundLifecycleEvent, { type: "open" }> => e.type === "open")
+      .map((e) => e.round.windowStartMinute);
+    expect(openedSequence).toEqual([5]); // window 10 must not open despite being queued alongside the lock
+
+    expect(engine.roundsByWindow.size).toBe(1);
+    expect(engine.roundsByWindow.get(5)?.status).toBe("locked");
+  });
 });

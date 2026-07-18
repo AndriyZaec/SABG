@@ -29,6 +29,7 @@ import type {
   Uuid,
 } from "@arena/contracts";
 import type { MatchSignalBus } from "../ingestion/event-bus.js";
+import { logger } from "./logger.js";
 import { MatchStateEngine } from "../match-state/engine.js";
 import { RoundEngine, type RoundLifecycleEvent } from "../round-engine/engine.js";
 import { createQuestionGenerator } from "../question-generator/engine.js";
@@ -146,6 +147,7 @@ export class ArenaRuntime {
       questionProvider: questionGenerator,
       ...(options.secondsPerMatchMinute !== undefined ? { secondsPerMatchMinute: options.secondsPerMatchMinute } : {}),
       ...(options.teamNames !== undefined ? { teamNames: options.teamNames } : {}),
+      isArenaFinished: () => this.winners !== undefined,
       onTransition: (event) => this.onRoundTransition(event),
     });
     this.roundEngine.subscribeTo(this.bus);
@@ -356,6 +358,11 @@ export class ArenaRuntime {
     const winners = this.pendingWinners;
     this.pendingWinners = undefined;
     this.winners = winners;
+
+    logger.info(
+      { arenaId: this.arenaId, winners },
+      "arena finished — winners declared; halting round creation",
+    );
 
     this.broadcaster.broadcast(this.arenaId, { type: "arena.finished", winners });
     this.persistence?.finishArena(this.arenaId, winners);
