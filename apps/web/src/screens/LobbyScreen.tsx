@@ -4,12 +4,12 @@ import { useBackendArena } from "../arena/useBackendArena.js";
 import { DEMO_VIEW, PERIOD_LABEL } from "../arena/arenaView.js";
 import { Badge } from "../ui/Badge.js";
 
-/** Seeded schedule so the lobby reads like a live tournament product (display-only for the demo). */
+/** Seeded schedule so the lobby reads like a live tournament product (display-only for the demo).
+ *  Mirrors the real bracket in db/seeds/matches.json: the featured match is the semi-final
+ *  (England v Argentina), so this only lists what's left — 3rd place and the final. */
 const UPCOMING = [
-  { home: "England", away: "France", kickoff: "Today · 21:00" },
-  { home: "Spain", away: "Germany", kickoff: "Tomorrow · 18:00" },
-  { home: "Portugal", away: "Netherlands", kickoff: "Sat · 20:00" },
-  { home: "USA", away: "Mexico", kickoff: "Sun · 22:00" },
+  { home: "France", away: "England", kickoff: "Sat · 21:00" },
+  { home: "Spain", away: "Argentina", kickoff: "Sun · 19:00" },
 ];
 
 export function LobbyScreen() {

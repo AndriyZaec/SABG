@@ -230,8 +230,12 @@ describe("ArenaRuntime — B7 DoD: a real client passes full rounds over the bro
     // which rounds this player actually got an answer in, so lock-time assertions only expect the
     // round in their pending set on rounds they were still active for.
     const answeredRoundIds = new Set<Uuid>();
-    const pendingAtLock: { roundId: Uuid; pending: ReturnType<ArenaRuntime["pendingPredictionsFor"]>; answered: boolean }[] =
-      [];
+    const pendingAtLock: {
+      roundId: Uuid;
+      pending: ReturnType<ArenaRuntime["pendingPredictionsFor"]>;
+      answered: boolean;
+      eliminated: boolean;
+    }[] = [];
     const broadcaster: GatewayBroadcaster = {
       broadcast(_arenaId, message) {
         if (message.type === "round.open" && runtime.statusFor(PLAYER_ANSWERS_YES) !== "eliminated") {
@@ -243,6 +247,10 @@ describe("ArenaRuntime — B7 DoD: a real client passes full rounds over the bro
             roundId: message.roundId,
             pending: runtime.pendingPredictionsFor(PLAYER_ANSWERS_YES),
             answered: answeredRoundIds.has(message.roundId),
+            // A round they answered while active can still get excluded by the time it locks: the
+            // round overlap means the *previous* round can settle (and eliminate them) in between
+            // their answer and this round's own lock — elimination clears pending immediately.
+            eliminated: runtime.statusFor(PLAYER_ANSWERS_YES) === "eliminated",
           });
         }
       },
@@ -267,14 +275,19 @@ describe("ArenaRuntime — B7 DoD: a real client passes full rounds over the bro
     expect(pendingAtLock.length).toBeGreaterThan(0);
 
     // The round that just locked is in this player's pending set at that moment, provided they
-    // actually answered it (they stop being able to once eliminated).
-    for (const { roundId, pending, answered } of pendingAtLock) {
-      expect(pending.some((p) => p.roundId === roundId)).toBe(answered);
+    // actually answered it and haven't since been eliminated by an overlapping round settling.
+    for (const { roundId, pending, answered, eliminated } of pendingAtLock) {
+      expect(pending.some((p) => p.roundId === roundId)).toBe(answered && !eliminated);
+      if (eliminated) expect(pending).toEqual([]);
     }
 
     // Settlement is per-window, not per-round-in-sequence: this fixture genuinely produces
-    // overlap — by the second lock, the prior round is still awaiting settle too.
-    expect(pendingAtLock.some(({ pending }) => pending.length >= 2)).toBe(true);
+    // overlap — by the second lock, the prior round is still awaiting settle too. Checked only
+    // while still active: the question asked each round is picked at random (by design — see
+    // question-generator/candidates.ts), so *when* (or whether) this single player is eliminated
+    // varies run to run; once eliminated their pending is correctly forced to empty (asserted
+    // above), which would otherwise mask this fixture's real structural overlap.
+    expect(pendingAtLock.some(({ pending, eliminated }) => !eliminated && pending.length >= 2)).toBe(true);
 
     // Whenever more than one is pending, they're ordered by windowStartMinute ascending.
     for (const { pending } of pendingAtLock) {
@@ -349,13 +362,35 @@ describe("ArenaRuntime — B7 DoD: a real client passes full rounds over the bro
     );
     expect(personalPending.length).toBeGreaterThan(0);
 
-    // Never pushed to a player who never answered anything.
-    expect(personalPending.some((e) => e.userId === PLAYER_NEVER_ANSWERS)).toBe(false);
+    // A player who never answers is never pushed a *non-empty* pending list (pushPendingForAnswerers
+    // never targets them). They can still get a single empty clearing push the moment they're
+    // eliminated (their first-ever settle: "missed" -> eliminated) — always empty, and always right
+    // after their own player.status:"eliminated" personal message.
+    const neverAnswersPending = personalPending.filter((e) => e.userId === PLAYER_NEVER_ANSWERS);
+    for (const push of neverAnswersPending) {
+      expect(push.message).toEqual({ type: "player.pending", predictions: [] });
+      const idx = log.indexOf(push);
+      const prev = log[idx - 1];
+      expect(prev?.kind === "personal" && prev.userId === PLAYER_NEVER_ANSWERS && prev.message.type === "player.status" && prev.message.status === "eliminated").toBe(true);
+    }
+
+    // First log index, per user, of their own elimination (if any) — used below to tell whether a
+    // given push happened before or after that user was actually eliminated.
+    const eliminatedAtIndex = new Map<Uuid, number>();
+    for (let i = 0; i < log.length; i++) {
+      const entry = log[i]!;
+      if (entry.kind === "personal" && entry.message.type === "player.status" && entry.message.status === "eliminated") {
+        if (!eliminatedAtIndex.has(entry.userId)) eliminatedAtIndex.set(entry.userId, i);
+      }
+    }
 
     // Right after every round.lock broadcast, exactly this round's actual answerers (0, 1, or 2 —
-    // fewer once one of them has since been eliminated) get a player.pending push that includes
-    // the just-locked round (pushPendingForAnswerers runs synchronously, immediately after the
-    // round.lock broadcast, before any other event is processed).
+    // fewer once one of them has since been eliminated) get a player.pending push
+    // (pushPendingForAnswerers runs synchronously, immediately after the round.lock broadcast,
+    // before any other event is processed). The push includes the just-locked round *unless* that
+    // answerer had already been eliminated by an earlier round's settle overlapping this one's lock
+    // (round overlap: they can answer round N+1 before round N settles and eliminates them) — an
+    // eliminated player holds nothing pending, even a round they legitimately answered.
     for (let i = 0; i < log.length; i++) {
       const entry = log[i]!;
       if (entry.kind !== "broadcast" || entry.message.type !== "round.lock") continue;
@@ -370,7 +405,9 @@ describe("ArenaRuntime — B7 DoD: a real client passes full rounds over the bro
       for (const push of pushedTo) {
         expect(expectedAnswerers).toContain(push.userId);
         if (push.message.type !== "player.pending") continue;
-        expect(push.message.predictions.some((p) => p.roundId === roundId)).toBe(true);
+        const pushIndex = log.indexOf(push);
+        const wasActiveAtPush = (eliminatedAtIndex.get(push.userId) ?? Infinity) > pushIndex;
+        expect(push.message.predictions.some((p) => p.roundId === roundId)).toBe(wasActiveAtPush);
       }
     }
 
@@ -436,5 +473,39 @@ describe("ArenaRuntime — B7 DoD: a real client passes full rounds over the bro
       ok: true,
       receivedAt: expect.any(String),
     });
+  });
+
+  it("clears a player's pending predictions the instant they're eliminated, even for a round they legitimately answered while still active (round overlap)", () => {
+    const { runtime, bus, personal } = buildRuntime();
+    replayFixture(bus, FIXTURE_MATCH_ID);
+
+    // One of the two answering players is eliminated by this fixture (whichever's guess stops
+    // matching the actual outcome first) — find whoever it is, generically.
+    const eliminatedIndex = personal.findIndex(
+      (e) =>
+        (e.userId === PLAYER_ANSWERS_YES || e.userId === PLAYER_ANSWERS_NO) &&
+        e.message.type === "player.status" &&
+        e.message.status === "eliminated",
+    );
+    expect(eliminatedIndex).toBeGreaterThanOrEqual(0);
+    const eliminatedUserId = personal[eliminatedIndex]!.userId;
+
+    // The very next personal message to that same user clears their pending list — they must not
+    // be left showing an in-flight round (answered before elimination, still awaiting settle) as
+    // if they were still participating in it.
+    const next = personal[eliminatedIndex + 1];
+    expect(next?.userId).toBe(eliminatedUserId);
+    expect(next?.message).toEqual({ type: "player.pending", predictions: [] });
+
+    // Holds for the rest of the arena too, not just at the moment of elimination.
+    expect(runtime.pendingPredictionsFor(eliminatedUserId)).toEqual([]);
+
+    // Regression: a player who never gets eliminated in this run isn't affected by this — they
+    // still get normal (non-empty, then eventually empty-at-settle) pending pushes as before.
+    const survivorId = eliminatedUserId === PLAYER_ANSWERS_YES ? PLAYER_ANSWERS_NO : PLAYER_ANSWERS_YES;
+    const survivorPending = personal.filter((e) => e.userId === survivorId && e.message.type === "player.pending");
+    expect(survivorPending.some((e) => e.message.type === "player.pending" && e.message.predictions.length > 0)).toBe(
+      true,
+    );
   });
 });

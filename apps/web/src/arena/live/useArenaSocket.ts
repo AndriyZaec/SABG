@@ -30,6 +30,11 @@ function prepend(feed: FeedItem[], item: FeedItem): FeedItem[] {
   return [item, ...feed].slice(0, 20);
 }
 
+/** Keeps feed entries readable — a long question shouldn't blow out the feed item's width. */
+function truncate(text: string, max = 64): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
 /** Fold a server message into the current view. */
 function reduce(view: ArenaView, msg: ServerMessage, myUserId?: string): ArenaView {
   switch (msg.type) {
@@ -64,7 +69,9 @@ function reduce(view: ArenaView, msg: ServerMessage, myUserId?: string): ArenaVi
         feed: prepend(view.feed, {
           id: `settle-${msg.roundId}`,
           kind: "info",
-          text: `Round settled · answer ${msg.correctAnswer.toUpperCase()}`,
+          text: msg.question
+            ? `Round settled · ${truncate(msg.question)} · answer ${msg.correctAnswer.toUpperCase()}`
+            : `Round settled · answer ${msg.correctAnswer.toUpperCase()}`,
           minute: view.minute,
         }),
       };
@@ -84,7 +91,12 @@ function reduce(view: ArenaView, msg: ServerMessage, myUserId?: string): ArenaVi
       };
     }
     case "player.status": {
-      const next = { ...view, myStatus: msg.status };
+      // A declared winner never reverts: the arena-player store only tracks eliminations, so a
+      // reconnect's personal status resync (ws.ts's `runtime.statusFor`) would otherwise still
+      // read "active" for a winner and downgrade them right after the arena.finished resync sets
+      // myStatus to "winner" — see the arena.finished case below.
+      const status = view.myStatus === "winner" ? "winner" : msg.status;
+      const next = { ...view, myStatus: status };
       // A resync push (subscribe/reconnect) carries no roundId and isn't a fresh event to
       // announce — except "winner", which has no roundId even live (harmless to show again).
       if (msg.roundId === undefined && msg.status !== "winner") return next;
@@ -96,11 +108,17 @@ function reduce(view: ArenaView, msg: ServerMessage, myUserId?: string): ArenaVi
     case "player.pending":
       // Full-list snapshot from the server (re-sent on lock/settle/subscribe) — replace, don't merge.
       return { ...view, pendingPredictions: msg.predictions };
-    case "arena.finished":
+    case "arena.finished": {
+      // Cached and replayed on every (re)subscribe (ws.ts's handleSubscribe), so this is what
+      // makes the winner banner survive a page reload — myStatus is set here from the winners
+      // list itself, not just from the live personal player.status push.
+      const iWon = myUserId != null && msg.winners.includes(myUserId);
       return {
         ...view,
+        ...(iWon ? { myStatus: "winner" as const } : {}),
         feed: prepend(view.feed, { id: `fin-${Date.now()}`, kind: "info", text: "Match finished", minute: view.minute }),
       };
+    }
     default:
       return view;
   }
@@ -174,7 +192,9 @@ export function useArenaSocket(arenaId: string): ArenaSocket {
     (answer: Answer) => {
       const ws = wsRef.current;
       const roundId = view?.round?.roundId;
-      if (!isDemo && ws && ws.readyState === WebSocket.OPEN && roundId) {
+      // Belt-and-suspenders: PredictionCard already hides the buttons once eliminated, and the
+      // backend rejects an eliminated player's answer regardless — but never even send it.
+      if (!isDemo && ws && ws.readyState === WebSocket.OPEN && roundId && view?.myStatus !== "eliminated") {
         ws.send(JSON.stringify({ type: "answer", roundId, answer }));
       }
     },

@@ -5,6 +5,7 @@ import { PredictionCard } from "../arena/live/PredictionCard.js";
 import { PendingPredictionsList } from "../arena/live/PendingPredictionsList.js";
 import { EliminationFeed } from "../arena/live/EliminationFeed.js";
 import { LeaderboardRail } from "../arena/live/LeaderboardRail.js";
+import { WinnerBanner } from "../arena/live/WinnerBanner.js";
 import { Loading } from "../ui/Loading.js";
 
 export function ArenaScreen() {
@@ -23,6 +24,11 @@ export function ArenaScreen() {
   // The current round is already shown in full by PredictionCard (incl. its locked-waiting
   // state) — this list is only the other rounds still awaiting settlement.
   const pending = (view.pendingPredictions ?? []).filter((p) => p.roundId !== view.round?.roundId);
+
+  // A spectator (no pass) never receives a personal player.status push, so myStatus stays
+  // undefined for them — see useArenaSocket.ts / the gateway's handleSubscribe. The demo has no
+  // socket at all and sets no myStatus, so it's always treated as a participant.
+  const isParticipant = isDemo || view.myStatus !== undefined;
 
   return (
     <div className="nb-container">
@@ -44,6 +50,7 @@ export function ArenaScreen() {
       )}
       <div className="nb-arena-grid">
         <div style={{ display: "grid", gap: 20 }}>
+          {view.myStatus === "winner" && <WinnerBanner />}
           <MatchHeader view={view} />
           {view.round && (
             // key={round.roundId} forces a fresh mount per round — PredictionCard's `picked`
@@ -54,6 +61,7 @@ export function ArenaScreen() {
               round={view.round}
               onAnswer={submitAnswer}
               eliminated={view.myStatus === "eliminated"}
+              participant={isParticipant}
             />
           )}
           {pending.length > 0 && <PendingPredictionsList predictions={pending} />}

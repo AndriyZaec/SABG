@@ -2,8 +2,8 @@
 // `pnpm --filter @arena/api gateway:dev`.
 //
 // Demo driver (scope decision): drives the real engine pipeline via `replayFixture` over a
-// recorded fixture (default 18179764, the same one the engine test suites replay) — no
-// Mongo/TxLINE credentials needed. Override which recorded match plays via
+// recorded fixture (default 18241006, England v Argentina) — no Mongo/TxLINE credentials
+// needed. Override which recorded match plays via
 // GATEWAY_DEMO_FIXTURE_ID (see gateway/config.ts) — it must have a matching
 // ingestion/__fixtures__/fixture-<id>.json. The live worker (src/live/run.ts) can drive the same
 // ArenaRuntime later; the runtime itself is source-agnostic (just a MatchSignalBus consumer).

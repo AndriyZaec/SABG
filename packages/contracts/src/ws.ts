@@ -30,6 +30,8 @@ export interface RoundLockMessage {
 export interface RoundSettleMessage {
   type: "round.settle";
   roundId: Uuid;
+  /** The question that was answered, so the feed can show what YES/NO refers to. */
+  question: string;
   correctAnswer: Answer;
   settledBy: "early" | "window_end";
   survivorsCount: number;

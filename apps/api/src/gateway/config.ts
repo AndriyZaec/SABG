@@ -28,10 +28,11 @@ const envSchema = z.object({
   GATEWAY_SECONDS_PER_MATCH_MINUTE: z.coerce.number().positive().default(6),
   /**
    * Which recorded fixture the demo replay drives — must have a matching
-   * `ingestion/__fixtures__/fixture-<id>.json`. Default (18179764) is the final; set to a
-   * different recorded fixture id (e.g. 18241006, the semi-final) to demo that match instead.
+   * `ingestion/__fixtures__/fixture-<id>.json`. Default (18241006) is England v Argentina, the
+   * semi-final; set to a different recorded fixture id (e.g. 18179764, the final) to demo that
+   * match instead.
    */
-  GATEWAY_DEMO_FIXTURE_ID: z.coerce.number().int().positive().default(18179764),
+  GATEWAY_DEMO_FIXTURE_ID: z.coerce.number().int().positive().default(18241006),
   /**
    * Pre-kickoff lobby window: the demo arena stays `lobby` this long after the server is up so bots
    * and the human can join, then flips `live` and the replay starts. Longer when filming an on-chain
