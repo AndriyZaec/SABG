@@ -36,7 +36,7 @@ import { calculateLobbyDurationMs, createGameSource, type GameSource } from "./g
 import { REPLAY_CYCLE_EXIT_CODE, shouldCycleReplay } from "./replay-cycle-policy.js";
 import { closeEntrySubmissions } from "./entry-prepare-store.js";
 
-const EVENT_ENTRY_FEE_LAMPORTS = 10_000_000;
+const EVENT_ENTRY_FEE_LAMPORTS = 100_000_000;
 
 async function main(): Promise<void> {
   const abortController = new AbortController();

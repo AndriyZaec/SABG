@@ -66,8 +66,8 @@ export const mockArena: Arena = {
   matchId: MOCK_MATCH_ID,
   status: "live",
   activePlayersCount: 128,
-  entryFeeLamports: 10_000_000,
-  prizePoolLamports: 1_280_000_000,
+  entryFeeLamports: 100_000_000,
+  prizePoolLamports: 12_800_000_000,
   escrowAccount: "ArEnAEscrowPDA11111111111111111111111111",
 };
 
