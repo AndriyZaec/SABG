@@ -126,7 +126,7 @@ function reduce(view: ArenaView, msg: ServerMessage, myUserId?: string): ArenaVi
         ...(iWon ? { myStatus: "winner" as const } : {}),
         // Stable id: one arena has exactly one finish, and this frame is replayed on every
         // (re)subscribe — a fixed id lets `prepend` drop the duplicate.
-        feed: prepend(view.feed, { id: "arena-finished", kind: "info", text: "Match finished", minute: view.minute }),
+        feed: prepend(view.feed, { id: "arena-finished", kind: "info", text: "Arena settled", minute: view.minute }),
       };
     }
     default:
