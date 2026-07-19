@@ -2,13 +2,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Answer, ArenaDetailResponse, ServerMessage } from "@arena/contracts";
 import {
   fetchArenaDetail,
+  fetchArenaRounds,
   fetchEventAccessSession,
   fetchLeaderboard,
   notifyEventAccessRequired,
 } from "../../api/client.js";
 import { useAuth } from "../../auth/AuthContext.js";
 import type { ArenaView, FeedItem, LeaderRow } from "../arenaView.js";
-import { makeDemoView } from "../arenaView.js";
+import { feedFromRounds, makeDemoView, truncate } from "../arenaView.js";
 
 function buildWsUrl(token: string | null): string {
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -31,13 +32,12 @@ function initialView(d: ArenaDetailResponse): ArenaView {
   };
 }
 
+/** Prepends, deduping by id (a live item colliding with one already reconstructed from
+ *  history, or a replayed frame colliding with one already in the feed) — returns the same
+ *  array reference on a dup so it doesn't spuriously re-trigger downstream effects. */
 function prepend(feed: FeedItem[], item: FeedItem): FeedItem[] {
+  if (feed.some((f) => f.id === item.id)) return feed;
   return [item, ...feed].slice(0, 20);
-}
-
-/** Keeps feed entries readable — a long question shouldn't blow out the feed item's width. */
-function truncate(text: string, max = 64): string {
-  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
 /** Fold a server message into the current view. */
@@ -108,7 +108,10 @@ function reduce(view: ArenaView, msg: ServerMessage, myUserId?: string): ArenaVi
       const kind = msg.status === "eliminated" ? "eliminated" : "survived";
       const text =
         msg.status === "eliminated" ? "You were eliminated" : msg.status === "winner" ? "You won!" : "You survived";
-      return { ...next, feed: prepend(view.feed, { id: `me-${Date.now()}`, kind, text, minute: view.minute }) };
+      // Stable id: live eliminated/survived always carries roundId (matches feedFromRounds'
+      // `me-${roundId}`); the winner resync (and live winner) has none, so it gets one fixed id.
+      const id = msg.status === "winner" ? "me-winner" : `me-${msg.roundId}`;
+      return { ...next, feed: prepend(view.feed, { id, kind, text, minute: view.minute }) };
     }
     case "player.pending":
       // Full-list snapshot from the server (re-sent on lock/settle/subscribe) — replace, don't merge.
@@ -121,7 +124,9 @@ function reduce(view: ArenaView, msg: ServerMessage, myUserId?: string): ArenaVi
       return {
         ...view,
         ...(iWon ? { myStatus: "winner" as const } : {}),
-        feed: prepend(view.feed, { id: `fin-${Date.now()}`, kind: "info", text: "Match finished", minute: view.minute }),
+        // Stable id: one arena has exactly one finish, and this frame is replayed on every
+        // (re)subscribe — a fixed id lets `prepend` drop the duplicate.
+        feed: prepend(view.feed, { id: "arena-finished", kind: "info", text: "Match finished", minute: view.minute }),
       };
     }
     default:
@@ -148,11 +153,17 @@ export function useArenaSocket(arenaId: string): ArenaSocket {
 
   // Initial snapshot over REST (no auth) so the scoreboard + current board show immediately —
   // WS leaderboard.update only fires on settle, so without this the board is empty until then.
+  // The rounds fetch reconstructs the match feed from persisted history: without it, a reload
+  // or a mid-match joiner would see an empty feed (nothing to replay it from client-side).
   useEffect(() => {
     if (isDemo) return;
     let cancelled = false;
-    void Promise.all([fetchArenaDetail(arenaId), fetchLeaderboard(arenaId).catch(() => null)])
-      .then(([detail, board]) => {
+    void Promise.all([
+      fetchArenaDetail(arenaId),
+      fetchLeaderboard(arenaId).catch(() => null),
+      fetchArenaRounds(arenaId).catch(() => null),
+    ])
+      .then(([detail, board, rounds]) => {
         if (cancelled) return;
         const rows: LeaderRow[] = (board?.entries ?? []).map((e, i) => ({
           rank: e.rank ?? i + 1,
@@ -161,7 +172,8 @@ export function useArenaSocket(arenaId: string): ArenaSocket {
           status: e.status,
           you: myUserId.current != null && e.userId === myUserId.current,
         }));
-        setView((v) => v ?? { ...initialView(detail), leaderboard: rows });
+        const feed = feedFromRounds(rounds?.rounds ?? [], myUserId.current);
+        setView((v) => v ?? { ...initialView(detail), leaderboard: rows, feed });
       })
       .catch(() => undefined);
     return () => {

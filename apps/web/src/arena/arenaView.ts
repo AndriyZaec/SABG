@@ -1,4 +1,12 @@
-import type { Answer, ArenaPlayerStatus, MatchPeriod, PendingPrediction, RoundStatus } from "@arena/contracts";
+import type {
+  Answer,
+  ArenaPlayerStatus,
+  ArenaRoundsResponse,
+  MatchPeriod,
+  PendingPrediction,
+  RoundStatus,
+  Uuid,
+} from "@arena/contracts";
 
 /** The current prediction round as the arena screen needs it. */
 export interface RoundView {
@@ -47,6 +55,43 @@ export interface ArenaView {
   pendingPredictions?: PendingPrediction[];
   feed: FeedItem[];
   leaderboard: LeaderRow[];
+}
+
+/** Keeps feed entries readable — a long question shouldn't blow out the feed item's width. */
+export function truncate(text: string, max = 64): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+/**
+ * Rebuilds the match feed from persisted round history (`GET /arenas/:id/rounds`) — the same
+ * items the live WS stream would have produced via `round.settle`/`player.status`, so a reload
+ * or a mid-match joiner isn't stuck with an empty feed. Ids match the live-reduce ones
+ * (`settle-${roundId}` / `me-${roundId}`) so the two sources dedup cleanly.
+ */
+export function feedFromRounds(rounds: ArenaRoundsResponse["rounds"], myUserId?: Uuid): FeedItem[] {
+  const settled = rounds
+    .filter((r) => r.round.status === "settled" && r.round.correctAnswer !== undefined)
+    .sort((a, b) => (b.round.settledAt ?? "").localeCompare(a.round.settledAt ?? ""));
+
+  const items: FeedItem[] = [];
+  for (const { round, predictions } of settled) {
+    items.push({
+      id: `settle-${round.id}`,
+      kind: "info",
+      text: `Round settled · ${truncate(round.question)} · answer ${round.correctAnswer!.toUpperCase()}`,
+      minute: round.windowEndMinute,
+    });
+    const mine = myUserId !== undefined ? predictions.find((p) => p.userId === myUserId) : undefined;
+    if (mine?.result !== undefined) {
+      items.push({
+        id: `me-${round.id}`,
+        kind: mine.result === "correct" ? "survived" : "eliminated",
+        text: mine.result === "correct" ? "You survived" : "You were eliminated",
+        minute: round.windowEndMinute,
+      });
+    }
+  }
+  return items.slice(0, 20);
 }
 
 /** Base match state. */
