@@ -22,7 +22,7 @@ import { arenaRepository } from "../db/repositories/arena.repository.js";
 import { predictionRoundRepository } from "../db/repositories/prediction-round.repository.js";
 import { payoutService } from "../payout/index.js";
 
-const LIVE_ENTRY_FEE_LAMPORTS = 10_000_000;
+const LIVE_ENTRY_FEE_LAMPORTS = 100_000_000;
 
 process.on("unhandledRejection", (reason) => {
   logger.error({ err: reason }, "unhandled promise rejection");
