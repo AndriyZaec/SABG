@@ -30,6 +30,18 @@ export default defineConfig({
     proxy: {
       "/api": { target: "http://localhost:4000", changeOrigin: true },
       "/ws": { target: "ws://localhost:4000", ws: true },
+      // CS2 runs as its own gateway process on its own port (CS2_GATEWAY_PORT, apps/api/src/cs2/run.ts)
+      // — separate from soccer's gateway above, sharing only Postgres.
+      "/cs2-api": {
+        target: "http://localhost:4100",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/cs2-api/, "/api"),
+      },
+      "/cs2-ws": {
+        target: "ws://localhost:4100",
+        ws: true,
+        rewrite: (path) => path.replace(/^\/cs2-ws/, "/ws"),
+      },
     },
   },
 });

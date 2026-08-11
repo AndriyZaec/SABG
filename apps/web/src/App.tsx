@@ -25,6 +25,12 @@ const SummaryScreen = lazy(() =>
 const PayoutScreen = lazy(() =>
   import("./screens/PayoutScreen.js").then((m) => ({ default: m.PayoutScreen })),
 );
+const Cs2LobbyScreen = lazy(() =>
+  import("./cs2/Cs2LobbyScreen.js").then((m) => ({ default: m.Cs2LobbyScreen })),
+);
+const Cs2ArenaScreen = lazy(() =>
+  import("./cs2/Cs2ArenaScreen.js").then((m) => ({ default: m.Cs2ArenaScreen })),
+);
 
 export function App() {
   return (
@@ -44,6 +50,8 @@ export function App() {
                 <Route path="/arena/:arenaId/spectate" element={<SpectatorScreen />} />
                 <Route path="/arena/:arenaId/summary" element={<SummaryScreen />} />
                 <Route path="/arena/:arenaId/payout" element={<PayoutScreen />} />
+                <Route path="/cs2" element={<Cs2LobbyScreen />} />
+                <Route path="/cs2/arena/:arenaId" element={<Cs2ArenaScreen />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </Suspense>
