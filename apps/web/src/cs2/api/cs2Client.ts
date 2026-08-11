@@ -5,11 +5,34 @@
 // helpers are trivial enough that a parallel copy is cheaper than threading a base-path parameter
 // through the shared one.
 
-import type { Arena, ArenaDetailResponse, ArenaListResponse, LeaderboardResponse, Match, MatchListResponse } from "@arena/contracts";
-import { notifyEventAccessRequired } from "../../api/client.js";
+import type {
+  Arena,
+  ArenaDetailResponse,
+  ArenaListResponse,
+  LeaderboardResponse,
+  Match,
+  MatchListResponse,
+  PrepareEntryRequest,
+  PrepareEntryResponse,
+  SubmitEntryRequest,
+  SubmitEntryResponse,
+} from "@arena/contracts";
+import { getAuthToken, notifyEventAccessRequired } from "../../api/client.js";
 
 async function get<TRes>(path: string): Promise<TRes> {
   const res = await fetch(`/cs2-api${path}`);
+  await reportEventAccessFailure(res);
+  if (!res.ok) throw new Error(`${path} failed (${res.status})`);
+  return (await res.json()) as TRes;
+}
+
+// Auth token is api/client.ts's module-level state, not duplicated here — the CS2 and soccer
+// gateways share AUTH_SECRET (5b2), so a token minted by either sign-in flow is valid on both.
+async function post<TReq, TRes>(path: string, body: TReq, authed = false): Promise<TRes> {
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  const token = getAuthToken();
+  if (authed && token) headers["authorization"] = `Bearer ${token}`;
+  const res = await fetch(`/cs2-api${path}`, { method: "POST", headers, body: JSON.stringify(body) });
   await reportEventAccessFailure(res);
   if (!res.ok) throw new Error(`${path} failed (${res.status})`);
   return (await res.json()) as TRes;
@@ -53,4 +76,18 @@ export async function fetchCs2ArenaDetail(arenaId: string): Promise<ArenaDetailR
 
 export async function fetchCs2Leaderboard(arenaId: string): Promise<LeaderboardResponse> {
   return get<LeaderboardResponse>(`/arenas/${arenaId}/leaderboard`);
+}
+
+/**
+ * Backend-orchestrated entry, step 1: ask the CS2 gateway to build the buy_entry tx to sign.
+ * Same on-chain path soccer uses (gateway/rest.ts's /entry/prepare is fully discipline-agnostic
+ * — confirmed in step 5b2's research, no CS2-specific backend change was needed).
+ */
+export async function prepareCs2Entry(arenaId: string, walletAddress: string): Promise<PrepareEntryResponse> {
+  return post<PrepareEntryRequest, PrepareEntryResponse>(`/arenas/${arenaId}/entry/prepare`, { walletAddress });
+}
+
+/** Step 2: hand back the signed tx; the CS2 gateway submits + seats + returns a session token. */
+export async function submitCs2Entry(arenaId: string, prepareId: string, signedTx: string): Promise<SubmitEntryResponse> {
+  return post<SubmitEntryRequest, SubmitEntryResponse>(`/arenas/${arenaId}/entry/submit`, { prepareId, signedTx });
 }
