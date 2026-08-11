@@ -44,6 +44,7 @@ export function createStubQuestionProvider(): QuestionProvider {
         targetEventType,
         targetTeam,
         settlementCondition: {
+          discipline: "soccer",
           targetEventType,
           targetTeam,
           windowStartMinute: ctx.windowStartMinute,

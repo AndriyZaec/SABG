@@ -12,6 +12,7 @@ import type {
   PredictionRound,
   SettleableEvent,
   SettledBy,
+  SoccerSettlementCondition,
   Uuid,
 } from "@arena/contracts";
 import type { MatchSignalBus } from "../ingestion/event-bus.js";
@@ -19,6 +20,20 @@ import { hasReachedMinute, requiredPeriod, type ClockTick } from "../round-engin
 import { resolveSettlement } from "./resolve.js";
 import { createInMemoryPredictionStore, type PredictionStore } from "./prediction-store.js";
 import { createInMemoryArenaPlayerStore, type ArenaPlayerStore } from "./arena-player-store.js";
+
+/** This engine is soccer-only (spec §3: CS2 gets its own settlement, not this window-keyed one). */
+type SoccerPredictionRound = PredictionRound & {
+  windowStartMinute: number;
+  windowEndMinute: number;
+  settlementCondition: SoccerSettlementCondition;
+};
+
+function assertSoccerRound(round: PredictionRound): SoccerPredictionRound {
+  if (round.discipline !== "soccer" || round.windowStartMinute === undefined || round.windowEndMinute === undefined) {
+    throw new Error(`SettlementEngine only tracks soccer rounds, got round ${round.id} (discipline=${round.discipline})`);
+  }
+  return round as SoccerPredictionRound;
+}
 
 export interface SettlementEvent {
   type: "settle";
@@ -45,7 +60,7 @@ export interface SettlementEngineOptions {
 }
 
 interface TrackedRound {
-  round: PredictionRound;
+  round: SoccerPredictionRound;
   events: SettleableEvent[];
 }
 
@@ -64,8 +79,9 @@ export class SettlementEngine {
 
   /** Starts tracking a round that was just locked. Idempotent — a repeat call for the same window is a no-op. */
   onRoundLocked(round: PredictionRound): void {
-    if (this.tracked.has(round.windowStartMinute)) return;
-    this.tracked.set(round.windowStartMinute, { round, events: [] });
+    const soccerRound = assertSoccerRound(round);
+    if (this.tracked.has(soccerRound.windowStartMinute)) return;
+    this.tracked.set(soccerRound.windowStartMinute, { round: soccerRound, events: [] });
   }
 
   apply(signal: MatchSignal): void {

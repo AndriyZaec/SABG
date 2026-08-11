@@ -69,5 +69,9 @@ export function reduceMatchState(state: MatchState, signal: MatchSignal): MatchS
       if (counter === undefined) return state;
       return { ...state, [counter]: bump(state[counter], signal.event.team) };
     }
+
+    default:
+      // CS2 signals (spec §3: CS2 gets its own Match State equivalent, not this soccer reducer).
+      return state;
   }
 }

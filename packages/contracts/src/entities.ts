@@ -5,12 +5,14 @@ import type {
   Answer,
   ArenaPlayerStatus,
   ArenaStatus,
+  Discipline,
   EntryPassStatus,
   MatchPeriod,
   MatchStatus,
   PayoutStatus,
   PredictionResult,
   RoundStatus,
+  SeriesStatus,
   SettledBy,
   TargetEventType,
   TeamSide,
@@ -39,14 +41,35 @@ export interface User {
 
 export interface Match {
   id: Uuid;
+  /** Game type; selects round engine/question-provider/ingestion (cs2-migration-spec/spec_v2.md §2-§3). */
+  discipline: Discipline;
   homeTeam: string;
   awayTeam: string;
   startTime: IsoDateTime;
   status: MatchStatus;
-  /** Current minute incl. stoppage (match clock, spec §3.1). */
+  /** Current minute incl. stoppage (match clock, spec §3.1). Soccer-only — unused for CS2. */
   currentMinute: number;
   period: MatchPeriod;
   score: Score;
+  /**
+   * FK to a `Series` (cs2-migration-spec/spec_v2.md §2). CS2: one entry per map. Disciplines
+   * without series structure (soccer) leave this empty.
+   */
+  seriesId?: Uuid;
+}
+
+/**
+ * `best-of-N` grouping of `Match` rows, one per map — mirrors GRID `seriesState`
+ * (cs2-migration-spec/spec_v2.md §2). NOT an Arena — Arena is always at the single-Match level.
+ */
+export interface Series {
+  id: Uuid;
+  /** GRID's own series id, as passed to `seriesState(id: "...")`. */
+  gridSeriesId: string;
+  /** Best-of-N, 1-7 (spec §2). GRID reports this as a "best-of-N" string — parsed at ingestion. */
+  format: number;
+  scheduledStartTime: IsoDateTime;
+  status: SeriesStatus;
 }
 
 export interface Arena {
@@ -87,15 +110,23 @@ export interface PredictionRound {
   id: Uuid;
   arenaId: Uuid;
   matchId: Uuid;
-  windowStartMinute: number;
-  windowEndMinute: number;
+  discipline: Discipline;
+  /** Soccer only (5-min match-clock windows, spec §5). Absent for CS2. */
+  windowStartMinute?: number;
+  windowEndMinute?: number;
+  /**
+   * CS2 only: the real Round number this PredictionRound is 1:1 with
+   * (cs2-migration-spec/spec_v2.md §2, §7). Absent for soccer.
+   */
+  roundNumber?: number;
   question: string;
-  targetEventType: TargetEventType;
-  targetTeam: TeamSide;
+  /** Soccer only — CS2 rounds carry their topic inside `settlementCondition` instead. */
+  targetEventType?: TargetEventType;
+  targetTeam?: TeamSide;
   settlementCondition: SettlementCondition;
   status: RoundStatus;
   correctAnswer?: Answer;
-  /** T - leadTime (leadTime >= 60s), spec §5. */
+  /** T - leadTime (leadTime >= 60s), spec §5. Soccer only — CS2 has no minimum window (spec §6). */
   openedAt?: IsoDateTime;
   /** Exactly window start T, spec §5. */
   lockedAt?: IsoDateTime;

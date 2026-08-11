@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { SettleableEvent, SettlementCondition } from "@arena/contracts";
+import type { SettleableEvent, SoccerSettlementCondition } from "@arena/contracts";
 import { resolveSettlement } from "../resolve.js";
 
-const CONDITION: SettlementCondition = {
+const CONDITION: SoccerSettlementCondition = {
+  discipline: "soccer",
   targetEventType: "shot",
   targetTeam: "home",
   windowStartMinute: 20,
@@ -46,7 +47,7 @@ describe("resolveSettlement", () => {
   });
 
   it("matches either team when targetTeam is 'any'", () => {
-    const anyCondition: SettlementCondition = { ...CONDITION, targetTeam: "any" };
+    const anyCondition: SoccerSettlementCondition = { ...CONDITION, targetTeam: "any" };
     expect(resolveSettlement(anyCondition, [event({ team: "home" })])).toBe("yes");
     expect(resolveSettlement(anyCondition, [event({ team: "away" })])).toBe("yes");
   });
@@ -57,7 +58,7 @@ describe("resolveSettlement", () => {
   });
 
   it("credits an ambiguous-team (team: 'any') event for an any-team condition — the question doesn't care which team", () => {
-    const anyCondition: SettlementCondition = { ...CONDITION, targetTeam: "any" };
+    const anyCondition: SoccerSettlementCondition = { ...CONDITION, targetTeam: "any" };
     expect(resolveSettlement(anyCondition, [event({ team: "any" })])).toBe("yes");
   });
 

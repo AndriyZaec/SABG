@@ -58,6 +58,7 @@ const MATCH_ID = "match-1";
 function fakeMatch(overrides: Partial<Match> = {}): Match {
   return {
     id: MATCH_ID,
+    discipline: "soccer",
     homeTeam: "A",
     awayTeam: "B",
     startTime: "2024-01-01T00:00:00.000Z",
@@ -87,12 +88,14 @@ function fakeRound(overrides: Partial<PredictionRound> = {}): PredictionRound {
     id: "round-1",
     arenaId: ARENA_ID,
     matchId: MATCH_ID,
+    discipline: "soccer",
     windowStartMinute: 0,
     windowEndMinute: 5,
     question: "Will there be a shot?",
     targetEventType: "shot",
     targetTeam: "any",
     settlementCondition: {
+      discipline: "soccer",
       targetEventType: "shot",
       targetTeam: "any",
       windowStartMinute: 0,

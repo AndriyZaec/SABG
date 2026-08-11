@@ -2,6 +2,14 @@
 // Source of truth: spec v2 §4.1, §5, §7, §13.
 
 /**
+ * Game type a Match belongs to (cs2-migration-spec/spec_v2.md §2). Determines which round
+ * engine / question provider / ingestion pipeline the factory selects via `Match.discipline`
+ * (spec §3) — round engine internals are deliberately NOT unified across disciplines.
+ */
+export const DISCIPLINES = ["soccer", "cs2"] as const;
+export type Discipline = (typeof DISCIPLINES)[number];
+
+/**
  * Whitelisted, deterministically-detectable settlement target events (spec §4.1).
  * `free_kick` is deliberately excluded: it occurs too often per match to make a
  * non-trivial round target (spec §4.2 — avoid trivially-resolved questions).
@@ -42,8 +50,13 @@ export type ArenaStatus = (typeof ARENA_STATUSES)[number];
 export const ARENA_PLAYER_STATUSES = ["active", "eliminated", "winner"] as const;
 export type ArenaPlayerStatus = (typeof ARENA_PLAYER_STATUSES)[number];
 
-/** Round lifecycle (spec §5, §13 PredictionRound.status). */
-export const ROUND_STATUSES = ["pending", "open", "locked", "settled"] as const;
+/**
+ * Round lifecycle (spec §5, §13 PredictionRound.status). `voided` is CS2-only
+ * (cs2-migration-spec/spec_v2.md §7 п.3): a round generated at lock-of-N for round N+1 that
+ * never opens/settles because the Match ended first — neutral, excluded from
+ * elimination/settlement/leaderboard.
+ */
+export const ROUND_STATUSES = ["pending", "open", "locked", "settled", "voided"] as const;
 export type RoundStatus = (typeof ROUND_STATUSES)[number];
 
 /** How a round was resolved (spec §6, §13 PredictionRound.settledBy). */
@@ -56,6 +69,14 @@ export type Answer = (typeof ANSWERS)[number];
 /** Result of a player's prediction (spec §6, §13 Prediction.result). */
 export const PREDICTION_RESULTS = ["correct", "incorrect", "missed"] as const;
 export type PredictionResult = (typeof PREDICTION_RESULTS)[number];
+
+/**
+ * Series lifecycle (cs2-migration-spec/spec_v2.md §2 Series, §4 "Series вирішена" / no-show).
+ * `decided` — winsNeeded reached or all Match rows played, no further Arena created.
+ * `invalid` — Match 1 no-show timeout, whole Series voided, EntryPasses refunded.
+ */
+export const SERIES_STATUSES = ["active", "decided", "invalid"] as const;
+export type SeriesStatus = (typeof SERIES_STATUSES)[number];
 
 export const ENTRY_PASS_STATUSES = ["paid", "refunded"] as const;
 export type EntryPassStatus = (typeof ENTRY_PASS_STATUSES)[number];

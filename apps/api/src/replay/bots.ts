@@ -40,7 +40,8 @@ export function createBots(count: number): BotPlayer[] {
     let answerFor: (round: PredictionRound) => Answer;
     if (i === 0) answerFor = () => "yes";
     else if (i === 1) answerFor = () => "no";
-    else answerFor = (round) => (seededBit(i, round.windowStartMinute) ? "yes" : "no");
+    // Replay demo is soccer-only — windowStartMinute is always set for these rounds.
+    else answerFor = (round) => (seededBit(i, round.windowStartMinute ?? 0) ? "yes" : "no");
 
     bots.push({ userId, username, joinedAt, answerFor });
   }

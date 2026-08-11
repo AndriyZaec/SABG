@@ -50,6 +50,13 @@
       "when": 1784381377956,
       "tag": "0006_melted_overlord",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1786441627879,
+      "tag": "0007_tricky_roxanne_simpson",
+      "breakpoints": true
     }
   ]
 }

@@ -56,8 +56,9 @@ function reduce(view: ArenaView, msg: ServerMessage, myUserId?: string): ArenaVi
         round: {
           roundId: msg.round.id,
           question: msg.round.question,
-          windowStartMinute: msg.round.windowStartMinute,
-          windowEndMinute: msg.round.windowEndMinute,
+          // Soccer-only frontend for now (CS2 UI not wired up yet) — always defined here.
+          windowStartMinute: msg.round.windowStartMinute!,
+          windowEndMinute: msg.round.windowEndMinute!,
           status: "open",
           lockAt: new Date(msg.lockAt).getTime(),
         },

@@ -130,6 +130,7 @@ export class RoundEngine {
       id: randomUUID(),
       arenaId: this.arenaId,
       matchId: this.matchId,
+      discipline: "soccer",
       windowStartMinute: windowStart,
       windowEndMinute,
       question: generated.question,

@@ -7,12 +7,14 @@ import {
   ANSWERS,
   ARENA_PLAYER_STATUSES,
   ARENA_STATUSES,
+  DISCIPLINES,
   ENTRY_PASS_STATUSES,
   MATCH_PERIODS,
   MATCH_STATUSES,
   PAYOUT_STATUSES,
   PREDICTION_RESULTS,
   ROUND_STATUSES,
+  SERIES_STATUSES,
   SETTLED_BY_VALUES,
   TARGET_EVENT_TYPES,
   TEAM_SIDES,
@@ -43,6 +45,8 @@ export const predictionResultEnum = pgEnum("prediction_result", PREDICTION_RESUL
 export const payoutStatusEnum = pgEnum("payout_status", PAYOUT_STATUSES);
 export const targetEventTypeEnum = pgEnum("target_event_type", TARGET_EVENT_TYPES);
 export const teamSideEnum = pgEnum("team_side", TEAM_SIDES);
+export const disciplineEnum = pgEnum("discipline", DISCIPLINES);
+export const seriesStatusEnum = pgEnum("series_status", SERIES_STATUSES);
 
 /**
  * Audit columns for every table. `updatedAt` is kept current by the
@@ -63,10 +67,27 @@ export const users = pgTable("user", {
   uniqueIndex("user_wallet_address_idx").on(t.walletAddress),
 ]);
 
+/**
+ * `best-of-N` grouping of Match rows (one per map), mirrors GRID `seriesState`
+ * (cs2-migration-spec/spec_v2.md §2). NOT an Arena — Arena is always at the single-Match level.
+ */
+export const series = pgTable("series", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  /** GRID's own series id, as passed to `seriesState(id: "...")`. */
+  gridSeriesId: text("grid_series_id").notNull().unique(),
+  format: integer("format").notNull(),
+  scheduledStartTime: timestamp("scheduled_start_time", { withTimezone: true }).notNull(),
+  status: seriesStatusEnum("status").notNull(),
+  ...timestamps,
+});
+
 export const matches = pgTable("match", {
   id: uuid("id").primaryKey().defaultRandom(),
-  /** TXODDS numeric fixture id — the join key to the /scores/stream feed. */
+  discipline: disciplineEnum("discipline").notNull().default("soccer"),
+  /** TXODDS numeric fixture id — the join key to the /scores/stream feed. Soccer only. */
   txoddsFixtureId: integer("txodds_fixture_id").unique(),
+  /** FK to `series` — CS2: one entry per map. Disciplines without series structure leave this null. */
+  seriesId: uuid("series_id").references(() => series.id),
   homeTeam: text("home_team").notNull(),
   awayTeam: text("away_team").notNull(),
   startTime: timestamp("start_time", { withTimezone: true }).notNull(),
@@ -78,6 +99,7 @@ export const matches = pgTable("match", {
   ...timestamps,
 }, (t) => [
   uniqueIndex("match_teams_start_time_idx").on(t.homeTeam, t.awayTeam, t.startTime),
+  index("match_series_id_idx").on(t.seriesId),
 ]);
 
 export const arenas = pgTable("arena", {
@@ -124,11 +146,16 @@ export const predictionRounds = pgTable("prediction_round", {
   matchId: uuid("match_id")
     .notNull()
     .references(() => matches.id),
-  windowStartMinute: integer("window_start_minute").notNull(),
-  windowEndMinute: integer("window_end_minute").notNull(),
+  discipline: disciplineEnum("discipline").notNull().default("soccer"),
+  /** Soccer only (5-min match-clock windows, spec §5). Null for CS2. */
+  windowStartMinute: integer("window_start_minute"),
+  windowEndMinute: integer("window_end_minute"),
+  /** CS2 only: the real Round number this is 1:1 with (spec §2, §7). Null for soccer. */
+  roundNumber: integer("round_number"),
   question: text("question").notNull(),
-  targetEventType: targetEventTypeEnum("target_event_type").notNull(),
-  targetTeam: teamSideEnum("target_team").notNull(),
+  /** Soccer only — CS2 rounds carry their topic inside `settlementCondition` instead. */
+  targetEventType: targetEventTypeEnum("target_event_type"),
+  targetTeam: teamSideEnum("target_team"),
   /** Machine-readable settlement condition (SettlementCondition from @arena/contracts). */
   settlementCondition: jsonb("settlement_condition").notNull(),
   status: roundStatusEnum("status").notNull(),

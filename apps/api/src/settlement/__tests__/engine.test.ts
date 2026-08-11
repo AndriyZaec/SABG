@@ -17,12 +17,14 @@ function makeRound(overrides: Partial<PredictionRound> = {}): PredictionRound {
     id: "round-1",
     arenaId: ARENA_ID,
     matchId: MATCH_ID,
+    discipline: "soccer",
     windowStartMinute: 20,
     windowEndMinute: 25,
     question: "Will there be a shot by home between 20:00 and 25:00?",
     targetEventType: "shot",
     targetTeam: "home",
     settlementCondition: {
+      discipline: "soccer",
       targetEventType: "shot",
       targetTeam: "home",
       windowStartMinute: 20,
@@ -168,7 +170,17 @@ describe("SettlementEngine", () => {
     // event whose team attribution was merely ambiguous — even though the question doesn't care
     // which team, only that the event happened.
     const { engine, settled } = setup();
-    const round = makeRound({ targetTeam: "any", settlementCondition: { targetEventType: "shot", targetTeam: "any", windowStartMinute: 20, windowEndMinute: 25, resolve: "event_in_window" } });
+    const round = makeRound({
+      targetTeam: "any",
+      settlementCondition: {
+        discipline: "soccer",
+        targetEventType: "shot",
+        targetTeam: "any",
+        windowStartMinute: 20,
+        windowEndMinute: 25,
+        resolve: "event_in_window",
+      },
+    });
 
     engine.onRoundLocked(round);
     engine.apply({

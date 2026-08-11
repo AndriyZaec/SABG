@@ -168,9 +168,10 @@ export class ArenaRuntime {
 
   /** The in-progress round (open or locked), if any — for REST/WS resync. */
   get currentRound(): PredictionRound | undefined {
+    // RoundEngine (soccer-only) always sets windowStartMinute on rounds it builds.
     return [...this.roundEngine.roundsByWindow.values()]
       .filter((r) => r.status === "open" || r.status === "locked")
-      .sort((a, b) => a.windowStartMinute - b.windowStartMinute)[0];
+      .sort((a, b) => (a.windowStartMinute ?? 0) - (b.windowStartMinute ?? 0))[0];
   }
 
   leaderboardSnapshot(): LeaderboardEntry[] {
@@ -244,8 +245,9 @@ export class ArenaRuntime {
       pending.push({
         roundId: round.id,
         question: round.question,
-        windowStartMinute: round.windowStartMinute,
-        windowEndMinute: round.windowEndMinute,
+        // RoundEngine (soccer-only) always sets these on rounds it builds.
+        windowStartMinute: round.windowStartMinute ?? 0,
+        windowEndMinute: round.windowEndMinute ?? 0,
         answer,
       });
     }

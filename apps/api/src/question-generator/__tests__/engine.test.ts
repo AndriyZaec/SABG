@@ -54,6 +54,7 @@ describe("QuestionGenerator", () => {
     expect(["home", "away", "any"]).toContain(generated.targetTeam);
     expect(generated.question.length).toBeGreaterThan(0);
     expect(generated.settlementCondition).toEqual({
+      discipline: "soccer",
       targetEventType: generated.targetEventType,
       targetTeam: generated.targetTeam,
       windowStartMinute: 20,

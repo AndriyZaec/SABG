@@ -73,7 +73,7 @@ describe("full pipeline (ingestion -> match state -> round -> settlement -> ques
 
     // 2. Every non-halftime window produced exactly one round, all the way to settled.
     const rounds = [...roundEngine.roundsByWindow.values()].sort(
-      (a, b) => a.windowStartMinute - b.windowStartMinute,
+      (a, b) => (a.windowStartMinute ?? 0) - (b.windowStartMinute ?? 0),
     );
     expect(rounds.map((r) => r.windowStartMinute)).toEqual(TARGET_WINDOW_STARTS);
     for (const round of rounds) {
@@ -94,8 +94,8 @@ describe("full pipeline (ingestion -> match state -> round -> settlement -> ques
         (e) =>
           e.eventType === round.targetEventType &&
           (round.targetTeam === "any" || e.team === round.targetTeam) &&
-          e.matchMinute >= round.windowStartMinute &&
-          e.matchMinute <= round.windowEndMinute,
+          e.matchMinute >= (round.windowStartMinute ?? 0) &&
+          e.matchMinute <= (round.windowEndMinute ?? 0),
       );
 
       if (round.settledBy === "early") {

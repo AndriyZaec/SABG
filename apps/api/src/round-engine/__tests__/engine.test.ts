@@ -25,6 +25,7 @@ describe("RoundEngine", () => {
     expect(openEvent.round.arenaId).toBe(ARENA_ID);
     expect(openEvent.round.matchId).toBe(FIXTURE_MATCH_ID);
     expect(openEvent.round.settlementCondition).toEqual({
+      discipline: "soccer",
       targetEventType: "shot",
       targetTeam: "any",
       windowStartMinute: 5,
@@ -56,6 +57,7 @@ describe("RoundEngine", () => {
           targetEventType: "shot",
           targetTeam: "any",
           settlementCondition: {
+            discipline: "soccer",
             targetEventType: "shot",
             targetTeam: "any",
             windowStartMinute: ctx.windowStartMinute,
