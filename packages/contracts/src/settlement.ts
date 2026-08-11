@@ -99,9 +99,20 @@ export interface Cs2TeamStats {
   players: ReadonlyArray<{ id: string; kills: number }>;
 }
 
+/**
+ * Live-game clock (spec §2 "Round Lock"). `currentSeconds` resets upward by a large jump when a
+ * new round goes live (freezetime ends) — that reset, not `paused`, is the reliable Round Lock
+ * signal (verified against a full recorded map, cs2-migration-spec/data-assumptions.md #1-#2).
+ */
+export interface Cs2Clock {
+  ticking: boolean;
+  currentSeconds: number;
+}
+
 /** One parsed GRID snapshot's diff-relevant slice — always exactly two teams, index-stable. */
 export interface Cs2GameSnapshot {
   teams: readonly [Cs2TeamStats, Cs2TeamStats];
+  clock: Cs2Clock;
 }
 
 /** Signature of the isolated, unit-testable CS2 settlement function (spec §7 п.7, "diff of two snapshots"). */

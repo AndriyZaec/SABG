@@ -60,7 +60,9 @@ function reduce(view: ArenaView, msg: ServerMessage, myUserId?: string): ArenaVi
           windowStartMinute: msg.round.windowStartMinute!,
           windowEndMinute: msg.round.windowEndMinute!,
           status: "open",
-          lockAt: new Date(msg.lockAt).getTime(),
+          // Soccer-only frontend for now — soccer's RoundOpenMessage always carries lockAt; only
+          // CS2 rounds (not yet wired to this UI) omit it (packages/contracts/src/ws.ts).
+          lockAt: new Date(msg.lockAt!).getTime(),
         },
       };
     case "round.lock":

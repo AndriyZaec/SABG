@@ -3,6 +3,7 @@
 
 import type {
   Answer,
+  ArenaCancelledReason,
   ArenaPlayerStatus,
   ArenaStatus,
   Discipline,
@@ -83,6 +84,8 @@ export interface Arena {
   escrowAccount: WalletAddress;
   /** Numeric id used as the on-chain program's `arena_id` PDA seed. Absent until provisioned. */
   onchainArenaId?: number;
+  /** Set only when `status === "cancelled"` (CS2 no-show / forfeit-cancellation). */
+  cancelledReason?: ArenaCancelledReason;
 }
 
 export interface EntryPass {

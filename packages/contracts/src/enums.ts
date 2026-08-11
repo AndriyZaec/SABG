@@ -42,9 +42,18 @@ export type MatchPeriod = (typeof MATCH_PERIODS)[number];
 export const MATCH_STATUSES = ["scheduled", "live", "finished"] as const;
 export type MatchStatus = (typeof MATCH_STATUSES)[number];
 
-/** Arena lifecycle (spec §13 Arena.status). */
-export const ARENA_STATUSES = ["lobby", "live", "finished"] as const;
+/**
+ * Arena lifecycle (spec §13 Arena.status). `cancelled` is CS2-only so far
+ * (cs2-migration-spec/spec_v2.md §4 п.4 no-show, and the Arena #k+1 forfeit-cancellation gap —
+ * data-assumptions.md #12) — never reached before the CS2 Series lifecycle (cs2/series-lifecycle.ts)
+ * exists to emit it.
+ */
+export const ARENA_STATUSES = ["lobby", "live", "finished", "cancelled"] as const;
 export type ArenaStatus = (typeof ARENA_STATUSES)[number];
+
+/** Why an Arena was cancelled (cs2/series-lifecycle.ts's `cancel_arena` action reasons). */
+export const ARENA_CANCELLED_REASONS = ["no_show", "series_decided"] as const;
+export type ArenaCancelledReason = (typeof ARENA_CANCELLED_REASONS)[number];
 
 /** Per-player state within an arena (spec §13 ArenaPlayer.status). */
 export const ARENA_PLAYER_STATUSES = ["active", "eliminated", "winner"] as const;
@@ -59,8 +68,12 @@ export type ArenaPlayerStatus = (typeof ARENA_PLAYER_STATUSES)[number];
 export const ROUND_STATUSES = ["pending", "open", "locked", "settled", "voided"] as const;
 export type RoundStatus = (typeof ROUND_STATUSES)[number];
 
-/** How a round was resolved (spec §6, §13 PredictionRound.settledBy). */
-export const SETTLED_BY_VALUES = ["early", "window_end"] as const;
+/**
+ * How a round was resolved (spec §6, §13 PredictionRound.settledBy). `round_end` is CS2-only
+ * (cs2-migration-spec/spec_v2.md §7): CS2 settlement is a single snapshot-diff event at round
+ * end, not an early-vs-window-end distinction — neither soccer value describes it honestly.
+ */
+export const SETTLED_BY_VALUES = ["early", "window_end", "round_end"] as const;
 export type SettledBy = (typeof SETTLED_BY_VALUES)[number];
 
 export const ANSWERS = ["yes", "no"] as const;
