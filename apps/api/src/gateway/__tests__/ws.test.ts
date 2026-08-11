@@ -9,7 +9,7 @@ import WebSocket from "ws";
 import type { ClientMessage, ServerMessage } from "@arena/contracts";
 import { GatewayWebSocketServer } from "../ws.js";
 import { issueToken } from "../auth.js";
-import type { ArenaRuntime, SubmitAnswerOutcome } from "../arena-runtime.js";
+import type { ArenaRuntime, ArenaRuntimeLike, SubmitAnswerOutcome } from "../arena-runtime.js";
 
 const ARENA_ID = "arena-1";
 const OTHER_ARENA_ID = "arena-2";
@@ -184,6 +184,53 @@ describe("GatewayWebSocketServer", () => {
 
     socketEliminated.close();
     socketUnknown.close();
+  });
+
+  it("a CS2-shaped runtime (no statusFor/pendingPredictionsFor) doesn't crash subscribe and sends neither player.pending nor player.status", async () => {
+    const token = issueToken("user-1");
+    const socket = connect(token);
+    await waitForOpen(socket);
+    const messages = collectMessages(socket);
+
+    // No statusFor/pendingPredictionsFor at all — the shape Cs2ArenaRuntime satisfies today
+    // (ArenaRuntimeLike, arena-runtime.ts), both being optional.
+    const cs2LikeRuntime: ArenaRuntimeLike = {
+      currentRound: undefined,
+      join: vi.fn(),
+      submitAnswer: vi.fn(() => ({ ok: true as const, receivedAt: "2024-01-01T00:00:00.000Z" })),
+      leaderboardSnapshot: () => [],
+      finalWinners: () => undefined,
+    };
+    gateway.registerRuntime(ARENA_ID, cs2LikeRuntime);
+
+    send(socket, { type: "subscribe", arenaId: ARENA_ID });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(messages.some((m) => m.type === "player.pending")).toBe(false);
+    expect(messages.some((m) => m.type === "player.status")).toBe(false);
+
+    socket.close();
+  });
+
+  it("caches and replays round.void and arena.cancelled on subscribe (CS2 reconnect resync)", async () => {
+    const token = issueToken("user-1");
+    const socket = connect(token);
+    await waitForOpen(socket);
+    const messages = collectMessages(socket);
+
+    gateway.broadcast(ARENA_ID, { type: "round.void", roundId: "r1" });
+    gateway.broadcast(ARENA_ID, { type: "arena.cancelled", reason: "no_show" });
+
+    send(socket, { type: "subscribe", arenaId: ARENA_ID });
+
+    await vi.waitFor(() => {
+      expect(messages.some((m) => m.type === "arena.cancelled")).toBe(true);
+    });
+    expect(messages.some((m) => m.type === "round.void")).toBe(true);
+    const cancelledMsg = messages.find((m) => m.type === "arena.cancelled");
+    expect(cancelledMsg).toEqual({ type: "arena.cancelled", reason: "no_show" });
+
+    socket.close();
   });
 
   it("only replays the latest round message, not a stale round.open after it locked", async () => {

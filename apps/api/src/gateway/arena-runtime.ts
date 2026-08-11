@@ -69,13 +69,36 @@ export interface ArenaPersistence {
 }
 
 /**
+ * Discipline-agnostic shape both `ArenaRuntime` (soccer, this file) and `Cs2ArenaRuntime`
+ * (cs2/arena-runtime.ts) satisfy — the seam `ws.ts`'s runtime registry and `rest.ts`'s lookups go
+ * through, so a CS2 arena can be registered on the same gateway without either consumer knowing
+ * which discipline it's talking to (spec §3: round-engine *internals* stay discipline-specific,
+ * not this surrounding plumbing).
+ *
+ * `matchState`/`statusFor`/`pendingPredictionsFor` are optional because CS2 doesn't have a
+ * soccer-style match clock (`matchState`) and doesn't implement `pendingPredictionsFor` yet — a
+ * real, tracked contract gap (`PendingPrediction` requires soccer-only
+ * `windowStartMinute`/`windowEndMinute`), not an oversight here. Callers must guard accordingly.
+ */
+export interface ArenaRuntimeLike {
+  readonly currentRound: PredictionRound | undefined;
+  readonly matchState?: MatchState;
+  join(userId: Uuid, username: string, joinedAt?: string): void;
+  submitAnswer(userId: Uuid, roundId: Uuid, answer: Answer): SubmitAnswerOutcome;
+  leaderboardSnapshot(): LeaderboardEntry[];
+  finalWinners(): Uuid[] | undefined;
+  statusFor?(userId: Uuid): ArenaPlayerStatus | undefined;
+  pendingPredictionsFor?(userId: Uuid): PendingPrediction[];
+}
+
+/**
  * Shared lookup port: rest.ts needs to reach a running arena's live state (matchState,
  * currentRound, leaderboard snapshot, join/submitAnswer) without importing the concrete WS class.
  * `GatewayWebSocketServer` (ws.ts) is the one registry in this gateway and satisfies this
  * structurally — both rest.ts and ws.ts share that single instance (wired in gateway/run.ts).
  */
 export interface ArenaRuntimeLookup {
-  getRuntime(arenaId: Uuid): ArenaRuntime | undefined;
+  getRuntime(arenaId: Uuid): ArenaRuntimeLike | undefined;
 }
 
 export interface ArenaRuntimeOptions {
@@ -99,7 +122,7 @@ export type SubmitAnswerOutcome =
   | { ok: true; receivedAt: string }
   | { ok: false; reason: "round_not_found" | "round_locked" | "eliminated" };
 
-export class ArenaRuntime {
+export class ArenaRuntime implements ArenaRuntimeLike {
   private readonly matchId: Uuid;
   private readonly arenaId: Uuid;
   private readonly bus: MatchSignalBus;

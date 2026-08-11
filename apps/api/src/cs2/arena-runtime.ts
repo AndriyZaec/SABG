@@ -14,18 +14,20 @@
 // `onMatchLiveDetected` therefore does *not* open anything (Cs2RoundEngine.onMatchLiveDetected
 // would be a no-op the second time regardless — handleOpen's idempotency guard — but this runtime
 // never calls it twice to begin with): it exists purely as a marker for the join-gate/reconnect
-// concerns 4b's persistence layer will read.
+// concerns a live gateway can read.
 //
-// Deliberately deferred to 4b (persistence/WS wiring step, see TASK.md and
-// data-assumptions.md's "Design gaps surfaced by real data"): broadcasting `round.open` — its
-// message type (ws.ts's RoundOpenMessage) requires an absolute `lockAt`, which CS2 fundamentally
-// doesn't have (spec §6: "мінімальної тривалості answer window немає") — and `player.pending`
-// (PendingPrediction requires windowStartMinute/windowEndMinute, soccer-only fields). Both are
-// real contract gaps, not oversights here; fixing ws.ts is out of this step's scope.
+// `round.open` broadcasts without a `lockAt` (ws.ts's RoundOpenMessage.lockAt is optional
+// specifically for this — spec §6: "мінімальної тривалості answer window немає", CS2 fundamentally
+// doesn't have a fixed lock time to announce up front). `round.void` broadcasts for a voided round
+// (spec §7 п.3) using ws.ts's RoundVoidMessage. Still genuinely unimplemented: `pendingPredictionsFor`
+// (a real contract gap — PendingPrediction requires soccer-only windowStartMinute/windowEndMinute)
+// — this runtime simply omits the method (optional on gateway/arena-runtime.ts's ArenaRuntimeLike),
+// so a WS server skips `player.pending` for CS2 rather than faking it.
 
-import type { Answer, IsoDateTime, PredictionRound, Uuid } from "@arena/contracts";
+import type { Answer, ArenaPlayerStatus, IsoDateTime, PredictionRound, Uuid } from "@arena/contracts";
 import type { MatchSignalBus } from "../ingestion/event-bus.js";
 import type {
+  ArenaRuntimeLike,
   GatewayBroadcaster,
   RuntimeArenaPlayerStore,
   RuntimePredictionStore,
@@ -62,7 +64,7 @@ export interface Cs2ArenaRuntimeOptions {
   questionProvider?: Cs2QuestionProvider;
 }
 
-export class Cs2ArenaRuntime {
+export class Cs2ArenaRuntime implements ArenaRuntimeLike {
   private readonly matchId: Uuid;
   private readonly arenaId: Uuid;
   private readonly predictionStore: RuntimePredictionStore;
@@ -152,6 +154,12 @@ export class Cs2ArenaRuntime {
     this.leaderboardService.addPlayer({ userId, username, joinedAt });
   }
 
+  /** The player's current status — mirrors soccer ArenaRuntime.statusFor, used for reconnect
+   *  resync (a WS server's `subscribe` handler). */
+  statusFor(userId: Uuid): ArenaPlayerStatus | undefined {
+    return this.arenaPlayerStore.getStatus(userId);
+  }
+
   submitAnswer(userId: Uuid, roundId: Uuid, answer: Answer): SubmitAnswerOutcome {
     const round = [...this.roundEngine.roundsByNumber.values()].find((r) => r.id === roundId);
     if (round === undefined) return { ok: false, reason: "round_not_found" };
@@ -167,7 +175,7 @@ export class Cs2ArenaRuntime {
     switch (event.type) {
       case "open":
         this.persistence?.upsertRound(event.round);
-        // round.open broadcast deferred to 4b — see file header (lockAt contract gap).
+        this.broadcaster?.broadcast(this.arenaId, { type: "round.open", round: event.round });
         return;
       case "lock":
         this.handleLock(event.roundId, event.roundNumber);
@@ -234,8 +242,9 @@ export class Cs2ArenaRuntime {
     const round = this.roundEngine.roundsByNumber.get(roundNumber);
     if (round === undefined) return;
     this.persistence?.upsertRound(round);
-    // Voided is neutral (spec §7 п.3): no elimination, no leaderboard effect, no broadcast type
-    // exists for it yet — persistence-only for now (4b's WS-gap note, file header).
+    // Voided is neutral (spec §7 п.3): no elimination, no leaderboard effect — just persist and
+    // let clients know this round is no longer coming.
+    this.broadcaster?.broadcast(this.arenaId, { type: "round.void", roundId: round.id });
   }
 
   private onPlayerResult(event: PlayerResultEvent): void {

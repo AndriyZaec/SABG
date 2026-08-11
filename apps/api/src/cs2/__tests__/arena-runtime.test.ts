@@ -132,10 +132,24 @@ describe("Cs2ArenaRuntime — elimination wiring", () => {
     expect(settleMsg).toMatchObject({ type: "round.settle", correctAnswer: "yes", settledBy: "round_end", survivorsCount: 1 });
   });
 
-  it("does not broadcast round.open (deferred to 4b — lockAt contract gap, see file header)", () => {
+  it("broadcasts round.open with the round but no lockAt (CS2 has no fixed answer window, spec §6)", () => {
     const { runtime, broadcasts } = buildRuntime([PLAYER_YES], fakeProvider());
     runtime.openRoundOne("t0");
-    expect(broadcasts.some((m) => m.type === "round.open")).toBe(false);
+
+    const openMsg = broadcasts.find((m) => m.type === "round.open");
+    expect(openMsg).toBeDefined();
+    if (openMsg?.type === "round.open") {
+      expect(openMsg.round.roundNumber).toBe(1);
+      expect(openMsg.lockAt).toBeUndefined();
+    }
+  });
+
+  it("statusFor mirrors the arena player store", () => {
+    const { runtime, arenaPlayerStore } = buildRuntime([PLAYER_YES], fakeProvider());
+    expect(runtime.statusFor(PLAYER_SILENT)).toBeUndefined(); // not seeded in this arena's roster
+    expect(runtime.statusFor(PLAYER_YES)).toBe("active"); // seeded via buildRuntime's playerIds
+    arenaPlayerStore.setStatus(PLAYER_YES, "eliminated");
+    expect(runtime.statusFor(PLAYER_YES)).toBe("eliminated");
   });
 
   it("orders round.settle before its own leaderboard.update (mirrors soccer's ArenaRuntime)", () => {
@@ -202,6 +216,9 @@ describe("Cs2ArenaRuntime — elimination wiring", () => {
 
     const settleMsgs = broadcasts.filter((m) => m.type === "round.settle");
     expect(settleMsgs).toHaveLength(1); // only Round 1 ever settled — Round 2 has no settle broadcast
+
+    const voidMsg = broadcasts.find((m) => m.type === "round.void");
+    expect(voidMsg).toEqual({ type: "round.void", roundId: round2!.id });
   });
 
   it("finalizes the leaderboard (shared win) when the match ends with more than one player still active — spec §3 tie-break", () => {

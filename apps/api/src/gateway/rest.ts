@@ -146,7 +146,7 @@ export function createRestRouter(runtimeLookup: ArenaRuntimeLookup): RouterType 
     const body: ArenaDetailResponse = {
       arena,
       match,
-      ...(runtime !== undefined ? { matchState: runtime.matchState } : {}),
+      ...(runtime?.matchState !== undefined ? { matchState: runtime.matchState } : {}),
       ...(runtime?.currentRound !== undefined ? { currentRound: runtime.currentRound } : {}),
     };
     res.json(body);
