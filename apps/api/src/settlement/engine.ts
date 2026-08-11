@@ -5,10 +5,8 @@
 
 import type {
   Answer,
-  ArenaPlayerStatus,
   LiveEvent,
   MatchSignal,
-  PredictionResult,
   PredictionRound,
   SettleableEvent,
   SettledBy,
@@ -20,6 +18,11 @@ import { hasReachedMinute, requiredPeriod, type ClockTick } from "../round-engin
 import { resolveSettlement } from "./resolve.js";
 import { createInMemoryPredictionStore, type PredictionStore } from "./prediction-store.js";
 import { createInMemoryArenaPlayerStore, type ArenaPlayerStore } from "./arena-player-store.js";
+import { applyRoundOutcome, type PlayerResultEvent } from "./apply-outcome.js";
+
+// Re-exported for existing consumers (leaderboard/service.ts, gateway/arena-runtime.ts) — the
+// type now lives in apply-outcome.ts alongside the function that produces it.
+export type { PlayerResultEvent };
 
 /** This engine is soccer-only (spec §3: CS2 gets its own settlement, not this window-keyed one). */
 type SoccerPredictionRound = PredictionRound & {
@@ -41,15 +44,6 @@ export interface SettlementEvent {
   windowStartMinute: number;
   correctAnswer: Answer;
   settledBy: SettledBy;
-}
-
-export interface PlayerResultEvent {
-  roundId: Uuid;
-  userId: Uuid;
-  /** The player's submitted answer, or undefined if they never answered (spec §6 "missed"). */
-  answer: Answer | undefined;
-  result: PredictionResult;
-  status: ArenaPlayerStatus;
 }
 
 export interface SettlementEngineOptions {
@@ -145,17 +139,13 @@ export class SettlementEngine {
     this.tracked.delete(windowStart);
 
     const { round } = entry;
-    const answers = this.predictionStore.getAnswers(round.id);
-
-    for (const userId of this.arenaPlayerStore.getActivePlayerIds(this.arenaId)) {
-      const answer = answers.get(userId);
-      const result: PredictionResult = answer === undefined ? "missed" : answer === correctAnswer ? "correct" : "incorrect";
-      const status: ArenaPlayerStatus = result === "correct" ? "active" : "eliminated";
-
-      this.predictionStore.recordResult(round.id, userId, result);
-      this.arenaPlayerStore.setStatus(userId, status);
-      this.options.onPlayerResult?.({ roundId: round.id, userId, answer, result, status });
-    }
+    applyRoundOutcome(
+      round.id,
+      this.arenaId,
+      correctAnswer,
+      { predictionStore: this.predictionStore, arenaPlayerStore: this.arenaPlayerStore },
+      this.options.onPlayerResult,
+    );
 
     this.options.onSettled?.({ type: "settle", roundId: round.id, windowStartMinute: windowStart, correctAnswer, settledBy });
   }

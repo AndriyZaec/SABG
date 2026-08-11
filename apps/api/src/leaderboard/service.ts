@@ -6,7 +6,7 @@
 // the other engines (see settlement/engine.ts).
 
 import type { IsoDateTime, PredictionResult, Uuid, LeaderboardEntry } from "@arena/contracts";
-import type { PlayerResultEvent, SettlementEvent } from "../settlement/engine.js";
+import type { PlayerResultEvent } from "../settlement/engine.js";
 import { rankLeaderboard, resolveWinners, type LeaderboardAccumulator } from "./rank.js";
 
 export interface LeaderboardRosterEntry {
@@ -73,9 +73,12 @@ export class LeaderboardService {
   /**
    * Applies a round's buffered player results atomically, then runs early-finish detection
    * (spec §7 one-survivor / this arena's zero-survivor rule) against the active set before vs.
-   * after this round.
+   * after this round. Only `roundId` is actually read — narrowed to that (rather than the full
+   * soccer-shaped `SettlementEvent`) so CS2's own settle event (cs2/round-engine.ts's
+   * `Cs2RoundLifecycleEvent`, keyed by `roundNumber` not `windowStartMinute`) can drive this same
+   * accumulator without a fabricated soccer-shaped wrapper.
    */
-  onRoundSettled(event: SettlementEvent): void {
+  onRoundSettled(event: { roundId: Uuid }): void {
     const pending = this.pendingByRound.get(event.roundId);
     this.pendingByRound.delete(event.roundId);
     if (pending === undefined || this.finished) return;
