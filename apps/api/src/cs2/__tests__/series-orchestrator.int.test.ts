@@ -86,7 +86,12 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     seriesIds.push(series.id);
 
     const writeQueue = new WriteQueue();
-    const orchestrator = new Cs2SeriesOrchestrator(series, { writeQueue, entryFeeLamports: 1000 });
+    const openedArenas: { arenaId: string }[] = [];
+    const orchestrator = new Cs2SeriesOrchestrator(series, {
+      writeQueue,
+      entryFeeLamports: 1000,
+      onArenaOpened: (arenaId) => openedArenas.push({ arenaId }),
+    });
 
     // Arena #1 opens at scheduledStartTime - 10min.
     await orchestrator.poll(snapshot({}), at(-10));
@@ -99,6 +104,7 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     const arena1Id = foundArena1!.id;
     arenaIds.push(arena1Id);
     expect(foundArena1?.status).toBe("lobby");
+    expect(openedArenas).toEqual([{ arenaId: arena1Id }]);
 
     await writeQueue.drain();
     const roundsForArena1 = await predictionRoundRepository.listByArenaId(arena1Id);
@@ -119,6 +125,7 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     const arena2 = await arenaRepository.findByMatchId(match2Id);
     expect(arena2?.status).toBe("lobby");
     arenaIds.push(arena2!.id);
+    expect(openedArenas).toEqual([{ arenaId: arena1Id }, { arenaId: arena2!.id }]);
 
     // Someone bought into Arena #2 before the forfeit — should get refunded.
     const walletAddress = `int-test-wallet-${randomUUID()}`;

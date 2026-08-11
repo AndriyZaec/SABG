@@ -23,6 +23,7 @@ import { entryPassRepository } from "../db/repositories/entry-pass.repository.js
 import { matchRepository } from "../db/repositories/match.repository.js";
 import { predictionRoundRepository } from "../db/repositories/prediction-round.repository.js";
 import { seriesRepository } from "../db/repositories/series.repository.js";
+import { payoutService } from "../payout/index.js";
 import type { IsoDateTime, Series, Uuid } from "@arena/contracts";
 import { Cs2ArenaRuntime, type Cs2ArenaPersistence } from "./arena-runtime.js";
 import {
@@ -37,6 +38,9 @@ export interface Cs2SeriesOrchestratorOptions {
   writeQueue: WriteQueue;
   entryFeeLamports: number;
   broadcaster?: GatewayBroadcaster;
+  /** Called once a new Arena's Cs2ArenaRuntime is up and stored, before Round 1 opens — the
+   *  hook a live gateway (cs2/run.ts) uses to call `wsGateway.registerRuntime(arenaId, runtime)`. */
+  onArenaOpened?: (arenaId: Uuid, runtime: Cs2ArenaRuntime) => void;
 }
 
 interface OpenedArena {
@@ -117,8 +121,14 @@ export class Cs2SeriesOrchestrator {
       upsertRound: (round) => {
         void this.options.writeQueue.enqueue(arena.id, () => predictionRoundRepository.upsert(round).then(() => undefined));
       },
-      finishArena: (arenaId, _winners) => {
-        void this.options.writeQueue.enqueue(arenaId, () => arenaRepository.setStatus(arenaId, "finished"));
+      finishArena: (arenaId, winners) => {
+        void this.options.writeQueue.enqueue(arenaId, async () => {
+          await arenaRepository.setStatus(arenaId, "finished");
+          // Off-chain arenas (never provisioned on-chain — every CS2 arena today) make this a
+          // safe no-op; kept for parity with soccer's gateway/run.ts and to start working the
+          // moment CS2 arenas do get provisioned.
+          await payoutService.settleArena(arenaId, winners);
+        });
       },
     };
 
@@ -135,6 +145,7 @@ export class Cs2SeriesOrchestrator {
     });
 
     this.arenasByMatchIndex.set(matchIndex, { matchId: match.id, arenaId: arena.id, runtime, bus });
+    this.options.onArenaOpened?.(arena.id, runtime);
     runtime.openRoundOne(now);
   }
 
