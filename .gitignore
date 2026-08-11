@@ -37,3 +37,8 @@ deploy/event-control.env
 !.vscode/extensions.json
 *.log
 progress.md
+
+
+.agents
+.claude
+skill-lock.json

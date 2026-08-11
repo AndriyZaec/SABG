@@ -1,0 +1,120 @@
+query GetLiveCsSeriesState {
+  seriesState(id: "28") {
+    valid
+    updatedAt
+    format
+    started
+    finished
+    teams {
+      name
+      won
+      score
+    }
+    games(filter: { started: true, finished: false }) {
+      sequenceNumber
+      map {
+        id
+        name
+        bounds {
+            min {
+                x
+                y
+            }
+            max {
+                x
+                y
+            }
+        }
+      }
+      paused
+      clock {
+        id
+        type
+        ticking
+        ticksBackwards
+        currentSeconds
+      }
+      teams {
+        name
+        score
+        won
+        kills
+        killAssistsReceived
+        killAssistsGiven
+        killAssistsReceivedFromPlayer {
+            id
+            playerId
+            killAssistsReceived
+        }
+        weaponKills {
+            id
+            weaponName
+            count
+        }
+        teamkills
+        teamkillAssistsReceived
+        teamkillAssistsGiven
+        teamkillAssistsReceivedFromPlayer {
+            id
+            playerId
+            teamkillAssistsReceived
+        }
+        weaponTeamkills {
+            id
+            weaponName
+            count
+        }
+        deaths
+        firstKill
+        selfkills
+        multikills {
+            id
+            numberOfKills
+            count
+        }
+        players {
+            id
+            name
+            kills
+            killAssistsReceived
+            killAssistsGiven
+            killAssistsReceivedFromPlayer {
+                id
+                playerId
+                killAssistsReceived
+            }
+            weaponKills {
+                id
+                weaponName
+                count
+            }
+            teamkills
+            teamkillAssistsReceived
+            teamkillAssistsGiven
+            teamkillAssistsReceivedFromPlayer {
+                id
+                playerId
+                teamkillAssistsReceived
+            }
+            weaponTeamkills {
+                id
+                weaponName
+                count
+            }
+            selfkills
+            deaths
+            firstKill
+            multikills {
+                id
+                numberOfKills
+                count
+            }
+            position {
+                x
+                y
+            }
+        }
+      }
+    }
+  }
+}
