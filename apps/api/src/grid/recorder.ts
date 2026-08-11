@@ -4,6 +4,10 @@
 //
 // A continuous watcher: after one match's recording ends, the recorder keeps polling and will
 // start a brand-new collection on the next 0-0 it observes, without needing a restart.
+//
+// The transition frame that first observes games == [] is also written (as the session's last
+// doc) before the session closes — otherwise the collection's final score is whatever the
+// previous poll saw mid-game, never the actual finished/final-score snapshot.
 
 import { gridConfig } from "./config/env.js";
 import { GridClient } from "./grid-client.js";
@@ -112,6 +116,15 @@ export class GridRecorder {
           return;
         }
         if (!hasLiveGame(parsed)) {
+          // Write the transition frame itself before closing out — this is the only snapshot
+          // that carries the game's final score/finished state, and without it the collection's
+          // last written doc is whatever the previous poll saw (still mid-game).
+          await session.write({
+            payload: parsed,
+            httpStatus: result.status,
+            updatedAt: parsed.data?.seriesState?.updatedAt as string | undefined,
+            rateLimitRemaining: result.headers["x-ratelimit-remaining"] as string | undefined,
+          });
           logger.info(
             { collectionName: session.collectionName, docsWritten: session.writtenCount },
             "grid: games empty, recording stopped",

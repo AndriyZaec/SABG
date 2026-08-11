@@ -1,23 +1,27 @@
 import { describe, expect, it } from "vitest";
-import { deriveRoundNumber, parseFormat, parseSnapshot } from "../snapshot.js";
+import { deriveRoundNumber, isRoundLive, parseFormat, parseSnapshot } from "../snapshot.js";
 import { defaultCs2FixturePath, loadCs2Fixture } from "../fixture.js";
 
-function rawWithGame(teams: unknown[]) {
-  return { data: { seriesState: { format: "best-of-3", games: [{ teams }] } } };
+function rawWithGame(teams: unknown[], clock: unknown = { ticking: true, currentSeconds: 90 }) {
+  return { data: { seriesState: { format: "best-of-3", games: [{ clock, teams }] } } };
 }
 
 describe("parseSnapshot", () => {
   it("parses a well-formed response into a two-team Cs2GameSnapshot", () => {
-    const raw = rawWithGame([
-      { name: "A", score: 3, deaths: 10, weaponKills: [{ weaponName: "ak47", count: 5 }], players: [{ id: "p1", kills: 2 }] },
-      { name: "B", score: 2, deaths: 8, weaponKills: [], players: [] },
-    ]);
+    const raw = rawWithGame(
+      [
+        { name: "A", score: 3, deaths: 10, weaponKills: [{ weaponName: "ak47", count: 5 }], players: [{ id: "p1", kills: 2 }] },
+        { name: "B", score: 2, deaths: 8, weaponKills: [], players: [] },
+      ],
+      { ticking: true, currentSeconds: 90 },
+    );
     const snapshot = parseSnapshot(raw);
     expect(snapshot).toEqual({
       teams: [
         { name: "A", score: 3, deaths: 10, weaponKills: [{ weaponName: "ak47", count: 5 }], players: [{ id: "p1", kills: 2 }] },
         { name: "B", score: 2, deaths: 8, weaponKills: [], players: [] },
       ],
+      clock: { ticking: true, currentSeconds: 90 },
     });
   });
 
@@ -32,6 +36,15 @@ describe("parseSnapshot", () => {
   it("returns undefined for a team count other than 2", () => {
     const raw = rawWithGame([{ name: "A", score: 0, deaths: 0, weaponKills: [], players: [] }]);
     expect(parseSnapshot(raw)).toBeUndefined();
+  });
+
+  it("returns undefined when clock is missing or malformed", () => {
+    const teams = [
+      { name: "A", score: 0, deaths: 0, weaponKills: [], players: [] },
+      { name: "B", score: 0, deaths: 0, weaponKills: [], players: [] },
+    ];
+    expect(parseSnapshot({ data: { seriesState: { games: [{ teams }] } } })).toBeUndefined();
+    expect(parseSnapshot(rawWithGame(teams, { ticking: "yes", currentSeconds: 90 }))).toBeUndefined();
   });
 
   it("returns undefined for a malformed/unrelated payload — never throws", () => {
@@ -56,8 +69,25 @@ describe("parseSnapshot", () => {
 
 describe("deriveRoundNumber", () => {
   it("is sum(scores) + 1", () => {
-    expect(deriveRoundNumber({ teams: [{ name: "A", score: 0, deaths: 0, weaponKills: [], players: [] }, { name: "B", score: 0, deaths: 0, weaponKills: [], players: [] }] })).toBe(1);
-    expect(deriveRoundNumber({ teams: [{ name: "A", score: 5, deaths: 0, weaponKills: [], players: [] }, { name: "B", score: 3, deaths: 0, weaponKills: [], players: [] }] })).toBe(9);
+    const clock = { ticking: true, currentSeconds: 90 };
+    expect(
+      deriveRoundNumber({
+        teams: [
+          { name: "A", score: 0, deaths: 0, weaponKills: [], players: [] },
+          { name: "B", score: 0, deaths: 0, weaponKills: [], players: [] },
+        ],
+        clock,
+      }),
+    ).toBe(1);
+    expect(
+      deriveRoundNumber({
+        teams: [
+          { name: "A", score: 5, deaths: 0, weaponKills: [], players: [] },
+          { name: "B", score: 3, deaths: 0, weaponKills: [], players: [] },
+        ],
+        clock,
+      }),
+    ).toBe(9);
   });
 });
 
@@ -72,5 +102,41 @@ describe("parseFormat", () => {
     expect(parseFormat("bo3")).toBeUndefined();
     expect(parseFormat("best-of-x")).toBeUndefined();
     expect(parseFormat(undefined)).toBeUndefined();
+  });
+});
+
+describe("isRoundLive", () => {
+  const teams = (a: number, b: number) => [
+    { name: "A", score: a, deaths: 0, weaponKills: [], players: [] },
+    { name: "B", score: b, deaths: 0, weaponKills: [], players: [] },
+  ] as const;
+
+  it("is true when currentSeconds jumps up past the threshold and ticking is true", () => {
+    const before = { teams: teams(0, 0), clock: { ticking: true, currentSeconds: 3 } };
+    const after = { teams: teams(0, 0), clock: { ticking: true, currentSeconds: 108 } };
+    expect(isRoundLive(before, after)).toBe(true);
+  });
+
+  it("is false while currentSeconds is merely counting down within the same round", () => {
+    const before = { teams: teams(0, 0), clock: { ticking: true, currentSeconds: 60 } };
+    const after = { teams: teams(0, 0), clock: { ticking: true, currentSeconds: 45 } };
+    expect(isRoundLive(before, after)).toBe(false);
+  });
+
+  it("is false when the jump is present but ticking is false (e.g. a paused warmup snapshot)", () => {
+    const before = { teams: teams(0, 0), clock: { ticking: false, currentSeconds: 18 } };
+    const after = { teams: teams(0, 0), clock: { ticking: false, currentSeconds: 90 } };
+    expect(isRoundLive(before, after)).toBe(false);
+  });
+
+  it("matches every observed round boundary in the recorded fixture (30 transitions, 0 false positives)", () => {
+    const entries = loadCs2Fixture(defaultCs2FixturePath());
+    const snapshots = entries.map((e) => parseSnapshot(e.raw)).filter((s) => s !== undefined);
+    let liveTransitions = 0;
+    for (let i = 1; i < snapshots.length; i++) {
+      if (isRoundLive(snapshots[i - 1]!, snapshots[i]!)) liveTransitions++;
+    }
+    // Round 1's warmup->live transition plus 29 further round-to-round transitions.
+    expect(liveTransitions).toBe(30);
   });
 });

@@ -1,6 +1,7 @@
 // Owns one recording session's MongoDB collection lifecycle. A session is created once a fresh
-// 0-0 series start is detected and writes every subsequent non-empty-games response until the
-// live game disappears (games == []), at which point the caller discards the session.
+// 0-0 series start is detected and writes every subsequent non-empty-games response, plus the
+// final transition response where games first disappears (games == []) — that frame carries the
+// game's actual finished/final-score state. After that write the caller discards the session.
 //
 // Collection naming convention: `cs2_series_<seriesId>_<UTC ISO timestamp, punctuation
 // stripped>`, e.g. `cs2_series_28_20260729T104332739Z`. The timestamp is taken at session

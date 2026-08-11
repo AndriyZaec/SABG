@@ -9,26 +9,32 @@ function team(overrides: Partial<Cs2GameSnapshot["teams"][0]> = {}) {
   return { name: "T", score: 0, deaths: 0, weaponKills: [], players: [], ...overrides };
 }
 
+// Settlement is a pure diff of `teams` — the clock is irrelevant here (round-tracker.ts is what
+// reads it), so every synthetic snapshot below shares this placeholder.
+const DEFAULT_CLOCK: Cs2GameSnapshot["clock"] = { ticking: true, currentSeconds: 60 };
+
 describe("resolveCs2Settlement — synthetic cases", () => {
   it("round_winner: yes for the team whose score increased, no for the other", () => {
-    const before: Cs2GameSnapshot = { teams: [team({ score: 3 }), team({ score: 2 })] };
-    const after: Cs2GameSnapshot = { teams: [team({ score: 4 }), team({ score: 2 })] };
+    const before: Cs2GameSnapshot = { clock: DEFAULT_CLOCK, teams: [team({ score: 3 }), team({ score: 2 })] };
+    const after: Cs2GameSnapshot = { clock: DEFAULT_CLOCK, teams: [team({ score: 4 }), team({ score: 2 })] };
     expect(resolveCs2Settlement(buildCs2SettlementCondition("round_winner", { targetTeam: "home" }, 4), before, after)).toBe("yes");
     expect(resolveCs2Settlement(buildCs2SettlementCondition("round_winner", { targetTeam: "away" }, 4), before, after)).toBe("no");
   });
 
   it("pistol_round: same math as round_winner", () => {
-    const before: Cs2GameSnapshot = { teams: [team({ score: 0 }), team({ score: 0 })] };
-    const after: Cs2GameSnapshot = { teams: [team({ score: 0 }), team({ score: 1 })] };
+    const before: Cs2GameSnapshot = { clock: DEFAULT_CLOCK, teams: [team({ score: 0 }), team({ score: 0 })] };
+    const after: Cs2GameSnapshot = { clock: DEFAULT_CLOCK, teams: [team({ score: 0 }), team({ score: 1 })] };
     expect(resolveCs2Settlement(buildCs2SettlementCondition("pistol_round", { targetTeam: "away" }, 13), before, after)).toBe("yes");
     expect(resolveCs2Settlement(buildCs2SettlementCondition("pistol_round", { targetTeam: "home" }, 13), before, after)).toBe("no");
   });
 
   it("weapon_kill: yes iff the whitelisted weapon's combined count grew", () => {
     const before: Cs2GameSnapshot = {
+      clock: DEFAULT_CLOCK,
       teams: [team({ weaponKills: [{ weaponName: "awp", count: 1 }] }), team({ weaponKills: [{ weaponName: "awp", count: 0 }] })],
     };
     const after: Cs2GameSnapshot = {
+      clock: DEFAULT_CLOCK,
       teams: [team({ weaponKills: [{ weaponName: "awp", count: 1 }] }), team({ weaponKills: [{ weaponName: "awp", count: 1 }] })],
     };
     expect(resolveCs2Settlement(buildCs2SettlementCondition("weapon_kill", { weapon: "awp" }, 1), before, after)).toBe("yes");
@@ -37,40 +43,40 @@ describe("resolveCs2Settlement — synthetic cases", () => {
 
   it("team_ace: yes only when all 5 players each got exactly one kill", () => {
     const players5 = (kills: number[]) => kills.map((k, i) => ({ id: `p${i}`, kills: k }));
-    const before: Cs2GameSnapshot = { teams: [team({ players: players5([0, 0, 0, 0, 0]) }), team()] };
-    const aceAfter: Cs2GameSnapshot = { teams: [team({ players: players5([1, 1, 1, 1, 1]) }), team()] };
-    const notAceAfter: Cs2GameSnapshot = { teams: [team({ players: players5([2, 1, 1, 1, 0]) }), team()] };
+    const before: Cs2GameSnapshot = { clock: DEFAULT_CLOCK, teams: [team({ players: players5([0, 0, 0, 0, 0]) }), team()] };
+    const aceAfter: Cs2GameSnapshot = { clock: DEFAULT_CLOCK, teams: [team({ players: players5([1, 1, 1, 1, 1]) }), team()] };
+    const notAceAfter: Cs2GameSnapshot = { clock: DEFAULT_CLOCK, teams: [team({ players: players5([2, 1, 1, 1, 0]) }), team()] };
     expect(resolveCs2Settlement(buildCs2SettlementCondition("team_ace", { targetTeam: "home" }, 1), before, aceAfter)).toBe("yes");
     expect(resolveCs2Settlement(buildCs2SettlementCondition("team_ace", { targetTeam: "home" }, 1), before, notAceAfter)).toBe("no");
   });
 
   it("multikill: yes iff the team's best per-player delta reaches y", () => {
     const players5 = (kills: number[]) => kills.map((k, i) => ({ id: `p${i}`, kills: k }));
-    const before: Cs2GameSnapshot = { teams: [team({ players: players5([0, 0, 0, 0, 0]) }), team()] };
-    const after: Cs2GameSnapshot = { teams: [team({ players: players5([3, 1, 0, 0, 0]) }), team()] };
+    const before: Cs2GameSnapshot = { clock: DEFAULT_CLOCK, teams: [team({ players: players5([0, 0, 0, 0, 0]) }), team()] };
+    const after: Cs2GameSnapshot = { clock: DEFAULT_CLOCK, teams: [team({ players: players5([3, 1, 0, 0, 0]) }), team()] };
     expect(resolveCs2Settlement(buildCs2SettlementCondition("multikill", { targetTeam: "home", y: 3 }, 1), before, after)).toBe("yes");
     expect(resolveCs2Settlement(buildCs2SettlementCondition("multikill", { targetTeam: "home", y: 4 }, 1), before, after)).toBe("no");
   });
 
   it("survivors_team: yes iff 5 - deaths_diff > y", () => {
-    const before: Cs2GameSnapshot = { teams: [team({ deaths: 0 }), team()] };
-    const after: Cs2GameSnapshot = { teams: [team({ deaths: 2 }), team()] }; // 3 survivors
+    const before: Cs2GameSnapshot = { clock: DEFAULT_CLOCK, teams: [team({ deaths: 0 }), team()] };
+    const after: Cs2GameSnapshot = { clock: DEFAULT_CLOCK, teams: [team({ deaths: 2 }), team()] }; // 3 survivors
     expect(resolveCs2Settlement(buildCs2SettlementCondition("survivors_team", { targetTeam: "home", y: 2 }, 1), before, after)).toBe("yes");
     expect(resolveCs2Settlement(buildCs2SettlementCondition("survivors_team", { targetTeam: "home", y: 3 }, 1), before, after)).toBe("no");
   });
 
   it("survivors_round: yes iff 10 - total_deaths_diff > y", () => {
-    const before: Cs2GameSnapshot = { teams: [team({ deaths: 0 }), team({ deaths: 0 })] };
-    const after: Cs2GameSnapshot = { teams: [team({ deaths: 2 }), team({ deaths: 5 })] }; // 3 survivors total
+    const before: Cs2GameSnapshot = { clock: DEFAULT_CLOCK, teams: [team({ deaths: 0 }), team({ deaths: 0 })] };
+    const after: Cs2GameSnapshot = { clock: DEFAULT_CLOCK, teams: [team({ deaths: 2 }), team({ deaths: 5 })] }; // 3 survivors total
     expect(resolveCs2Settlement(buildCs2SettlementCondition("survivors_round", {}, 1), before, after)).toBe("no"); // y undefined -> defensive "no"
     expect(resolveCs2Settlement(buildCs2SettlementCondition("survivors_round", { y: 2 }, 1), before, after)).toBe("yes");
     expect(resolveCs2Settlement(buildCs2SettlementCondition("survivors_round", { y: 3 }, 1), before, after)).toBe("no");
   });
 
   it("ot_score: yes only for an exact 12-12 after-snapshot, no otherwise — reads `after` directly, not a diff", () => {
-    const before: Cs2GameSnapshot = { teams: [team({ score: 99 }), team({ score: 99 })] }; // irrelevant — not diffed
-    const tied: Cs2GameSnapshot = { teams: [team({ score: 12 }), team({ score: 12 })] };
-    const clinched: Cs2GameSnapshot = { teams: [team({ score: 12 }), team({ score: 13 })] };
+    const before: Cs2GameSnapshot = { clock: DEFAULT_CLOCK, teams: [team({ score: 99 }), team({ score: 99 })] }; // irrelevant — not diffed
+    const tied: Cs2GameSnapshot = { clock: DEFAULT_CLOCK, teams: [team({ score: 12 }), team({ score: 12 })] };
+    const clinched: Cs2GameSnapshot = { clock: DEFAULT_CLOCK, teams: [team({ score: 12 }), team({ score: 13 })] };
     expect(resolveCs2Settlement(buildCs2SettlementCondition("ot_score", {}, 24), before, tied)).toBe("yes");
     expect(resolveCs2Settlement(buildCs2SettlementCondition("ot_score", {}, 24), before, clinched)).toBe("no");
   });

@@ -4,7 +4,7 @@
 // this schema requires every field the CS2 settlement catalog reads.
 
 import { z } from "zod";
-import type { Cs2GameSnapshot, Cs2TeamStats } from "@arena/contracts";
+import type { Cs2Clock, Cs2GameSnapshot, Cs2TeamStats } from "@arena/contracts";
 
 const WeaponKillSchema = z.object({
   weaponName: z.string(),
@@ -24,7 +24,13 @@ const GameTeamSchema = z.object({
   players: z.array(PlayerSchema),
 });
 
+const ClockSchema = z.object({
+  ticking: z.boolean(),
+  currentSeconds: z.number(),
+});
+
 const GameSchema = z.object({
+  clock: ClockSchema,
   teams: z.array(GameTeamSchema),
 });
 
@@ -77,7 +83,28 @@ export function parseSnapshot(raw: unknown): Cs2GameSnapshot | undefined {
     players: t.players,
   });
 
-  return { teams: [toTeamStats(a), toTeamStats(b)] };
+  return { teams: [toTeamStats(a), toTeamStats(b)], clock: game.clock };
+}
+
+/**
+ * Seconds `currentSeconds` must jump upward by, between two consecutive live snapshots, to count
+ * as "a new round just went live" rather than normal within-round countdown/noise. Chosen from
+ * the observed data: freezetime is ≤ ~20s and the live round clock resets to ~104-115s, so any
+ * threshold between those (30s, with margin) cleanly separates the two — verified against every
+ * round boundary in the recorded fixture with zero false positives/negatives
+ * (cs2-migration-spec/data-assumptions.md #1-#2). Re-check that doc before changing this.
+ */
+const ROUND_RESET_THRESHOLD_SECONDS = 30;
+
+/**
+ * True when `after` is the first snapshot of a newly-live round relative to `before` — the
+ * Round Lock signal (spec §2: "кінець freezetime поточного раунду"). Detected as an upward jump
+ * in `currentSeconds` (freezetime's short countdown ending and the full round clock starting)
+ * combined with `ticking: true` (excludes the initial warmup/halftime `paused` windows, where
+ * `currentSeconds` sits flat and non-ticking).
+ */
+export function isRoundLive(before: Cs2GameSnapshot, after: Cs2GameSnapshot): boolean {
+  return after.clock.ticking && after.clock.currentSeconds > before.clock.currentSeconds + ROUND_RESET_THRESHOLD_SECONDS;
 }
 
 /**
