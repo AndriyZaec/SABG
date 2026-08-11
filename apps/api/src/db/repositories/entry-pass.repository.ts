@@ -40,4 +40,23 @@ export const entryPassRepository = {
     if (!row) throw new Error(`entryPassRepository.create(${input.arenaId}, ${input.userId}) returned no row`);
     return entryPassRowToEntity(row);
   },
+
+  /** Every entry pass for `arenaId` — cs2/series-orchestrator.ts reads this on `cancel_arena` to
+   *  find who needs refunding. */
+  async listByArenaId(arenaId: Uuid): Promise<EntryPass[]> {
+    const rows = await db.select().from(entryPasses).where(eq(entryPasses.arenaId, arenaId));
+    return rows.map(entryPassRowToEntity);
+  },
+
+  /**
+   * Off-chain refund stub (cs2/series-orchestrator.ts, on `cancel_arena`): flips `status` to
+   * `"refunded"` in the DB only — no on-chain instruction is called. Real lamport movement is a
+   * separate, explicitly out-of-scope piece of work for the on-chain track (the Anchor program's
+   * `refund` instruction body is itself still a stub — see `programs/arena/.../lib.rs`).
+   */
+  async markRefunded(id: Uuid): Promise<EntryPass> {
+    const [row] = await db.update(entryPasses).set({ status: "refunded" }).where(eq(entryPasses.id, id)).returning();
+    if (!row) throw new Error(`entryPassRepository.markRefunded(${id}) returned no row`);
+    return entryPassRowToEntity(row);
+  },
 };

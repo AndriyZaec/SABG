@@ -1,5 +1,5 @@
-import { eq, sql } from "drizzle-orm";
-import type { Arena, Uuid, WalletAddress } from "@arena/contracts";
+import { and, eq, sql } from "drizzle-orm";
+import type { Arena, ArenaCancelledReason, Uuid, WalletAddress } from "@arena/contracts";
 import { db } from "../client.js";
 import { arenas } from "../schema.js";
 import { arenaRowToEntity } from "../mappers.js";
@@ -80,6 +80,23 @@ export const arenaRepository = {
 
   async setStatus(id: Uuid, status: Arena["status"]): Promise<void> {
     await db.update(arenas).set({ status }).where(eq(arenas.id, id));
+  },
+
+  /**
+   * Guarded lobby -> cancelled transition (cs2/series-lifecycle.ts's `cancel_arena` action: spec
+   * §4 п.4 no-show, or the Arena #k+1 forfeit-cancellation gap, data-assumptions.md #12). A
+   * single atomic conditional UPDATE — no transaction/lock needed, unlike `ensureOnchain`, since
+   * there's only one column set and one precondition. Returns `undefined` if the arena had
+   * already left `lobby` (already live/finished/cancelled) — the caller should treat that as
+   * "nothing to cancel", not an error.
+   */
+  async cancelIfLobby(id: Uuid, reason: ArenaCancelledReason): Promise<Arena | undefined> {
+    const [row] = await db
+      .update(arenas)
+      .set({ status: "cancelled", cancelledReason: reason })
+      .where(and(eq(arenas.id, id), eq(arenas.status, "lobby")))
+      .returning();
+    return row ? arenaRowToEntity(row) : undefined;
   },
 
   /** Called on entry purchase (POST /arenas/:id/entry) and on join. Atomic increment — avoids a

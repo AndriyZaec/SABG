@@ -79,6 +79,7 @@ describe("arenaRowToEntity", () => {
       prizePoolLamports: 5000,
       escrowAccount: "Escrow111",
       onchainArenaId: 42,
+      cancelledReason: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     });

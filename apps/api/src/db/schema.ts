@@ -114,6 +114,9 @@ export const arenas = pgTable("arena", {
   escrowAccount: text("escrow_account").notNull(),
   /** On-chain program `arena_id` PDA seed. Null until the arena is provisioned on-chain. */
   onchainArenaId: bigint("onchain_arena_id", { mode: "number" }),
+  /** Set only when `status === "cancelled"` — CS2's `ArenaCancelledReason`. Plain text, not a
+   *  pg-enum: a narrow debug/display field, never filtered on in bulk. */
+  cancelledReason: text("cancelled_reason"),
   ...timestamps,
 }, (t) => [
   index("arena_match_id_idx").on(t.matchId),

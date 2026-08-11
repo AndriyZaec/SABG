@@ -103,6 +103,20 @@ export class Cs2ArenaRuntime {
       onTransition: (event) => this.onRoundTransition(event),
     });
     this.roundEngine.subscribeTo(options.bus);
+
+    // spec §3's tie-break note: if the Match ends (cs2_match_end) while more than one player is
+    // still active, nothing else ever narrows the field to one — soccer's ArenaRuntime has an
+    // equivalent trigger (onMatchState, period === "full_time" -> leaderboardService.finalize()).
+    // Registered after roundEngine.subscribeTo above: MatchSignalBus (EventEmitter) calls
+    // subscribers in registration order, so by the time this listener runs, Cs2RoundEngine has
+    // already synchronously settled/voided every round for this same cs2_match_end — the active
+    // player set is final. finalize() itself is a no-op once the arena already finished via the
+    // ordinary one-survivor path (LeaderboardService.finalize, leaderboard/service.ts).
+    options.bus.subscribe((signal) => {
+      if (signal.kind !== "cs2_match_end") return;
+      this.leaderboardService.finalize();
+      this.flushFinishIfPending();
+    });
   }
 
   /** Opens Round 1 (spec §7 крок 1) — called from the Arena-creation path (Series lifecycle's

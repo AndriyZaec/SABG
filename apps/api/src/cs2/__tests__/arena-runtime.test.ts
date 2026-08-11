@@ -203,6 +203,50 @@ describe("Cs2ArenaRuntime — elimination wiring", () => {
     const settleMsgs = broadcasts.filter((m) => m.type === "round.settle");
     expect(settleMsgs).toHaveLength(1); // only Round 1 ever settled — Round 2 has no settle broadcast
   });
+
+  it("finalizes the leaderboard (shared win) when the match ends with more than one player still active — spec §3 tie-break", () => {
+    const { runtime, bus, broadcasts, finished } = buildRuntime([PLAYER_YES, PLAYER_NO], fakeProvider());
+    runtime.openRoundOne("t0");
+    const round1 = runtime.currentRound!;
+    runtime.submitAnswer(PLAYER_YES, round1.id, "no"); // home never scores -> both correct
+    runtime.submitAnswer(PLAYER_NO, round1.id, "no");
+
+    bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(0, 0, 18), timestamp: "t0" });
+    bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(0, 0, 105), timestamp: "t1" });
+    bus.publish({ kind: "cs2_round_lock", roundNumber: 1, timestamp: "t1" });
+    bus.publish({ kind: "cs2_round_end", roundNumber: 1, winner: "away", snapshot: snapshot(0, 1, 20), timestamp: "t2" });
+    // Both players still active (correct on Round 1); Round 2 auto-opened but never locks —
+    // the match just ends here, e.g. the Series was decided some other way (data-assumptions #12).
+    bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(0, 1, 60), timestamp: "t3" });
+    bus.publish({ kind: "cs2_match_end", timestamp: "t4" });
+
+    const finishMsg = broadcasts.find((m) => m.type === "arena.finished");
+    expect(finishMsg).toMatchObject({ type: "arena.finished" });
+    if (finishMsg?.type === "arena.finished") {
+      expect(finishMsg.winners.sort()).toEqual([PLAYER_NO, PLAYER_YES].sort());
+    }
+    expect(finished).toEqual([[PLAYER_NO, PLAYER_YES].sort()]);
+    expect(runtime.finalWinners()?.sort()).toEqual([PLAYER_NO, PLAYER_YES].sort());
+  });
+
+  it("does not double-finalize when the match already finished via the ordinary one-survivor path", () => {
+    const { runtime, bus, broadcasts, finished } = buildRuntime([PLAYER_YES, PLAYER_NO], fakeProvider());
+    runtime.openRoundOne("t0");
+    const round1 = runtime.currentRound!;
+    runtime.submitAnswer(PLAYER_YES, round1.id, "yes"); // home wins -> correct, sole survivor
+    runtime.submitAnswer(PLAYER_NO, round1.id, "no"); // eliminated
+
+    bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(0, 0, 18), timestamp: "t0" });
+    bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(0, 0, 105), timestamp: "t1" });
+    bus.publish({ kind: "cs2_round_lock", roundNumber: 1, timestamp: "t1" });
+    bus.publish({ kind: "cs2_round_end", roundNumber: 1, winner: "home", snapshot: snapshot(1, 0, 20), timestamp: "t2" });
+    // Already finished (one survivor) before the match itself ends.
+    bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(1, 0, 60), timestamp: "t3" });
+    bus.publish({ kind: "cs2_match_end", timestamp: "t4" });
+
+    expect(broadcasts.filter((m) => m.type === "arena.finished")).toHaveLength(1);
+    expect(finished).toEqual([[PLAYER_YES]]);
+  });
 });
 
 describe("Cs2ArenaRuntime — full recorded fixture (real question provider, generic assertions)", () => {

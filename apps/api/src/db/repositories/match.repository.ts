@@ -60,6 +60,46 @@ export const matchRepository = {
     return matchRowToEntity(row);
   },
 
+  /**
+   * Creates a CS2 map Match row for Series `seriesId` (cs2/series-orchestrator.ts, on
+   * `open_arena`). Deliberately NOT idempotent/upserting like `upsertByTxoddsFixtureId` — CS2 has
+   * no natural unique key for "map k of this Series" yet (multiple maps can share team names and
+   * a nominal start time); restart-safe idempotency is a step-5 concern, once a live driver
+   * actually needs to resume after a crash rather than always starting a fresh orchestrator.
+   * `currentMinute`/`period`/`score` are soccer-only fields (spec) and stay at their placeholder
+   * defaults forever for a CS2 row — nothing ever calls `updateLive` for one.
+   *
+   * Residual risk (found via testing, accepted rather than fixed): `matches`' unique index is on
+   * `(homeTeam, awayTeam, startTime)` with no `seriesId` component, so this insert can still
+   * collide — not just across maps of *this* Series (avoided because `startTime` is the real
+   * open-time, strictly increasing map to map), but in principle across two *different* Series
+   * that happen to share both team names and the exact same millisecond open-time. A live poller
+   * makes that astronomically unlikely (real wall-clock timestamps, ~10s cadence); it was only
+   * ever hit by two independent tests literally reusing the same synthetic clock constant.
+   */
+  async createForSeriesMap(
+    seriesId: Uuid,
+    input: { homeTeam: string; awayTeam: string; startTime: Date },
+  ): Promise<Match> {
+    const [row] = await db
+      .insert(matches)
+      .values({
+        discipline: "cs2",
+        seriesId,
+        homeTeam: input.homeTeam,
+        awayTeam: input.awayTeam,
+        startTime: input.startTime,
+        status: "scheduled",
+        period: "pre",
+        currentMinute: 0,
+        scoreHome: 0,
+        scoreAway: 0,
+      })
+      .returning();
+    if (!row) throw new Error(`createForSeriesMap(${seriesId}) returned no row`);
+    return matchRowToEntity(row);
+  },
+
   /** Mirrors MatchState snapshots (spec §13 Match.currentMinute/period/score). */
   async updateLive(
     id: Uuid,
