@@ -19,7 +19,10 @@ const envSchema = z.object({
   GRID_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
   // Resolved relative to the apps/api package root (process.cwd() when run via the grid:record script).
   GRID_QUERY_FILE: z.string().min(1).default("graphql-schema-request.txt"),
-  MONGODB_URI: z.string().min(1, "MONGODB_URI is required"),
+  // Optional: only grid:record (GridRecorder, writes to Mongo) needs this — enforced lazily by
+  // MongoService.getDb() at the point of connecting, not here. The CS2 live poller (cs2/run.ts)
+  // never calls getDb() and has no use for Mongo at all.
+  MONGODB_URI: z.string().min(1).optional(),
   MONGODB_DB: z.string().default("sabg_raw"),
   LOG_LEVEL: z.string().default("info"),
   NODE_ENV: z.string().default("development"),

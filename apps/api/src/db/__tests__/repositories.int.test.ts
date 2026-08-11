@@ -34,6 +34,7 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
   let createPgPredictionStore: typeof import("../../gateway/stores/pg-prediction-store.js")["createPgPredictionStore"];
   let createPgArenaPlayerStore: typeof import("../../gateway/stores/pg-arena-player-store.js")["createPgArenaPlayerStore"];
   let tryAcquireFixtureRuntimeLock: typeof import("../client.js")["tryAcquireFixtureRuntimeLock"];
+  let tryAcquireSeriesRuntimeLock: typeof import("../client.js")["tryAcquireSeriesRuntimeLock"];
   let resetReplayFixture: typeof import("../replay-reset.js")["resetReplayFixture"];
 
   // Unique per test run so repeated runs never collide on (walletAddress) / (homeTeam,awayTeam,startTime)
@@ -51,7 +52,7 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
   let roundId: string;
 
   beforeAll(async () => {
-    ({ db, tryAcquireFixtureRuntimeLock } = await import("../client.js"));
+    ({ db, tryAcquireFixtureRuntimeLock, tryAcquireSeriesRuntimeLock } = await import("../client.js"));
     ({ resetReplayFixture } = await import("../replay-reset.js"));
     schema = await import("../schema.js");
     ({ userRepository } = await import("../repositories/user.repository.js"));
@@ -253,6 +254,24 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
     await writeQueue.enqueue(arenaId, async () => {});
     const roster = await arenaPlayerRepository.list(arenaId);
     expect(roster.find((p) => p.userId === userId)?.status).toBe("eliminated");
+  });
+
+  it("tryAcquireSeriesRuntimeLock excludes a second acquire for the same gridSeriesId, releases cleanly", async () => {
+    const gridSeriesId = `int-test-series-${randomUUID()}`;
+    const release = await tryAcquireSeriesRuntimeLock(gridSeriesId);
+    expect(release).toBeDefined();
+    expect(await tryAcquireSeriesRuntimeLock(gridSeriesId)).toBeUndefined();
+
+    // A different gridSeriesId is unaffected — the lock key is per-series, not global.
+    const otherGridSeriesId = `int-test-series-${randomUUID()}`;
+    const releaseOther = await tryAcquireSeriesRuntimeLock(otherGridSeriesId);
+    expect(releaseOther).toBeDefined();
+    await releaseOther?.();
+
+    await release?.();
+    const reacquired = await tryAcquireSeriesRuntimeLock(gridSeriesId);
+    expect(reacquired).toBeDefined();
+    await reacquired?.();
   });
 
   it("replay reset lock excludes an active runtime, then reset deletes atomically and restart recreates a lobby", async () => {

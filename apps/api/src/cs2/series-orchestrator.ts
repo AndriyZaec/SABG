@@ -43,6 +43,7 @@ interface OpenedArena {
   matchId: Uuid;
   arenaId: Uuid;
   runtime: Cs2ArenaRuntime;
+  bus: MatchSignalBus;
 }
 
 export class Cs2SeriesOrchestrator {
@@ -54,6 +55,20 @@ export class Cs2SeriesOrchestrator {
     private readonly options: Cs2SeriesOrchestratorOptions,
   ) {
     this.lifecycleState = initialCs2SeriesLifecycleState(series.scheduledStartTime);
+  }
+
+  /**
+   * The bus for the most recently opened Arena (highest matchIndex) — cs2/live-poller.ts routes
+   * round-tracker.ts's per-map signals here. Since Arenas within a Series are strictly
+   * sequential, "most recently opened" is always "the one whose map is currently live or about
+   * to be" — the map that just ended (a poll's per-map cs2_match_end) is still the highest
+   * matchIndex *until* this same poll's series-level action opens the next one, which is why
+   * live-poller.ts reads this before calling `poll()`, not after.
+   */
+  currentBus(): MatchSignalBus | undefined {
+    const indices = [...this.arenasByMatchIndex.keys()];
+    if (indices.length === 0) return undefined;
+    return this.arenasByMatchIndex.get(Math.max(...indices))?.bus;
   }
 
   async poll(snapshot: Cs2SeriesSnapshot | undefined, now: IsoDateTime): Promise<void> {
@@ -119,7 +134,7 @@ export class Cs2SeriesOrchestrator {
       ...(teamNames !== undefined ? { teamNames } : {}),
     });
 
-    this.arenasByMatchIndex.set(matchIndex, { matchId: match.id, arenaId: arena.id, runtime });
+    this.arenasByMatchIndex.set(matchIndex, { matchId: match.id, arenaId: arena.id, runtime, bus });
     runtime.openRoundOne(now);
   }
 

@@ -15,12 +15,10 @@ import { RecordingSession } from "./recording-session.js";
 import { SeriesStateResponseSchema, hasGraphQLErrors, hasLiveGame, isFreshStart } from "./series-state.js";
 import { logger } from "./logger.js";
 import { RateLimitExhaustedError, UpstreamApiError } from "./errors.js";
+import { nextBackoffMs } from "./backoff.js";
 import { sleep } from "../shared/sleep.js";
 
 type RecorderState = "WAITING_FOR_START" | "RECORDING";
-
-/** Backoff schedule (ms) applied on consecutive poll failures, indexed by errorStreak - 1. */
-const ERROR_BACKOFF_MS = [1_000, 5_000, 10_000, 30_000];
 
 /** Cap on logged response body size to keep log lines readable. */
 const MAX_LOGGED_BODY_BYTES = 20_000;
@@ -75,8 +73,7 @@ export class GridRecorder {
       } catch (err) {
         this.handlePollError(err);
         this.errorStreak += 1;
-        const backoff = ERROR_BACKOFF_MS[Math.min(this.errorStreak - 1, ERROR_BACKOFF_MS.length - 1)] as number;
-        await sleep(backoff, signal);
+        await sleep(nextBackoffMs(this.errorStreak), signal);
         continue;
       }
 
