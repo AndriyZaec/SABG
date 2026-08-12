@@ -25,17 +25,28 @@ import { logger } from "../grid/logger.js";
 import { parseSnapshot } from "./snapshot.js";
 import { initialCs2TrackerState, trackCs2Poll, type Cs2TrackerState } from "./round-tracker.js";
 import { parseSeriesSnapshot, type Cs2SeriesSnapshot } from "./series-snapshot.js";
+import type { Cs2RawPollResult } from "./raw-recorder.js";
 
 export interface Cs2LivePollerTarget {
   poll(snapshot: Cs2SeriesSnapshot | undefined, now: IsoDateTime): Promise<void>;
   currentBus(): MatchSignalBus | undefined;
 }
 
+/** Narrower than Cs2RawRecorder — lets tests fake raw recording without a real Mongo-backed one. */
+export interface Cs2RawRecorderTarget {
+  handlePoll(result: Cs2RawPollResult): Promise<void>;
+}
+
 export interface Cs2LivePollerOptions {
   target: Cs2LivePollerTarget;
-  /** Narrower than GridClient.fetchSeriesState's full return shape — only `data` is read. */
-  fetchSeriesState: (signal?: AbortSignal) => Promise<{ data: unknown }>;
+  /**
+   * Superset of GridClient.fetchSeriesState's return shape — `status`/`headers` are only read by
+   * `rawRecorder` (optional), the fan-out logic itself still only reads `data`.
+   */
+  fetchSeriesState: (signal?: AbortSignal) => Promise<Cs2RawPollResult>;
   pollIntervalMs: number;
+  /** Best-effort raw-poll recording (cs2/raw-recorder.ts) — omitted when CS2_RAW_RECORDING_ENABLED is off. */
+  rawRecorder?: Cs2RawRecorderTarget;
 }
 
 /**
@@ -94,6 +105,16 @@ export class Cs2LivePoller {
         const now: IsoDateTime = new Date().toISOString();
         this.trackerState = await handleCs2LivePoll(this.options.target, result.data, this.trackerState, now);
         this.errorStreak = 0;
+
+        // Best-effort: a raw-recording failure must never be treated as a poll failure (it would
+        // otherwise trigger the same backoff/error-streak handling as a real GRID fetch error).
+        if (this.options.rawRecorder !== undefined) {
+          try {
+            await this.options.rawRecorder.handlePoll(result);
+          } catch (err) {
+            logger.warn({ err }, "cs2: raw recorder threw — ignoring");
+          }
+        }
       } catch (err) {
         logger.error({ err }, "cs2: poll failed");
         this.errorStreak += 1;

@@ -13,7 +13,9 @@ export class MongoService {
   public static async getDb(): Promise<Db> {
     if (!MongoService.db) {
       if (!gridConfig.mongo.uri) {
-        throw new Error("MONGODB_URI is not set — required for grid:record, not for the CS2 live poller");
+        throw new Error(
+          "MONGODB_URI is not set — required for grid:record, and for the CS2 live poller when CS2_RAW_RECORDING_ENABLED=true",
+        );
       }
       MongoService.client = new MongoClient(gridConfig.mongo.uri, {
         maxIdleTimeMS: 60_000,

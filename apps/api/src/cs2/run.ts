@@ -17,6 +17,9 @@
 // (CS2_SCHEDULED_START_TIME, cs2/config/env.ts) — the CS2 equivalent of soccer's TXODDS fixture
 // start time. The HTTP/WS server listens before the poller starts, so the very first Arena
 // (opened as soon as the poller reaches scheduledStartTime - 10min) is already joinable.
+//
+// Optionally records every raw GRID poll response to Mongo (cs2/raw-recorder.ts) when
+// CS2_RAW_RECORDING_ENABLED=true — best-effort, never blocks or fails the live flow.
 
 import { GridClient } from "../grid/grid-client.js";
 import { gridConfig } from "../grid/config/env.js";
@@ -37,6 +40,8 @@ import { cs2Config } from "./config/env.js";
 import { Cs2LivePoller } from "./live-poller.js";
 import { parseSeriesSnapshot } from "./series-snapshot.js";
 import { Cs2SeriesOrchestrator } from "./series-orchestrator.js";
+import { Cs2RawRecorder } from "./raw-recorder.js";
+import { MongoService } from "../grid/mongo/mongo.service.js";
 
 const CS2_ENTRY_FEE_LAMPORTS = 10_000_000;
 
@@ -78,6 +83,7 @@ async function main(): Promise<void> {
       await writeQueue.drain();
       await releaseLock?.();
       await closeDatabaseConnection();
+      await MongoService.quit();
       logger.info({ signal }, "cs2: shutdown complete");
     })();
     return shutdownPromise;
@@ -129,10 +135,20 @@ async function main(): Promise<void> {
     if (abortController.signal.aborted) return;
     logger.info({ port: cs2Config.gatewayPort }, `cs2: gateway listening — REST/WS http://localhost:${cs2Config.gatewayPort}`);
 
+    let rawRecorder: Cs2RawRecorder | undefined;
+    if (cs2Config.rawRecordingEnabled) {
+      if (gridConfig.mongo.uri === undefined) {
+        logger.warn("cs2: CS2_RAW_RECORDING_ENABLED is true but MONGODB_URI is unset — running without raw recording");
+      } else {
+        rawRecorder = new Cs2RawRecorder(gridConfig.grid.seriesId);
+      }
+    }
+
     poller = new Cs2LivePoller({
       target: orchestrator,
       fetchSeriesState: (signal) => client.fetchSeriesState(signal),
       pollIntervalMs: gridConfig.grid.pollIntervalMs,
+      rawRecorder,
     });
     poller.start();
     logger.info({ gridSeriesId: series.gridSeriesId }, "cs2: live poller started");

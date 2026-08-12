@@ -18,6 +18,11 @@ const envSchema = z.object({
   // the soccer and CS2 gateways are separate processes reading the same .env; sharing a port
   // would make the second process fail to listen (EADDRINUSE), not just be confusing.
   CS2_GATEWAY_PORT: z.coerce.number().int().positive().default(4100),
+  // Best-effort raw-poll recording into Mongo (see raw-recorder.ts) — off by default. Reuses
+  // GRID_MONGODB_URI/DB from grid/config/env.ts rather than duplicating them here; if enabled
+  // without a Mongo URI configured, cs2/run.ts logs a warning and runs without recording instead
+  // of failing to start.
+  CS2_RAW_RECORDING_ENABLED: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -30,4 +35,5 @@ if (!parsed.success) {
 export const cs2Config = {
   scheduledStartTime: parsed.data.CS2_SCHEDULED_START_TIME,
   gatewayPort: parsed.data.CS2_GATEWAY_PORT,
+  rawRecordingEnabled: parsed.data.CS2_RAW_RECORDING_ENABLED === "true",
 };

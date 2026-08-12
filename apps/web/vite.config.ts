@@ -28,8 +28,12 @@ export default defineConfig({
     port: 5173,
     allowedHosts: [".ngrok-free.app"],
     proxy: {
-      "/api": { target: "http://localhost:4000", changeOrigin: true },
-      "/ws": { target: "ws://localhost:4000", ws: true },
+      // TEMP for manual CS2 testing: EventAccessGate always calls plain /api/access/session,
+      // which normally targets soccer's gateway (4000). Pointed at CS2's gateway (4100) instead
+      // since /api/access is generic (gateway/server.ts) and served by both. Revert to 4000
+      // before testing soccer again.
+      "/api": { target: "http://localhost:4100", changeOrigin: true },
+      "/ws": { target: "ws://localhost:4100", ws: true },
       // CS2 runs as its own gateway process on its own port (CS2_GATEWAY_PORT, apps/api/src/cs2/run.ts)
       // — separate from soccer's gateway above, sharing only Postgres.
       "/cs2-api": {
