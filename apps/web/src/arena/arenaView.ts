@@ -7,8 +7,10 @@ export interface RoundView {
   windowStartMinute: number;
   windowEndMinute: number;
   status: RoundStatus;
-  /** Epoch ms when answers lock. */
-  lockAt: number;
+  /** Epoch ms when answers lock. Undefined right after a reload seeds this from the REST
+   *  snapshot (`PredictionRound` carries no lockAt) — replaced by a real value on the next live
+   *  `round.open`/`round.lock` message. */
+  lockAt?: number;
   myAnswer?: Answer;
   correctAnswer?: Answer;
 }

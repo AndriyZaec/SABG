@@ -48,13 +48,16 @@ export const predictionRoundRepository = {
     return row ? predictionRoundRowToEntity(row) : undefined;
   },
 
-  /** GET /arenas/:id/rounds (history) — every round created for the arena, in window order. */
+  /** GET /arenas/:id/rounds (history) — every round created for the arena, in creation order.
+   *  Sorts by `windowStartMinute` (soccer) then `roundNumber` (CS2) — CS2 rows always have a
+   *  `null` windowStartMinute, so sorting by that column alone leaves them in insertion order,
+   *  not round order. Discipline-agnostic: only one of the two columns is ever non-null per row. */
   async listByArenaId(arenaId: Uuid): Promise<PredictionRound[]> {
     const rows = await db
       .select()
       .from(predictionRounds)
       .where(eq(predictionRounds.arenaId, arenaId))
-      .orderBy(predictionRounds.windowStartMinute);
+      .orderBy(predictionRounds.windowStartMinute, predictionRounds.roundNumber);
     return rows.map(predictionRoundRowToEntity);
   },
 };

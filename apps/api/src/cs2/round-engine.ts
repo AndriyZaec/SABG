@@ -176,15 +176,27 @@ export class Cs2RoundEngine {
       this.lockSnapshotByRound.delete(roundNumber);
     }
 
+    this.voidRemaining();
+
+    this.lastLiveSnapshot = undefined;
+    this.lockSnapshotByRound.clear();
+  }
+
+  /**
+   * Voids every round still `open`/`locked` — the tail end of `handleMatchEnd`'s pass, but also
+   * called directly once the Arena is declared decided by the single-survivor path
+   * (`Cs2ArenaRuntime.flushFinishIfPending`), which can land many real rounds before
+   * `cs2_match_end` itself. `isArenaFinished()` already stops *new* rounds from opening at the
+   * next lock (`handleRoundLock`) — this stops the one round that's already in flight (open or
+   * locked) at the moment the winner gets declared, per the cascading-generation overlap.
+   */
+  voidRemaining(): void {
     for (const [roundNumber, round] of this.rounds) {
       if (round.status !== "open" && round.status !== "locked") continue;
       const voided: PredictionRound = { ...round, status: "voided" };
       this.rounds.set(roundNumber, voided);
       this.options.onTransition?.({ type: "void", roundId: voided.id, roundNumber });
     }
-
-    this.lastLiveSnapshot = undefined;
-    this.lockSnapshotByRound.clear();
   }
 
   private settle(

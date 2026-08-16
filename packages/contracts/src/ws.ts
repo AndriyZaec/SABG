@@ -91,12 +91,16 @@ export interface PlayerStatusMessage {
   roundId?: Uuid;
 }
 
-/** One locked-but-unsettled round the player has answered (spec §8: their own answer only). */
+/** One locked-but-unsettled round the player has answered (spec §8: their own answer only).
+ *  `windowStartMinute`/`windowEndMinute` are soccer-only, `roundNumber` is CS2-only — same
+ *  discipline-tagged-optional-fields pattern `PredictionRound` (entities.ts) already uses, not a
+ *  discriminated union. */
 export interface PendingPrediction {
   roundId: Uuid;
   question: string;
-  windowStartMinute: number;
-  windowEndMinute: number;
+  windowStartMinute?: number;
+  windowEndMinute?: number;
+  roundNumber?: number;
   answer: Answer;
 }
 

@@ -1,4 +1,4 @@
-import type { Answer, ArenaCancelledReason, ArenaPlayerStatus, RoundStatus } from "@arena/contracts";
+import type { Answer, ArenaCancelledReason, ArenaPlayerStatus, PendingPrediction, RoundStatus } from "@arena/contracts";
 import type { FeedItem, LeaderRow } from "../arena/arenaView.js";
 
 // FeedItem/LeaderRow are discipline-agnostic value types (see arena/arenaView.ts) — reused as-is,
@@ -29,6 +29,9 @@ export interface Cs2ArenaView {
   round?: Cs2RoundView;
   /** This player's own status — same semantics as soccer's ArenaView.myStatus. */
   myStatus?: ArenaPlayerStatus;
+  /** Rounds that have locked but not yet settled, for which this player submitted an answer
+   *  (spec §8: only ever their own). Full-list snapshot from the server — replace, don't merge. */
+  pendingPredictions?: PendingPrediction[];
   /** Set once an `arena.cancelled` message arrives (spec §4 п.4 no-show, or the Arena #k+1
    *  forfeit-cancellation gap) — the arena never went live and never will. */
   cancelled?: { reason: ArenaCancelledReason };

@@ -27,9 +27,9 @@ export function PredictionCard({
   const { remainingMs, locked } = useCountdown(round.lockAt);
 
   const isOpen = round.status === "open" && !locked;
-  const secs = Math.ceil(remainingMs / 1000);
-  const pct = Math.max(0, Math.min(100, (remainingMs / 60_000) * 100));
-  const low = remainingMs <= 10_000 && !locked;
+  const secs = remainingMs !== undefined ? Math.ceil(remainingMs / 1000) : undefined;
+  const pct = remainingMs !== undefined ? Math.max(0, Math.min(100, (remainingMs / 60_000) * 100)) : 0;
+  const low = remainingMs !== undefined && remainingMs <= 10_000 && !locked;
 
   const answer = (a: Answer) => {
     setPicked(a);
@@ -44,7 +44,7 @@ export function PredictionCard({
       <div className="nb-row" style={{ justifyContent: "space-between" }}>
         <span className="nb-label">{locked ? "Answers locked" : "Locks in"}</span>
         <span className="nb-mono" style={{ fontWeight: 700, fontSize: "1.05rem" }}>
-          {locked ? "LOCKED" : clock(secs)}
+          {locked ? "LOCKED" : secs !== undefined ? clock(secs) : "—"}
         </span>
       </div>
       <div className={`nb-timer ${low ? "nb-timer--low" : ""}`} style={{ marginTop: 6 }}>

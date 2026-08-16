@@ -292,7 +292,8 @@ describe("ArenaRuntime — B7 DoD: a real client passes full rounds over the bro
     // Whenever more than one is pending, they're ordered by windowStartMinute ascending.
     for (const { pending } of pendingAtLock) {
       for (let i = 1; i < pending.length; i++) {
-        expect(pending[i]!.windowStartMinute).toBeGreaterThanOrEqual(pending[i - 1]!.windowStartMinute);
+        // Soccer's pendingPredictionsFor always sets windowStartMinute (round.windowStartMinute ?? 0).
+        expect(pending[i]!.windowStartMinute!).toBeGreaterThanOrEqual(pending[i - 1]!.windowStartMinute!);
       }
     }
 

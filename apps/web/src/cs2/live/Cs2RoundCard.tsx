@@ -73,11 +73,11 @@ export function Cs2RoundCard({
         <p className="nb-label" style={{ marginTop: 12 }}>The match ended before this round played out — no penalty.</p>
       )}
 
-      {round.status === "settled" && round.correctAnswer && (
+      {round.status === "settled" && round.correctAnswer && participant && (
         <div style={{ marginTop: 14 }}>
-          <Badge tone={picked === round.correctAnswer ? "survive" : "eliminated"}>
-            {picked === round.correctAnswer ? "Survived" : "Eliminated"} · answer was{" "}
-            {round.correctAnswer.toUpperCase()}
+          <Badge tone={!eliminated && picked === round.correctAnswer ? "survive" : "eliminated"}>
+            {!eliminated && picked === round.correctAnswer ? "Survived" : "Eliminated"} · answer
+            was {round.correctAnswer.toUpperCase()}
           </Badge>
         </div>
       )}

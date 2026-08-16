@@ -191,6 +191,75 @@ describe("Cs2ArenaRuntime — elimination wiring", () => {
     expect(winnerPersonal.length).toBeGreaterThanOrEqual(1);
   });
 
+  it("voids the already-open next round the instant a winner is decided (single-survivor path), and ignores its subsequent lock/end signals", () => {
+    const { runtime, bus, broadcasts, upserts, arenaPlayerStore } = buildRuntime([PLAYER_YES, PLAYER_NO], fakeProvider());
+    runtime.openRoundOne("t0");
+    const round1 = runtime.currentRound!;
+    runtime.submitAnswer(PLAYER_YES, round1.id, "yes"); // home wins -> correct, sole survivor
+    runtime.submitAnswer(PLAYER_NO, round1.id, "no"); // eliminated
+
+    bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(0, 0, 18), timestamp: "t0" });
+    bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(0, 0, 105), timestamp: "t1" });
+    bus.publish({ kind: "cs2_round_lock", roundNumber: 1, timestamp: "t1" }); // locks R1, opens R2
+    bus.publish({ kind: "cs2_round_end", roundNumber: 1, winner: "home", snapshot: snapshot(1, 0, 20), timestamp: "t2" });
+
+    // Winner decided by Round 1's own settle — Round 2 (already open) must be voided right away,
+    // not left running until some later cs2_match_end.
+    const round2Voided = upserts.find((r) => r.roundNumber === 2 && r.status === "voided");
+    expect(round2Voided).toBeDefined();
+    expect(broadcasts.find((m) => m.type === "round.void")).toEqual({ type: "round.void", roundId: round2Voided!.id });
+
+    const settlesBefore = broadcasts.filter((m) => m.type === "round.settle").length;
+
+    // Subsequent real GRID signals for the now-voided Round 2 must be no-ops.
+    bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(1, 0, 105), timestamp: "t3" });
+    bus.publish({ kind: "cs2_round_lock", roundNumber: 2, timestamp: "t3" });
+    bus.publish({ kind: "cs2_round_end", roundNumber: 2, winner: "home", snapshot: snapshot(2, 0, 20), timestamp: "t4" });
+
+    expect(broadcasts.filter((m) => m.type === "round.settle")).toHaveLength(settlesBefore);
+    expect(arenaPlayerStore.getStatus(PLAYER_NO)).toBe("eliminated"); // unchanged by Round 2
+  });
+
+  it("pendingPredictionsFor: shows a locked-but-unsettled round the player answered, never includes a round they didn't answer, and is empty once eliminated", () => {
+    // PLAYER_YES and PLAYER_NO both answer "yes" (home wins -> both correct, both stay active) —
+    // PLAYER_SILENT never answers anything and gets eliminated ("missed") by Round 1's settle,
+    // but two players still remain active so the arena doesn't finish and Round 2 gets reached.
+    const { runtime, bus } = buildRuntime([PLAYER_YES, PLAYER_NO, PLAYER_SILENT], fakeProvider());
+    runtime.openRoundOne("t0");
+    const round1 = runtime.currentRound!;
+    runtime.submitAnswer(PLAYER_YES, round1.id, "yes");
+    runtime.submitAnswer(PLAYER_NO, round1.id, "yes");
+    // PLAYER_SILENT never answers Round 1.
+
+    expect(runtime.pendingPredictionsFor(PLAYER_YES)).toEqual([]); // still open, not locked yet
+
+    bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(0, 0, 18), timestamp: "t0" });
+    bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(0, 0, 105), timestamp: "t1" });
+    bus.publish({ kind: "cs2_round_lock", roundNumber: 1, timestamp: "t1" }); // locks R1, opens R2
+
+    expect(runtime.pendingPredictionsFor(PLAYER_YES)).toEqual([
+      { roundId: round1.id, question: round1.question, roundNumber: 1, answer: "yes" },
+    ]);
+    expect(runtime.pendingPredictionsFor(PLAYER_SILENT)).toEqual([]); // never answered
+
+    bus.publish({ kind: "cs2_round_end", roundNumber: 1, winner: "home", snapshot: snapshot(1, 0, 20), timestamp: "t2" });
+
+    // Round 1 settled -> drops off; Round 2 is open but not locked -> not pending either. Silent
+    // player got eliminated ("missed") by Round 1's own settle -> forced empty regardless.
+    expect(runtime.pendingPredictionsFor(PLAYER_YES)).toEqual([]);
+    expect(runtime.pendingPredictionsFor(PLAYER_SILENT)).toEqual([]);
+
+    const round2 = runtime.currentRound!;
+    expect(round2.roundNumber).toBe(2);
+    runtime.submitAnswer(PLAYER_YES, round2.id, "no");
+    bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(1, 0, 105), timestamp: "t3" });
+    bus.publish({ kind: "cs2_round_lock", roundNumber: 2, timestamp: "t3" });
+
+    expect(runtime.pendingPredictionsFor(PLAYER_YES)).toEqual([
+      { roundId: round2.id, question: round2.question, roundNumber: 2, answer: "no" },
+    ]);
+  });
+
   it("a voided round persists as voided but eliminates nobody and never reaches the leaderboard", () => {
     const { runtime, bus, arenaPlayerStore, upserts, broadcasts } = buildRuntime([PLAYER_YES, PLAYER_NO], fakeProvider());
     runtime.openRoundOne("t0");

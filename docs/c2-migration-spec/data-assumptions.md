@@ -71,32 +71,32 @@ exposed — flag these when step 4 (Series + Arena lifecycle) gets planned:
   window for CS2 by design"), just unusual, and worth flagging in step 4's plan rather than
   treating as an oversight.
 
-- **CS2 never surfaces "awaiting result" for a locked-but-unsettled round (found in manual live
-  testing, series 2991032, 2026-08-12).** `Cs2RoundEngine` opens Round N+1's question the instant
-  Round N locks (`round-engine.ts`'s `handleRoundLock` → `handleOpen(roundNumber + 1, ...)`) —
-  intentional cascading generation, by design N can be `locked` (answered, awaiting
-  `cs2_round_end`) while N+1 is already `open`. But `Cs2ArenaRuntime` never implements
-  `pendingPredictionsFor` (flagged as a known gap in `ArenaRuntimeLike`'s doc comment,
-  `gateway/arena-runtime.ts`) and never sends `player.pending`, so a player who answered Round N
-  has no way to see that answer is still in flight once Round N+1 replaces it on screen — soccer
-  already solves this (`ArenaRuntime.pendingPredictionsFor`, `PendingPredictionsList.tsx`), CS2
-  never got the equivalent.
-  Blocker: `PendingPrediction` (`packages/contracts/src/ws.ts`) has soccer-only
-  `windowStartMinute`/`windowEndMinute` fields CS2 rounds don't have. Fix: mirror how
-  `PredictionRound` itself already handles this (`entities.ts` — `windowStartMinute?`/
-  `windowEndMinute?` tagged "soccer only", `roundNumber?` tagged "CS2 only", same interface, no
-  discriminated union) — add `roundNumber?: number` to `PendingPrediction`, make the window
-  fields optional, implement `Cs2ArenaRuntime.pendingPredictionsFor` against the same
-  locked-and-answered read as soccer's, and add a CS2 equivalent of `PendingPredictionsList` to
-  `Cs2ArenaScreen.tsx` (currently explicitly skipped there, per that file's own comment).
+- **[FIXED] CS2 never surfaces "awaiting result" for a locked-but-unsettled round (found in
+  manual live testing, series 2991032, 2026-08-12).** `Cs2RoundEngine` opens Round N+1's question
+  the instant Round N locks (`round-engine.ts`'s `handleRoundLock` → `handleOpen(roundNumber + 1,
+  ...)`) — intentional cascading generation, by design N can be `locked` (answered, awaiting
+  `cs2_round_end`) while N+1 is already `open`. `Cs2ArenaRuntime` never implemented
+  `pendingPredictionsFor` and never sent `player.pending`, so a player who answered Round N had no
+  way to see that answer was still in flight once Round N+1 replaced it on screen.
+  Fixed: `PendingPrediction` (`packages/contracts/src/ws.ts`) now uses the same
+  discipline-tagged-optional-fields pattern `PredictionRound` already uses —
+  `windowStartMinute?`/`windowEndMinute?` (soccer only) plus a new `roundNumber?: number` (CS2
+  only), no discriminated union. `Cs2ArenaRuntime.pendingPredictionsFor` mirrors soccer's
+  (`gateway/arena-runtime.ts`) — eliminated players get `[]`, otherwise every `locked` round the
+  user answered, sorted by `roundNumber`, pushed via `player.pending` on lock and settle
+  (`pushPendingForAnswerers`). `PendingPredictionsList.tsx` is now shared as-is between
+  disciplines — its subtitle picks whichever field pair is present — and rendered from
+  `Cs2ArenaScreen.tsx` the same way `screens/ArenaScreen.tsx` already does for soccer. Test:
+  `cs2/__tests__/arena-runtime.test.ts` — "pendingPredictionsFor: shows a locked-but-unsettled
+  round...".
 
-- **Reload/reconnect can strand the client on "Waiting for round" with no vote possible (found in
-  manual live testing, series 2991032, 2026-08-12).** Not CS2-specific — the same bug exists in
-  both `apps/web/src/cs2/live/useCs2ArenaSocket.ts` and soccer's
+- **[FIXED] Reload/reconnect can strand the client on "Waiting for round" with no vote possible
+  (found in manual live testing, series 2991032, 2026-08-12).** Not CS2-specific — the same bug
+  existed in both `apps/web/src/cs2/live/useCs2ArenaSocket.ts` and soccer's
   `apps/web/src/arena/live/useArenaSocket.ts`, just far more likely to bite CS2 given its ~60-100s
   round cadence vs. soccer's 5-min windows. Two compounding causes:
-  1. `initialView(d)` in both hooks builds the view from the REST snapshot
-     (`fetchCs2ArenaDetail`/`fetchArenaDetail`) but never reads `d.currentRound`, even though
+  1. `initialView(d)` in both hooks built the view from the REST snapshot
+     (`fetchCs2ArenaDetail`/`fetchArenaDetail`) but never read `d.currentRound`, even though
      `ArenaDetailResponse.currentRound` (`packages/contracts/src/dto.ts`) already carries it —
      `gateway/rest.ts`'s `GET /arenas/:id` populates it from `runtime.currentRound` generically,
      for exactly this reconnect case.
@@ -106,60 +106,78 @@ exposed — flag these when step 4 (Series + Arena lifecycle) gets planned:
      `round.lock`/...) arrives while `view` is still `null` (REST not yet resolved), it's silently
      dropped, no requeue. The client then has no `round` until the next real live transition
      broadcasts, which for CS2 can still be a while and for soccer up to ~5 min.
-  Fix: seed `round` directly from `d.currentRound` in `initialView()` (both hooks) — this alone
-  neutralizes the WS race for the round display, since `view.round` is already correct from REST
-  by the time any resync message would apply on top of it. The underlying WS-vs-REST race itself
-  is left as-is (other resync fields — `leaderboard`, soccer's `matchState` — could theoretically
-  hit the same drop, not yet confirmed as user-visible in practice).
+  Fixed: `round` is now seeded directly from `d.currentRound` in `initialView()` (both hooks) —
+  this alone neutralizes the WS race for the round display, since `view.round` is already correct
+  from REST by the time any resync message would apply on top of it. `PredictionRound` carries no
+  `lockAt`, so soccer's `RoundView.lockAt` became optional (`useCountdown`/`PredictionCard` now
+  treat "unknown lockAt" as no countdown shown, not locked, until a live `round.open`/`round.lock`
+  supplies a real one). The underlying WS-vs-REST race itself is left as-is (other resync fields —
+  `leaderboard`, soccer's `matchState` — could theoretically hit the same drop, not yet confirmed
+  as user-visible in practice). Also newly noted, out of scope here: `myAnswer` for the seeded
+  round is never restored on reload (neither `PredictionRound` nor `ArenaDetailResponse` carries a
+  per-user answer) — the locked case is covered by the `pendingPredictionsFor` fix below, but an
+  *open* round's own prior answer still resets to unpicked on reload, in both disciplines.
 
-- **Leftover open/locked rounds keep running after the Arena already has a declared winner
-  (found in manual live testing, series 2991032, 2026-08-12).** `Cs2ArenaRuntime` can declare a
-  winner (`this.winners` set via `LeaderboardService`'s "exactly one survivor" path,
+- **[FIXED] Leftover open/locked rounds keep running after the Arena already has a declared
+  winner (found in manual live testing, series 2991032, 2026-08-12).** `Cs2ArenaRuntime` could
+  declare a winner (`this.winners` set via `LeaderboardService`'s "exactly one survivor" path,
   `flushFinishIfPending()`) well before the real CS2 match physically ends (`cs2_match_end`) —
-  elimination can narrow the field to one player many rounds before the map itself finishes.
-  But `Cs2RoundEngine.isArenaFinished()` (`round-engine.ts:141`) is only consulted in
-  `handleRoundLock`, to decide whether to open the *next* round — it never touches a round that's
-  already `open`/`locked` at the moment the winner gets declared (there's normally exactly one,
-  per the cascading-generation overlap: Round N+1 opens the instant Round N locks). That
-  already-open round keeps living its ordinary lock → settle lifecycle off subsequent real GRID
-  signals, unaware the Arena is already decided, until the map's actual `cs2_match_end` finally
-  triggers `handleMatchEnd()`'s void-pass — which can be many real rounds later. Wasteful, and
-  compounds the badge bug below.
-  Fix: add a `Cs2RoundEngine.voidRemaining(timestamp)` method (mirrors the void-pass in
-  `handleMatchEnd`) and call it from `Cs2ArenaRuntime` immediately after `flushFinishIfPending()`
-  sets `this.winners` via the single-survivor path (not needed on the `cs2_match_end` tie-break
-  path — `handleMatchEnd()` already cleans up there).
+  elimination can narrow the field to one player many rounds before the map itself finishes. But
+  `Cs2RoundEngine.isArenaFinished()` (`round-engine.ts`) was only consulted in `handleRoundLock`,
+  to decide whether to open the *next* round — it never touched a round that was already
+  `open`/`locked` at the moment the winner got declared (there's normally exactly one, per the
+  cascading-generation overlap: Round N+1 opens the instant Round N locks). That already-open
+  round would keep living its ordinary lock → settle lifecycle off subsequent real GRID signals,
+  unaware the Arena was already decided, until the map's actual `cs2_match_end` finally triggered
+  `handleMatchEnd()`'s void-pass — which could be many real rounds later.
+  Fixed: `Cs2RoundEngine.voidRemaining()` (extracted from `handleMatchEnd`'s existing void-pass,
+  no timestamp needed — voided rounds don't carry one) is now also called from
+  `Cs2ArenaRuntime.flushFinishIfPending()` right after `this.winners` is set via the
+  single-survivor path, before `arena.finished` broadcasts. No-op on the `cs2_match_end` path —
+  `handleMatchEnd()` already cleaned up there. Test:
+  `cs2/__tests__/arena-runtime.test.ts` — "voids the already-open next round the instant a winner
+  is decided...".
 
-- **A player already eliminated can still see "Survived" on a later round they'd pre-answered
-  (found in manual live testing, series 2991032, 2026-08-12).** Independent of the leftover-round
-  issue above — reproduces on *any* normal elimination, not just the winner-deciding round.
-  `Cs2RoundCard.tsx`'s settled-round badge computes `picked === round.correctAnswer ? "Survived" :
-  "Eliminated"` (lines 76-83) purely from the round's own local answer comparison — it ignores the
-  `eliminated` prop (`view.myStatus`, the server-authoritative status). Because Round N+1 opens
-  before Round N settles (cascading generation, same overlap as the `pendingPredictionsFor` gap
-  above), a player can answer N+1 correctly while still active, then get eliminated by Round N's
-  own settle — and when N+1 later settles, the badge still reads "Survived" from the stale local
-  comparison, contradicting the `player.status: eliminated` push that already arrived.
-  Fix: the settled badge must factor in `eliminated`/`myStatus` — once a player is (or becomes)
-  eliminated by any earlier round, every later round they'd already answered should read
-  "Eliminated" regardless of whether that specific round's own answer was correct.
+- **[FIXED] A player already eliminated can still see "Survived" on a later round they'd
+  pre-answered (found in manual live testing, series 2991032, 2026-08-12).** Independent of the
+  leftover-round issue above — reproduces on *any* normal elimination, not just the
+  winner-deciding round. `Cs2RoundCard.tsx`'s settled-round badge computed `picked ===
+  round.correctAnswer ? "Survived" : "Eliminated"` purely from the round's own local answer
+  comparison — it ignored the `eliminated` prop (`view.myStatus`, the server-authoritative
+  status). Because Round N+1 opens before Round N settles (cascading generation, same overlap as
+  the `pendingPredictionsFor` gap above), a player could answer N+1 correctly while still active,
+  then get eliminated by Round N's own settle — and when N+1 later settled, the badge still read
+  "Survived" from the stale local comparison, contradicting the `player.status: eliminated` push
+  that already arrived.
+  Fixed: the badge condition is now `!eliminated && picked === round.correctAnswer`, and the
+  whole personal-result block is gated on `participant` (a spectator has no `picked` of their own
+  to show a result for).
 
-- **The match feed (elimination/settle history) never survives a reload — related to, but not
-  fixed by, the "Waiting for round" gap above (found in manual live testing, series 2991032,
+- **[FIXED] The match feed (elimination/settle history) never survives a reload — related to, but
+  not fixed by, the "Waiting for round" gap above (found in manual live testing, series 2991032,
   2026-08-12).** Not CS2-specific — same pattern in soccer. `feed` in both
   `useCs2ArenaSocket.ts`/`useArenaSocket.ts` is a purely client-side array built by `reduce()` off
-  live WS messages (`round.settle`, `player.status`, `arena.cancelled`, `arena.finished`), capped
-  at 20 via `prepend(...).slice(0, 20)` — there is no server-side persistence of feed events at
-  all, in Postgres or otherwise, and `ArenaDetailResponse` (the REST reconnect snapshot) carries
-  no feed data. `gateway/ws.ts`'s `ArenaCache` (the WS resync mechanism) only keeps the *latest*
-  message per category for `subscribe` replay, not a history — so even fixing the WS-vs-REST race
-  from the "Waiting for round" gap would not restore feed history on reload; `initialView()`
-  always starts `feed: []`.
-  Fix needs a new source of truth, not just wiring up an existing field like the `currentRound`
-  fix above: either (a) persist feed events server-side (new table, or reconstruct from already-
-  persisted `prediction`/`arena_player` rows on `GET /arenas/:id`), or (b) extend `ArenaCache` to
-  keep the last N events per category (not just the latest one) and replay that history on
-  `subscribe`.
+  live WS messages, capped at 20 via `prepend(...).slice(0, 20)`; `initialView()` always started
+  `feed: []`.
+  Turned out **no new source of truth was needed**: `GET /arenas/:id/rounds`
+  (`gateway/rest.ts`, `ArenaRoundsResponse`) already persists the full round history in Postgres,
+  each round with its `Prediction[]` (settled rounds only, spec §8) — CS2's gateway serves the
+  same route, and `Cs2ArenaRuntime` already calls `persistence.upsertRound` on every transition,
+  so the data was already there. The frontend just never called the endpoint.
+  Fixed: `prediction-round.repository.ts`'s `listByArenaId` now sorts by `windowStartMinute` then
+  `roundNumber` (it previously sorted by `windowStartMinute` alone, which left CS2 rows — always
+  `NULL` there — in undefined order). New `fetchArenaRounds`/`fetchCs2ArenaRounds` client calls,
+  and a shared `arena/feedFromRounds.ts` helper that reconstructs `FeedItem[]` from
+  `RoundWithPredictions[]` — same `id` scheme as `reduce()`'s live-built items
+  (`settle-${roundId}`, `void-${roundId}`) so a live message that lands after this seed dedupes
+  against it (`prepend()` in both hooks now filters by `id` before prepending) instead of
+  doubling up. Also restores personal "You survived"/"You were eliminated" feed entries, which
+  the earlier `ArenaCache`-buffer proposal couldn't have (those are addressed per-socket, never
+  broadcast).
+  Still not covered: a player's own answer to the *current* (not yet settled) round doesn't
+  survive reload — the endpoint deliberately omits predictions for open/locked rounds (privacy).
+  The locked case is covered by `pendingPredictionsFor`; an *open* round's own prior pick still
+  resets to unpicked, same gap noted above.
 
 ## How to re-check
 

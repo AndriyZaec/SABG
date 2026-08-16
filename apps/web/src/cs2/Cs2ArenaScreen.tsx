@@ -4,14 +4,13 @@ import { SeriesHeader } from "./live/SeriesHeader.js";
 import { Cs2RoundCard } from "./live/Cs2RoundCard.js";
 import { EliminationFeed } from "../arena/live/EliminationFeed.js";
 import { LeaderboardRail } from "../arena/live/LeaderboardRail.js";
+import { PendingPredictionsList } from "../arena/live/PendingPredictionsList.js";
 import { WinnerBanner } from "../arena/live/WinnerBanner.js";
 import { Loading } from "../ui/Loading.js";
 import { Panel } from "../ui/Panel.js";
 
-// CS2's analog of screens/ArenaScreen.tsx. No PendingPredictionsList (arena/live/) — CS2 never
-// sends player.pending, pendingPredictionsFor isn't implemented server-side yet (a tracked,
-// deliberate gap, not an oversight here). No "demo" arenaId fallback either — there is no seeded
-// CS2 demo fixture.
+// CS2's analog of screens/ArenaScreen.tsx. No "demo" arenaId fallback — there is no seeded CS2
+// demo fixture.
 export function Cs2ArenaScreen() {
   const { arenaId } = useParams();
   const { view, connected, submitAnswer } = useCs2ArenaSocket(arenaId ?? "");
@@ -45,6 +44,10 @@ export function Cs2ArenaScreen() {
   // (deliberately out of scope, see the plan), so this is effectively always true for now.
   const isParticipant = view.myStatus !== undefined;
 
+  // The current round is already shown in full by Cs2RoundCard — this list is only the other
+  // rounds still awaiting settlement (the cascading-generation overlap: N locked, N+1 open).
+  const pending = (view.pendingPredictions ?? []).filter((p) => p.roundId !== view.round?.roundId);
+
   return (
     <div className="nb-container">
       {!connected && (
@@ -76,6 +79,7 @@ export function Cs2ArenaScreen() {
               participant={isParticipant}
             />
           )}
+          {pending.length > 0 && <PendingPredictionsList predictions={pending} />}
           <EliminationFeed feed={view.feed} />
         </div>
         <aside style={{ display: "grid", gap: 20 }}>

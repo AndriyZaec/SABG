@@ -184,8 +184,8 @@ export class GatewayWebSocketServer implements GatewayBroadcaster, ArenaRuntimeL
 
     // Personal resync (spec §9): the player's own locked-but-unsettled answers, never cached
     // generically (same reasoning as player.status) — read fresh from the runtime per subscriber.
-    // Both are optional on ArenaRuntimeLike (CS2 doesn't implement pendingPredictionsFor yet, a
-    // tracked contract gap — arena-runtime.ts) — skip rather than fake an empty/undefined result.
+    // Both are optional on ArenaRuntimeLike only for test doubles that don't need them — both real
+    // runtimes (soccer's and CS2's, arena-runtime.ts in each) implement them.
     const runtime = this.runtimes.get(arenaId);
     if (runtime?.pendingPredictionsFor !== undefined) {
       this.send(conn, { type: "player.pending", predictions: runtime.pendingPredictionsFor(conn.userId) });

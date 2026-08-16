@@ -76,9 +76,9 @@ export interface ArenaPersistence {
  * not this surrounding plumbing).
  *
  * `matchState`/`statusFor`/`pendingPredictionsFor` are optional because CS2 doesn't have a
- * soccer-style match clock (`matchState`) and doesn't implement `pendingPredictionsFor` yet — a
- * real, tracked contract gap (`PendingPrediction` requires soccer-only
- * `windowStartMinute`/`windowEndMinute`), not an oversight here. Callers must guard accordingly.
+ * soccer-style match clock (`matchState`) — `Cs2ArenaRuntime` (cs2/arena-runtime.ts) does
+ * implement `statusFor`/`pendingPredictionsFor`, but they stay optional here for test doubles
+ * that don't need them. Callers must guard accordingly.
  */
 export interface ArenaRuntimeLike {
   readonly currentRound: PredictionRound | undefined;
@@ -274,7 +274,7 @@ export class ArenaRuntime implements ArenaRuntimeLike {
         answer,
       });
     }
-    return pending.sort((a, b) => a.windowStartMinute - b.windowStartMinute);
+    return pending.sort((a, b) => (a.windowStartMinute ?? 0) - (b.windowStartMinute ?? 0));
   }
 
   /** Re-push the personal pending snapshot to every user who answered `roundId` — call whenever

@@ -2,6 +2,7 @@ import type {
   Arena,
   ArenaDetailResponse,
   ArenaListResponse,
+  ArenaRoundsResponse,
   BuyEntryResponse,
   EventAccessSessionResponse,
   EventAccessSignInRequest,
@@ -150,6 +151,12 @@ export async function fetchArenaDetail(arenaId: string): Promise<ArenaDetailResp
 /** Current leaderboard snapshot — seeds the board on load (WS updates only fire on settle). */
 export async function fetchLeaderboard(arenaId: string): Promise<LeaderboardResponse> {
   return get<LeaderboardResponse>(`/arenas/${arenaId}/leaderboard`);
+}
+
+/** Full round history (each settled round with its Predictions) — used to reconstruct the match
+ *  feed on load, since `feed` itself is purely client-side and doesn't survive a reload. */
+export async function fetchArenaRounds(arenaId: string): Promise<ArenaRoundsResponse> {
+  return get<ArenaRoundsResponse>(`/arenas/${arenaId}/rounds`);
 }
 
 /** Register an on-chain entry with the backend (joins the player to the arena game). */

@@ -2,13 +2,22 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Answer, ArenaDetailResponse, ServerMessage } from "@arena/contracts";
 import {
   fetchArenaDetail,
+  fetchArenaRounds,
   fetchEventAccessSession,
   fetchLeaderboard,
   notifyEventAccessRequired,
 } from "../../api/client.js";
 import { useAuth } from "../../auth/AuthContext.js";
-import type { ArenaView, FeedItem, LeaderRow } from "../arenaView.js";
+import type { ArenaView, LeaderRow } from "../arenaView.js";
 import { makeDemoView } from "../arenaView.js";
+import {
+  ELIMINATED_TEXT,
+  feedFromRounds,
+  formatSettleText,
+  prependFeedItem,
+  settleFeedId,
+  SURVIVED_TEXT,
+} from "../feedFromRounds.js";
 
 function buildWsUrl(token: string | null): string {
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -18,6 +27,7 @@ function buildWsUrl(token: string | null): string {
 
 function initialView(d: ArenaDetailResponse): ArenaView {
   const state = d.matchState;
+  const round = d.currentRound;
   return {
     home: d.match.homeTeam,
     away: d.match.awayTeam,
@@ -26,18 +36,23 @@ function initialView(d: ArenaDetailResponse): ArenaView {
     period: state?.period ?? d.match.period,
     survivors: d.arena.activePlayersCount,
     totalPlayers: d.arena.activePlayersCount,
+    // Seeded from the reconnect snapshot so a reload doesn't strand the client on "Waiting for
+    // round" until the next live round.* message — no lockAt here (PredictionRound doesn't carry
+    // one), so useCountdown treats it as unknown until a live round.open/round.lock replaces it.
+    ...(round
+      ? {
+          round: {
+            roundId: round.id,
+            question: round.question,
+            windowStartMinute: round.windowStartMinute ?? 0,
+            windowEndMinute: round.windowEndMinute ?? 0,
+            status: round.status,
+          },
+        }
+      : {}),
     feed: [],
     leaderboard: [],
   };
-}
-
-function prepend(feed: FeedItem[], item: FeedItem): FeedItem[] {
-  return [item, ...feed].slice(0, 20);
-}
-
-/** Keeps feed entries readable — a long question shouldn't blow out the feed item's width. */
-function truncate(text: string, max = 64): string {
-  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
 /** Fold a server message into the current view. */
@@ -74,12 +89,10 @@ function reduce(view: ArenaView, msg: ServerMessage, myUserId?: string): ArenaVi
         ...(view.round && view.round.roundId === msg.roundId
           ? { round: { ...view.round, status: "settled" as const, correctAnswer: msg.correctAnswer } }
           : {}),
-        feed: prepend(view.feed, {
-          id: `settle-${msg.roundId}`,
+        feed: prependFeedItem(view.feed, {
+          id: settleFeedId(msg.roundId),
           kind: "info",
-          text: msg.question
-            ? `Round settled · ${truncate(msg.question)} · answer ${msg.correctAnswer.toUpperCase()}`
-            : `Round settled · answer ${msg.correctAnswer.toUpperCase()}`,
+          text: formatSettleText(msg.question, msg.correctAnswer),
           minute: view.minute,
         }),
       };
@@ -109,9 +122,8 @@ function reduce(view: ArenaView, msg: ServerMessage, myUserId?: string): ArenaVi
       // announce — except "winner", which has no roundId even live (harmless to show again).
       if (msg.roundId === undefined && msg.status !== "winner") return next;
       const kind = msg.status === "eliminated" ? "eliminated" : "survived";
-      const text =
-        msg.status === "eliminated" ? "You were eliminated" : msg.status === "winner" ? "You won!" : "You survived";
-      return { ...next, feed: prepend(view.feed, { id: `me-${Date.now()}`, kind, text, minute: view.minute }) };
+      const text = msg.status === "eliminated" ? ELIMINATED_TEXT : msg.status === "winner" ? "You won!" : SURVIVED_TEXT;
+      return { ...next, feed: prependFeedItem(view.feed, { id: `me-${Date.now()}`, kind, text, minute: view.minute }) };
     }
     case "player.pending":
       // Full-list snapshot from the server (re-sent on lock/settle/subscribe) — replace, don't merge.
@@ -124,7 +136,7 @@ function reduce(view: ArenaView, msg: ServerMessage, myUserId?: string): ArenaVi
       return {
         ...view,
         ...(iWon ? { myStatus: "winner" as const } : {}),
-        feed: prepend(view.feed, { id: `fin-${Date.now()}`, kind: "info", text: "Match finished", minute: view.minute }),
+        feed: prependFeedItem(view.feed, { id: `fin-${Date.now()}`, kind: "info", text: "Match finished", minute: view.minute }),
       };
     }
     default:
@@ -154,8 +166,12 @@ export function useArenaSocket(arenaId: string): ArenaSocket {
   useEffect(() => {
     if (isDemo) return;
     let cancelled = false;
-    void Promise.all([fetchArenaDetail(arenaId), fetchLeaderboard(arenaId).catch(() => null)])
-      .then(([detail, board]) => {
+    void Promise.all([
+      fetchArenaDetail(arenaId),
+      fetchLeaderboard(arenaId).catch(() => null),
+      fetchArenaRounds(arenaId).catch(() => null),
+    ])
+      .then(([detail, board, rounds]) => {
         if (cancelled) return;
         const rows: LeaderRow[] = (board?.entries ?? []).map((e, i) => ({
           rank: e.rank ?? i + 1,
@@ -164,7 +180,8 @@ export function useArenaSocket(arenaId: string): ArenaSocket {
           status: e.status,
           you: myUserId.current != null && e.userId === myUserId.current,
         }));
-        setView((v) => v ?? { ...initialView(detail), leaderboard: rows });
+        const feed = rounds ? feedFromRounds(rounds.rounds, myUserId.current) : [];
+        setView((v) => v ?? { ...initialView(detail), leaderboard: rows, feed });
       })
       .catch(() => undefined);
     return () => {

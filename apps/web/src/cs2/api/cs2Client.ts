@@ -9,6 +9,7 @@ import type {
   Arena,
   ArenaDetailResponse,
   ArenaListResponse,
+  ArenaRoundsResponse,
   LeaderboardResponse,
   Match,
   MatchListResponse,
@@ -76,6 +77,12 @@ export async function fetchCs2ArenaDetail(arenaId: string): Promise<ArenaDetailR
 
 export async function fetchCs2Leaderboard(arenaId: string): Promise<LeaderboardResponse> {
   return get<LeaderboardResponse>(`/arenas/${arenaId}/leaderboard`);
+}
+
+/** Full round history — used to reconstruct the match feed on load (see api/client.ts's
+ *  fetchArenaRounds; `feed` itself is purely client-side and doesn't survive a reload). */
+export async function fetchCs2ArenaRounds(arenaId: string): Promise<ArenaRoundsResponse> {
+  return get<ArenaRoundsResponse>(`/arenas/${arenaId}/rounds`);
 }
 
 /**

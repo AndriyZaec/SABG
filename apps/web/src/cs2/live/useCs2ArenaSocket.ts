@@ -1,9 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Answer, ArenaDetailResponse, ServerMessage } from "@arena/contracts";
-import { fetchCs2ArenaDetail, fetchCs2Leaderboard } from "../api/cs2Client.js";
+import { fetchCs2ArenaDetail, fetchCs2Leaderboard, fetchCs2ArenaRounds } from "../api/cs2Client.js";
 import { notifyEventAccessRequired, fetchEventAccessSession } from "../../api/client.js";
 import { useAuth } from "../../auth/AuthContext.js";
-import type { Cs2ArenaView, FeedItem, LeaderRow } from "../cs2View.js";
+import {
+  ELIMINATED_TEXT,
+  feedFromRounds,
+  formatSettleText,
+  prependFeedItem,
+  settleFeedId,
+  SURVIVED_TEXT,
+  voidFeedId,
+  VOID_FEED_TEXT,
+} from "../../arena/feedFromRounds.js";
+import type { Cs2ArenaView, LeaderRow } from "../cs2View.js";
 
 // Mirrors arena/live/useArenaSocket.ts's structure (REST snapshot + WS effect + submitAnswer),
 // but connects to the CS2 gateway's own /cs2-ws (see vite.config.ts) and folds CS2's own message
@@ -17,22 +27,27 @@ function buildCs2WsUrl(token: string | null): string {
 }
 
 function initialView(d: ArenaDetailResponse): Cs2ArenaView {
+  const round = d.currentRound;
   return {
     homeTeam: d.match.homeTeam,
     awayTeam: d.match.awayTeam,
     survivors: d.arena.activePlayersCount,
     totalPlayers: d.arena.activePlayersCount,
+    // Seeded from the reconnect snapshot so a reload doesn't strand the client on "Waiting for
+    // round" until the next live round.* message.
+    ...(round
+      ? {
+          round: {
+            roundId: round.id,
+            roundNumber: round.roundNumber ?? 0,
+            question: round.question,
+            status: round.status,
+          },
+        }
+      : {}),
     feed: [],
     leaderboard: [],
   };
-}
-
-function prepend(feed: FeedItem[], item: FeedItem): FeedItem[] {
-  return [item, ...feed].slice(0, 20);
-}
-
-function truncate(text: string, max = 64): string {
-  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
 function reduce(view: Cs2ArenaView, msg: ServerMessage, myUserId?: string): Cs2ArenaView {
@@ -57,25 +72,26 @@ function reduce(view: Cs2ArenaView, msg: ServerMessage, myUserId?: string): Cs2A
         ...(view.round && view.round.roundId === msg.roundId
           ? { round: { ...view.round, status: "settled" as const, correctAnswer: msg.correctAnswer } }
           : {}),
-        feed: prepend(view.feed, {
-          id: `settle-${msg.roundId}`,
+        feed: prependFeedItem(view.feed, {
+          id: settleFeedId(msg.roundId),
           kind: "info",
-          text: msg.question
-            ? `Round settled · ${truncate(msg.question)} · answer ${msg.correctAnswer.toUpperCase()}`
-            : `Round settled · answer ${msg.correctAnswer.toUpperCase()}`,
+          text: formatSettleText(msg.question, msg.correctAnswer),
         }),
       };
     case "round.void":
       return {
         ...view,
         ...(view.round && view.round.roundId === msg.roundId ? { round: undefined } : {}),
-        feed: prepend(view.feed, { id: `void-${msg.roundId}`, kind: "info", text: "Round voided — match ended first" }),
+        feed: prependFeedItem(view.feed, { id: voidFeedId(msg.roundId), kind: "info", text: VOID_FEED_TEXT }),
       };
+    case "player.pending":
+      // Full-list snapshot from the server (re-sent on lock/settle/subscribe) — replace, don't merge.
+      return { ...view, pendingPredictions: msg.predictions };
     case "arena.cancelled":
       return {
         ...view,
         cancelled: { reason: msg.reason },
-        feed: prepend(view.feed, { id: "cancelled", kind: "info", text: `Arena cancelled (${msg.reason})` }),
+        feed: prependFeedItem(view.feed, { id: "cancelled", kind: "info", text: `Arena cancelled (${msg.reason})` }),
       };
     case "leaderboard.update": {
       const leaderboard: LeaderRow[] = msg.entries.map((e, i) => ({
@@ -98,16 +114,15 @@ function reduce(view: Cs2ArenaView, msg: ServerMessage, myUserId?: string): Cs2A
       const next = { ...view, myStatus: status };
       if (msg.roundId === undefined && msg.status !== "winner") return next;
       const kind = msg.status === "eliminated" ? "eliminated" : "survived";
-      const text =
-        msg.status === "eliminated" ? "You were eliminated" : msg.status === "winner" ? "You won!" : "You survived";
-      return { ...next, feed: prepend(view.feed, { id: `me-${Date.now()}`, kind, text }) };
+      const text = msg.status === "eliminated" ? ELIMINATED_TEXT : msg.status === "winner" ? "You won!" : SURVIVED_TEXT;
+      return { ...next, feed: prependFeedItem(view.feed, { id: `me-${Date.now()}`, kind, text }) };
     }
     case "arena.finished": {
       const iWon = myUserId != null && msg.winners.includes(myUserId);
       return {
         ...view,
         ...(iWon ? { myStatus: "winner" as const } : {}),
-        feed: prepend(view.feed, { id: `fin-${Date.now()}`, kind: "info", text: "Series finished" }),
+        feed: prependFeedItem(view.feed, { id: `fin-${Date.now()}`, kind: "info", text: "Series finished" }),
       };
     }
     default:
@@ -133,8 +148,12 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
   // board is empty until the first round settles.
   useEffect(() => {
     let cancelled = false;
-    void Promise.all([fetchCs2ArenaDetail(arenaId), fetchCs2Leaderboard(arenaId).catch(() => null)])
-      .then(([detail, board]) => {
+    void Promise.all([
+      fetchCs2ArenaDetail(arenaId),
+      fetchCs2Leaderboard(arenaId).catch(() => null),
+      fetchCs2ArenaRounds(arenaId).catch(() => null),
+    ])
+      .then(([detail, board, rounds]) => {
         if (cancelled) return;
         const rows: LeaderRow[] = (board?.entries ?? []).map((e, i) => ({
           rank: e.rank ?? i + 1,
@@ -143,7 +162,8 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
           status: e.status,
           you: myUserId.current != null && e.userId === myUserId.current,
         }));
-        setView((v) => v ?? { ...initialView(detail), leaderboard: rows });
+        const feed = rounds ? feedFromRounds(rounds.rounds, myUserId.current) : [];
+        setView((v) => v ?? { ...initialView(detail), leaderboard: rows, feed });
       })
       .catch(() => undefined);
     return () => {
