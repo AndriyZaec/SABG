@@ -18,6 +18,11 @@ import { targetEventTypeForAction } from "./whitelist.js";
  *
  * Returns `undefined` when there isn't enough information (no clock, or a non-clocked phase
  * like NS/HT/finished).
+ *
+ * Uses `Math.floor`, not `Math.ceil`: a `SettlementCondition.windowStartMinute` of 15 means
+ * "match clock reads 15:00", i.e. `clockSeconds` has reached 900. `Math.ceil` would put
+ * clockSeconds 841-900 (clock 14:01-15:00) into minute 15, spilling an event from the 14th
+ * minute into a window that starts at 15.
  */
 export function deriveMinute(
   statusId: number | undefined,
@@ -25,7 +30,7 @@ export function deriveMinute(
 ): number | undefined {
   if (statusId === undefined || clockSeconds === undefined) return undefined;
   if (!isClockedStatus(statusId)) return undefined;
-  return Math.ceil(clockSeconds / 60);
+  return Math.floor(clockSeconds / 60);
 }
 
 /** Maps a `Participant` (1|2) reference to home/away using `Participant1IsHome`. */

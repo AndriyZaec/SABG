@@ -153,8 +153,8 @@ export async function fetchLeaderboard(arenaId: string): Promise<LeaderboardResp
   return get<LeaderboardResponse>(`/arenas/${arenaId}/leaderboard`);
 }
 
-/** Full round history (each settled round with its Predictions) — used to reconstruct the match
- *  feed on load, since `feed` itself is purely client-side and doesn't survive a reload. */
+/** Round history (settled rounds carry every player's Prediction) — reconstructs the match
+ *  feed on load so a reload or a mid-match joiner isn't stuck with an empty feed. */
 export async function fetchArenaRounds(arenaId: string): Promise<ArenaRoundsResponse> {
   return get<ArenaRoundsResponse>(`/arenas/${arenaId}/rounds`);
 }

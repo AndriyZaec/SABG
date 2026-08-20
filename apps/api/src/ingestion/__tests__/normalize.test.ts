@@ -16,13 +16,20 @@ function snapshot(overrides: Partial<ScoreSnapshot>): ScoreSnapshot {
 describe("deriveMinute", () => {
   it("derives the minute from elapsed clock seconds in the first half", () => {
     // Clock.Seconds is elapsed seconds since kickoff (verified against fixture 18179764's
-    // H1/H2 boundary) -> ceil(2000/60) = 34'
-    expect(deriveMinute(2, 2000)).toBe(34);
+    // H1/H2 boundary) -> floor(2000/60) = 33' (match clock reads 33:20)
+    expect(deriveMinute(2, 2000)).toBe(33);
   });
 
   it("keeps counting across the H1/H2 boundary without a per-period reset", () => {
     // H2 (StatusId 4) continues the same accumulating clock past 45:00 (2700s)
     expect(deriveMinute(4, 2760)).toBe(46);
+  });
+
+  it("does not roll a corner at clock 14:01-15:00 into the 15' window (regression)", () => {
+    // clockSeconds 841-900 is match clock 14:01-15:00 -> minute 14, not 15, so it must not
+    // satisfy a SettlementCondition with windowStartMinute: 15.
+    expect(deriveMinute(2, 841)).toBe(14);
+    expect(deriveMinute(2, 900)).toBe(15);
   });
 
   it("returns undefined for non-clocked phases (e.g. half time, not started)", () => {
@@ -61,7 +68,7 @@ describe("normalizeEvent", () => {
     );
     expect(event).not.toBeNull();
     expect(event?.eventType).toBe("goal");
-    expect(event?.matchMinute).toBe(34);
+    expect(event?.matchMinute).toBe(33);
     expect(event?.team).toBe("home");
     expect(event?.matchId).toBe(MATCH_ID);
   });

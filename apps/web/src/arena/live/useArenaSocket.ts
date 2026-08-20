@@ -123,7 +123,10 @@ function reduce(view: ArenaView, msg: ServerMessage, myUserId?: string): ArenaVi
       if (msg.roundId === undefined && msg.status !== "winner") return next;
       const kind = msg.status === "eliminated" ? "eliminated" : "survived";
       const text = msg.status === "eliminated" ? ELIMINATED_TEXT : msg.status === "winner" ? "You won!" : SURVIVED_TEXT;
-      return { ...next, feed: prependFeedItem(view.feed, { id: `me-${Date.now()}`, kind, text, minute: view.minute }) };
+      // Stable id: live eliminated/survived always carries roundId (matches feedFromRounds'
+      // `me-${roundId}`); the winner resync (and live winner) has none, so it gets one fixed id.
+      const id = msg.status === "winner" ? "me-winner" : `me-${msg.roundId}`;
+      return { ...next, feed: prependFeedItem(view.feed, { id, kind, text, minute: view.minute }) };
     }
     case "player.pending":
       // Full-list snapshot from the server (re-sent on lock/settle/subscribe) — replace, don't merge.
@@ -136,7 +139,14 @@ function reduce(view: ArenaView, msg: ServerMessage, myUserId?: string): ArenaVi
       return {
         ...view,
         ...(iWon ? { myStatus: "winner" as const } : {}),
-        feed: prependFeedItem(view.feed, { id: `fin-${Date.now()}`, kind: "info", text: "Match finished", minute: view.minute }),
+        // Stable id: one arena has exactly one finish, and this frame is replayed on every
+        // (re)subscribe — a fixed id lets `prependFeedItem` replace the duplicate.
+        feed: prependFeedItem(view.feed, {
+          id: "arena-finished",
+          kind: "info",
+          text: "Match finished",
+          minute: view.minute,
+        }),
       };
     }
     default:
@@ -163,6 +173,8 @@ export function useArenaSocket(arenaId: string): ArenaSocket {
 
   // Initial snapshot over REST (no auth) so the scoreboard + current board show immediately —
   // WS leaderboard.update only fires on settle, so without this the board is empty until then.
+  // The rounds fetch reconstructs the match feed from persisted history: without it, a reload
+  // or a mid-match joiner would see an empty feed (nothing to replay it from client-side).
   useEffect(() => {
     if (isDemo) return;
     let cancelled = false;
