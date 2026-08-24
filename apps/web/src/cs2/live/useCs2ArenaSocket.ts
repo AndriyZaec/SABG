@@ -13,7 +13,7 @@ import {
   voidFeedId,
   VOID_FEED_TEXT,
 } from "../../arena/feedFromRounds.js";
-import type { Cs2ArenaView, LeaderRow } from "../cs2View.js";
+import type { Cs2AnswerSubmission, Cs2ArenaView, LeaderRow } from "../cs2View.js";
 
 // Mirrors arena/live/useArenaSocket.ts's structure (REST snapshot + WS effect + submitAnswer),
 // but connects to the CS2 gateway's own /cs2-ws (see vite.config.ts) and folds CS2's own message
@@ -87,6 +87,16 @@ function reduce(view: Cs2ArenaView, msg: ServerMessage, myUserId?: string): Cs2A
     case "player.pending":
       // Full-list snapshot from the server (re-sent on lock/settle/subscribe) — replace, don't merge.
       return { ...view, pendingPredictions: msg.predictions };
+    case "answer.accepted":
+      return view.round?.roundId === msg.roundId
+        ? { ...view, round: { ...view.round, myAnswer: msg.answer } }
+        : view;
+    case "answer.snapshot": {
+      if (view.round?.roundId !== msg.roundId) return view;
+      if (msg.answer !== null) return { ...view, round: { ...view.round, myAnswer: msg.answer } };
+      const { myAnswer: _myAnswer, ...round } = view.round;
+      return { ...view, round };
+    }
     case "arena.cancelled":
       return {
         ...view,
@@ -133,6 +143,7 @@ function reduce(view: Cs2ArenaView, msg: ServerMessage, myUserId?: string): Cs2A
 export interface Cs2ArenaSocket {
   view: Cs2ArenaView | null;
   connected: boolean;
+  answerSubmission: Cs2AnswerSubmission;
   submitAnswer: (answer: Answer) => void;
 }
 
@@ -140,6 +151,7 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
   const { token, user } = useAuth();
   const [view, setView] = useState<Cs2ArenaView | null>(null);
   const [connected, setConnected] = useState(false);
+  const [answerSubmission, setAnswerSubmission] = useState<Cs2AnswerSubmission>({ status: "idle" });
   const wsRef = useRef<WebSocket | null>(null);
   const myUserId = useRef<string | undefined>(undefined);
   myUserId.current = user?.id;
@@ -173,31 +185,76 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
 
   useEffect(() => {
     if (!token) return;
-    const ws = new WebSocket(buildCs2WsUrl(token));
-    wsRef.current = ws;
-    ws.onopen = () => {
-      setConnected(true);
-      ws.send(JSON.stringify({ type: "subscribe", arenaId }));
+    let disposed = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+    let reconnectAttempt = 0;
+
+    const connect = () => {
+      const ws = new WebSocket(buildCs2WsUrl(token));
+      wsRef.current = ws;
+      ws.onopen = () => {
+        reconnectAttempt = 0;
+        setConnected(true);
+        ws.send(JSON.stringify({ type: "subscribe", arenaId }));
+      };
+      ws.onclose = (event) => {
+        if (wsRef.current === ws) wsRef.current = null;
+        setConnected(false);
+        if (disposed) return;
+
+        if (event.code === 4401 || event.code === 4403) {
+          void fetchEventAccessSession()
+            .then((session) => {
+              if (session.status === "unauthenticated") notifyEventAccessRequired();
+            })
+            .catch(() => undefined);
+          return;
+        }
+
+        const delayMs = Math.min(1_000 * 2 ** reconnectAttempt, 8_000);
+        reconnectAttempt += 1;
+        reconnectTimer = setTimeout(connect, delayMs);
+      };
+      ws.onmessage = (ev) => {
+        try {
+          const msg = JSON.parse(ev.data as string) as ServerMessage;
+          switch (msg.type) {
+            case "round.open":
+              setAnswerSubmission((current) =>
+                "roundId" in current && current.roundId === msg.round.id ? current : { status: "idle" },
+              );
+              break;
+            case "answer.accepted":
+              setAnswerSubmission({ status: "accepted", roundId: msg.roundId, answer: msg.answer });
+              break;
+            case "answer.rejected":
+              setAnswerSubmission({
+                status: "rejected",
+                roundId: msg.roundId,
+                answer: msg.answer,
+                reason: msg.reason,
+              });
+              break;
+            case "answer.snapshot":
+              setAnswerSubmission(
+                msg.answer === null
+                  ? { status: "idle" }
+                  : { status: "accepted", roundId: msg.roundId, answer: msg.answer },
+              );
+              break;
+          }
+          setView((v) => (v ? reduce(v, msg, myUserId.current) : v));
+        } catch {
+          /* ignore malformed frames */
+        }
+      };
     };
-    ws.onclose = (event) => {
-      setConnected(false);
-      if (event.code !== 1006 && event.code !== 4403) return;
-      void fetchEventAccessSession()
-        .then((session) => {
-          if (session.status === "unauthenticated") notifyEventAccessRequired();
-        })
-        .catch(() => undefined);
-    };
-    ws.onmessage = (ev) => {
-      try {
-        const msg = JSON.parse(ev.data as string) as ServerMessage;
-        setView((v) => (v ? reduce(v, msg, myUserId.current) : v));
-      } catch {
-        /* ignore malformed frames */
-      }
-    };
+
+    connect();
     return () => {
-      ws.close();
+      disposed = true;
+      if (reconnectTimer !== undefined) clearTimeout(reconnectTimer);
+      wsRef.current?.close();
       wsRef.current = null;
     };
   }, [arenaId, token]);
@@ -206,12 +263,24 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
     (answer: Answer) => {
       const ws = wsRef.current;
       const roundId = view?.round?.roundId;
-      if (ws && ws.readyState === WebSocket.OPEN && roundId && view?.myStatus !== "eliminated") {
+      const duplicate =
+        answerSubmission.status === "accepted" &&
+        answerSubmission.roundId === roundId &&
+        answerSubmission.answer === answer;
+      if (
+        ws &&
+        ws.readyState === WebSocket.OPEN &&
+        roundId &&
+        view?.myStatus !== "eliminated" &&
+        answerSubmission.status !== "submitting" &&
+        !duplicate
+      ) {
+        setAnswerSubmission({ status: "submitting", roundId, answer });
         ws.send(JSON.stringify({ type: "answer", roundId, answer }));
       }
     },
-    [view],
+    [answerSubmission, view],
   );
 
-  return { view, connected, submitAnswer };
+  return { view, connected, answerSubmission, submitAnswer };
 }

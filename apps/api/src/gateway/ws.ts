@@ -147,19 +147,23 @@ export class GatewayWebSocketServer implements GatewayBroadcaster, ArenaRuntimeL
     }
   }
 
-  /**
-   * Answering over WS is the equivalent of REST POST /rounds/:id/answer (ws.ts contract doc
-   * comment) — both funnel into the same `ArenaRuntime.submitAnswer`. No ack message exists in
-   * the `ServerMessage` catalog (mirrors the mock, which also just logs); a client that wants
-   * confirmation uses the REST endpoint, which does return one.
-   */
+  /** Answering over WS and REST both funnel into `ArenaRuntime.submitAnswer`; WS replies here. */
   private handleAnswer(conn: Connection, roundId: Uuid, answer: Answer): void {
-    if (conn.arenaId === undefined) return; // must subscribe before answering
+    if (conn.arenaId === undefined) {
+      this.send(conn, { type: "answer.rejected", roundId, answer, reason: "not_subscribed" });
+      return;
+    }
     const runtime = this.runtimes.get(conn.arenaId);
-    if (runtime === undefined) return;
+    if (runtime === undefined) {
+      this.send(conn, { type: "answer.rejected", roundId, answer, reason: "arena_not_found" });
+      return;
+    }
 
     const outcome = runtime.submitAnswer(conn.userId, roundId, answer);
-    if (!outcome.ok) {
+    if (outcome.ok) {
+      this.send(conn, { type: "answer.accepted", roundId, answer, receivedAt: outcome.receivedAt });
+    } else {
+      this.send(conn, { type: "answer.rejected", roundId, answer, reason: outcome.reason });
       logger.debug({ userId: conn.userId, roundId, reason: outcome.reason }, "ws answer rejected");
     }
   }
@@ -187,6 +191,13 @@ export class GatewayWebSocketServer implements GatewayBroadcaster, ArenaRuntimeL
     // Both are optional on ArenaRuntimeLike only for test doubles that don't need them — both real
     // runtimes (soccer's and CS2's, arena-runtime.ts in each) implement them.
     const runtime = this.runtimes.get(arenaId);
+    let answerRoundId = runtime?.currentRound?.id;
+    if (cache?.round?.type === "round.open") answerRoundId = cache.round.round.id;
+    if (cache?.round?.type === "round.lock") answerRoundId = cache.round.roundId;
+    if (runtime?.answerFor !== undefined && answerRoundId !== undefined) {
+      const answer = runtime.answerFor(conn.userId, answerRoundId);
+      this.send(conn, { type: "answer.snapshot", roundId: answerRoundId, answer: answer ?? null });
+    }
     if (runtime?.pendingPredictionsFor !== undefined) {
       this.send(conn, { type: "player.pending", predictions: runtime.pendingPredictionsFor(conn.userId) });
     }

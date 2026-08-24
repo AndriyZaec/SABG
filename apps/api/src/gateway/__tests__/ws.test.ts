@@ -323,6 +323,7 @@ describe("GatewayWebSocketServer", () => {
     const token = issueToken("user-1");
     const socket = connect(token);
     await waitForOpen(socket);
+    const messages = collectMessages(socket);
 
     const submitAnswer = vi.fn<(userId: string, roundId: string, answer: string) => SubmitAnswerOutcome>(() => ({
       ok: true,
@@ -341,14 +342,23 @@ describe("GatewayWebSocketServer", () => {
     await vi.waitFor(() => {
       expect(submitAnswer).toHaveBeenCalledWith("user-1", "round-1", "yes");
     });
+    await vi.waitFor(() => {
+      expect(messages).toContainEqual({
+        type: "answer.accepted",
+        roundId: "round-1",
+        answer: "yes",
+        receivedAt: "2024-01-01T00:00:00.000Z",
+      });
+    });
 
     socket.close();
   });
 
-  it("ignores an 'answer' sent before subscribing (no arena context yet)", async () => {
+  it("rejects an 'answer' sent before subscribing (no arena context yet)", async () => {
     const token = issueToken("user-1");
     const socket = connect(token);
     await waitForOpen(socket);
+    const messages = collectMessages(socket);
 
     const submitAnswer = vi.fn();
     gateway.registerRuntime(ARENA_ID, {
@@ -361,6 +371,12 @@ describe("GatewayWebSocketServer", () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(submitAnswer).not.toHaveBeenCalled();
+    expect(messages).toContainEqual({
+      type: "answer.rejected",
+      roundId: "round-1",
+      answer: "yes",
+      reason: "not_subscribed",
+    });
     socket.close();
   });
 });

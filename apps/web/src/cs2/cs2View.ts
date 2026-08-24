@@ -1,4 +1,11 @@
-import type { Answer, ArenaCancelledReason, ArenaPlayerStatus, PendingPrediction, RoundStatus } from "@arena/contracts";
+import type {
+  Answer,
+  AnswerRejectionReason,
+  ArenaCancelledReason,
+  ArenaPlayerStatus,
+  PendingPrediction,
+  RoundStatus,
+} from "@arena/contracts";
 import type { FeedItem, LeaderRow } from "../arena/arenaView.js";
 
 // FeedItem/LeaderRow are discipline-agnostic value types (see arena/arenaView.ts) — reused as-is,
@@ -17,6 +24,12 @@ export interface Cs2RoundView {
   myAnswer?: Answer;
   correctAnswer?: Answer;
 }
+
+export type Cs2AnswerSubmission =
+  | { status: "idle" }
+  | { status: "submitting"; roundId: string; answer: Answer }
+  | { status: "accepted"; roundId: string; answer: Answer }
+  | { status: "rejected"; roundId: string; answer: Answer; reason: AnswerRejectionReason };
 
 /** View model the CS2 arena screen renders from. No score/clock/period (CS2 has no soccer-style
  *  match state stream — Cs2ArenaRuntime never emits `match.state`). */

@@ -75,10 +75,9 @@ export interface ArenaPersistence {
  * which discipline it's talking to (spec §3: round-engine *internals* stay discipline-specific,
  * not this surrounding plumbing).
  *
- * `matchState`/`statusFor`/`pendingPredictionsFor` are optional because CS2 doesn't have a
- * soccer-style match clock (`matchState`) — `Cs2ArenaRuntime` (cs2/arena-runtime.ts) does
- * implement `statusFor`/`pendingPredictionsFor`, but they stay optional here for test doubles
- * that don't need them. Callers must guard accordingly.
+ * `matchState`/personal-resync methods are optional because CS2 doesn't have a soccer-style match
+ * clock (`matchState`) and test doubles don't always need the personal snapshots. Both concrete
+ * runtimes implement `statusFor`/`pendingPredictionsFor`/`answerFor`; callers must still guard.
  */
 export interface ArenaRuntimeLike {
   readonly currentRound: PredictionRound | undefined;
@@ -89,6 +88,7 @@ export interface ArenaRuntimeLike {
   finalWinners(): Uuid[] | undefined;
   statusFor?(userId: Uuid): ArenaPlayerStatus | undefined;
   pendingPredictionsFor?(userId: Uuid): PendingPrediction[];
+  answerFor?(userId: Uuid, roundId: Uuid): Answer | undefined;
 }
 
 /**
@@ -244,6 +244,10 @@ export class ArenaRuntime implements ArenaRuntimeLike {
    *  ever pushed live, right after the round that changed it settles. */
   statusFor(userId: Uuid): ArenaPlayerStatus | undefined {
     return this.arenaPlayerStore.getStatus(userId);
+  }
+
+  answerFor(userId: Uuid, roundId: Uuid): Answer | undefined {
+    return this.predictionStore.getAnswers(roundId).get(userId);
   }
 
   /**

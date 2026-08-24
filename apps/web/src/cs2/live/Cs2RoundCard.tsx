@@ -1,6 +1,5 @@
-import { useState } from "react";
 import type { Answer } from "@arena/contracts";
-import type { Cs2RoundView } from "../cs2View.js";
+import type { Cs2AnswerSubmission, Cs2RoundView } from "../cs2View.js";
 import { Panel } from "../../ui/Panel.js";
 import { Button } from "../../ui/Button.js";
 import { Badge } from "../../ui/Badge.js";
@@ -12,20 +11,25 @@ import { Badge } from "../../ui/Badge.js";
 export function Cs2RoundCard({
   round,
   onAnswer,
+  submission,
+  connected,
   eliminated = false,
   participant = true,
 }: {
   round: Cs2RoundView;
   onAnswer?: (a: Answer) => void;
+  submission: Cs2AnswerSubmission;
+  connected: boolean;
   eliminated?: boolean;
   participant?: boolean;
 }) {
-  const [picked, setPicked] = useState<Answer | undefined>(round.myAnswer);
   const isOpen = round.status === "open";
+  const currentSubmission = "roundId" in submission && submission.roundId === round.roundId ? submission : undefined;
+  const picked = currentSubmission?.status === "submitting" ? currentSubmission.answer : round.myAnswer;
+  const submitting = currentSubmission?.status === "submitting";
   const pressed = { transform: "translate(4px, 4px)", boxShadow: "0 0 0 var(--ink)" } as const;
 
   const answer = (a: Answer) => {
-    setPicked(a);
     onAnswer?.(a);
   };
 
@@ -41,10 +45,24 @@ export function Cs2RoundCard({
 
       {isOpen && participant && !eliminated && (
         <div className="nb-yesno">
-          <Button variant="survive" lg block onClick={() => answer("yes")} style={picked === "yes" ? pressed : undefined}>
+          <Button
+            disabled={!connected || submitting}
+            variant="survive"
+            lg
+            block
+            onClick={() => answer("yes")}
+            style={picked === "yes" ? pressed : undefined}
+          >
             Yes
           </Button>
-          <Button variant="danger" lg block onClick={() => answer("no")} style={picked === "no" ? pressed : undefined}>
+          <Button
+            disabled={!connected || submitting}
+            variant="danger"
+            lg
+            block
+            onClick={() => answer("no")}
+            style={picked === "no" ? pressed : undefined}
+          >
             No
           </Button>
         </div>
@@ -62,6 +80,16 @@ export function Cs2RoundCard({
         <p className="nb-mono" style={{ marginTop: 12 }}>
           You answered <b>{picked.toUpperCase()}</b>
           {isOpen && <span className="nb-label"> — change until lock</span>}
+        </p>
+      )}
+
+      {submitting && (
+        <p className="nb-label" style={{ marginTop: 12 }}>Saving answer…</p>
+      )}
+
+      {currentSubmission?.status === "rejected" && (
+        <p className="nb-label" style={{ marginTop: 12 }}>
+          Answer rejected ({currentSubmission.reason}).
         </p>
       )}
 

@@ -13,7 +13,7 @@ import { Panel } from "../ui/Panel.js";
 // demo fixture.
 export function Cs2ArenaScreen() {
   const { arenaId } = useParams();
-  const { view, connected, submitAnswer } = useCs2ArenaSocket(arenaId ?? "");
+  const { view, connected, answerSubmission, submitAnswer } = useCs2ArenaSocket(arenaId ?? "");
 
   if (!arenaId) {
     return (
@@ -75,6 +75,8 @@ export function Cs2ArenaScreen() {
               key={view.round.roundId}
               round={view.round}
               onAnswer={submitAnswer}
+              submission={answerSubmission}
+              connected={connected}
               eliminated={view.myStatus === "eliminated"}
               participant={isParticipant}
             />

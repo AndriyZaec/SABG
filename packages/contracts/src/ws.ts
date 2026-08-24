@@ -110,6 +110,37 @@ export interface PlayerPendingMessage {
   predictions: PendingPrediction[];
 }
 
+/** Authoritative acknowledgement for a submitted answer. */
+export interface AnswerAcceptedMessage {
+  type: "answer.accepted";
+  roundId: Uuid;
+  answer: Answer;
+  receivedAt: string;
+}
+
+/** Authoritative current-round answer state, sent on subscribe/reconnect. */
+export interface AnswerSnapshotMessage {
+  type: "answer.snapshot";
+  roundId: Uuid;
+  answer: Answer | null;
+}
+
+export type AnswerRejectionReason =
+  | "not_subscribed"
+  | "arena_not_found"
+  | "round_not_found"
+  | "round_locked"
+  | "eliminated"
+  | "not_participant";
+
+/** Authoritative rejection for a submitted answer. */
+export interface AnswerRejectedMessage {
+  type: "answer.rejected";
+  roundId: Uuid;
+  answer: Answer;
+  reason: AnswerRejectionReason;
+}
+
 export type ServerMessage =
   | RoundOpenMessage
   | RoundLockMessage
@@ -120,7 +151,10 @@ export type ServerMessage =
   | ArenaFinishedMessage
   | ArenaCancelledMessage
   | PlayerStatusMessage
-  | PlayerPendingMessage;
+  | PlayerPendingMessage
+  | AnswerAcceptedMessage
+  | AnswerSnapshotMessage
+  | AnswerRejectedMessage;
 
 // ---- Client -> Server -------------------------------------------------------
 

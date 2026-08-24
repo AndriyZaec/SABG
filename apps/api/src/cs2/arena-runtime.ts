@@ -160,6 +160,10 @@ export class Cs2ArenaRuntime implements ArenaRuntimeLike {
     return this.arenaPlayerStore.getStatus(userId);
   }
 
+  answerFor(userId: Uuid, roundId: Uuid): Answer | undefined {
+    return this.predictionStore.getAnswers(roundId).get(userId);
+  }
+
   /**
    * The player's own pending predictions: every round that has locked but not yet settled and
    * for which this user submitted an answer — mirrors gateway/arena-runtime.ts's
