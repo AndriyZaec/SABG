@@ -78,6 +78,19 @@ describe("trackCs2Poll — synthetic sequences", () => {
     expect(roundEnd).toMatchObject({ winner: "away" });
   });
 
+  it("does not invent a round result when a polling gap skips multiple score changes", () => {
+    const warmup = trackCs2Poll(initialCs2TrackerState(), snapshot(0, 0, { ticking: false, currentSeconds: 18 }), "t0");
+    const lockedR1 = trackCs2Poll(warmup.state, snapshot(0, 0, { ticking: true, currentSeconds: 105 }), "t1");
+
+    const afterGap = trackCs2Poll(lockedR1.state, snapshot(2, 1, { ticking: true, currentSeconds: 40 }), "t2");
+
+    expect(afterGap.signals).toEqual([
+      { kind: "cs2_snapshot", snapshot: snapshot(2, 1, { ticking: true, currentSeconds: 40 }), timestamp: "t2" },
+    ]);
+    expect(afterGap.state.roundInProgress).toBe(4);
+    expect(afterGap.state.lockSnapshot).toBeUndefined();
+  });
+
   it("does not synthesize a lock for a round it joined mid-way through (missed the clock reset)", () => {
     // First-ever poll already mid-round, ticking — no prior snapshot to detect a reset against.
     const joined = trackCs2Poll(initialCs2TrackerState(), snapshot(0, 0, { ticking: true, currentSeconds: 60 }), "t0");

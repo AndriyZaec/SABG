@@ -4,7 +4,7 @@
 // this needs no scheduler" note) but replaces the WAITING_FOR_START/RECORDING state machine with
 // two independent, already-pure consumers:
 //
-//   parseSnapshot (per-map)    -> trackCs2Poll -> Cs2MatchSignal[] -> target.currentBus()
+//   observeSnapshot (per-map)  -> trackCs2Poll -> Cs2MatchSignal[] -> target.currentBus()
 //   parseSeriesSnapshot (series-level)          -> target.poll(snapshot, now)
 //
 // Ordering within one poll is load-bearing: `currentBus()` is read *before* `target.poll()` runs.
@@ -22,7 +22,7 @@ import type { MatchSignalBus } from "../ingestion/event-bus.js";
 import { sleep } from "../shared/sleep.js";
 import { nextBackoffMs } from "../grid/backoff.js";
 import { logger } from "../grid/logger.js";
-import { parseSnapshot } from "./snapshot.js";
+import { observeSnapshot } from "./snapshot.js";
 import { initialCs2TrackerState, trackCs2Poll, type Cs2TrackerState } from "./round-tracker.js";
 import { parseSeriesSnapshot, type Cs2SeriesSnapshot } from "./series-snapshot.js";
 import type { Cs2RawPollResult } from "./raw-recorder.js";
@@ -62,17 +62,19 @@ export async function handleCs2LivePoll(
 ): Promise<Cs2TrackerState> {
   // Per-map first, on the *current* Arena's bus — before target.poll() can reactively open the
   // next one (see file header).
+  const observation = observeSnapshot(raw);
+  const seriesSnapshot = parseSeriesSnapshot(raw);
+  if (observation.kind === "invalid" || seriesSnapshot === undefined) return trackerState;
+
   const bus = target.currentBus();
-  const mapSnapshot = parseSnapshot(raw);
-  const { state, signals } = trackCs2Poll(trackerState, mapSnapshot, now);
+  const tracked = trackCs2Poll(trackerState, observation.kind === "live" ? observation.snapshot : undefined, now);
   if (bus !== undefined) {
-    for (const signal of signals) bus.publish(signal);
+    for (const signal of tracked.signals) bus.publish(signal);
   }
 
-  const seriesSnapshot = parseSeriesSnapshot(raw);
   await target.poll(seriesSnapshot, now);
 
-  return state;
+  return tracked.state;
 }
 
 export class Cs2LivePoller {

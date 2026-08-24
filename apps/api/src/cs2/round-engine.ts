@@ -19,6 +19,7 @@ import type { Cs2GameSnapshot } from "@arena/contracts";
 import type { MatchSignalBus } from "../ingestion/event-bus.js";
 import { resolveCs2Settlement } from "./settle.js";
 import { createCs2QuestionProvider, type Cs2QuestionProvider } from "./question-provider.js";
+import { deriveRoundNumber } from "./snapshot.js";
 
 export type Cs2RoundLifecycleEvent =
   | { type: "open"; round: PredictionRound }
@@ -40,8 +41,8 @@ export class Cs2RoundEngine {
   /** Baseline snapshot captured at each round's lock — the "before" half of its eventual diff
    *  (round-tracker.ts's `cs2_round_lock` signal carries only a round number, not a snapshot). */
   private readonly lockSnapshotByRound = new Map<number, Cs2GameSnapshot>();
-  /** Most recent live snapshot seen (from `cs2_snapshot`), kept as the best-available "after"
-   *  for the match-end fallback settle (spec §7 п.3's risk note — see handleMatchEnd). */
+  /** Most recent live snapshot seen (from `cs2_snapshot`), used at match end only when it proves
+   *  the locked round's single score transition. */
   private lastLiveSnapshot: Cs2GameSnapshot | undefined;
   private readonly questionProvider: Cs2QuestionProvider;
 
@@ -118,10 +119,11 @@ export class Cs2RoundEngine {
   private handleRoundLock(roundNumber: number, timestamp: IsoDateTime): void {
     const round = this.rounds.get(roundNumber);
     if (round === undefined) {
-      // Q(roundNumber) was never opened — either Round 1's lock arrived before
-      // onMatchLiveDetected() ran (fallback: skip entirely, no cascade to start from), or this
-      // is a defensive no-op for a round number the cascade never reached. Either way there's
-      // nothing to lock and nothing to cascade into, so don't open the next round either.
+      // The answer window for this real round was never observed, so it cannot fairly become a
+      // prediction round. Neutralize stale earlier questions and resume with the next round,
+      // whose answer window starts now.
+      this.voidRemaining(roundNumber);
+      if (this.options.isArenaFinished?.() !== true) this.handleOpen(roundNumber + 1, timestamp);
       return;
     }
 
@@ -157,13 +159,9 @@ export class Cs2RoundEngine {
 
   /**
    * Match end (`hasLiveGame() === false`, spec §4 крок 2 / §7 крок 3). Ordering per spec: (1)
-   * settle the round currently in flight — the one whose lock we saw but whose score-change
-   * round_end never arrived, most likely the deciding round — from the best snapshot available
-   * (the last live one seen), *then* (2) void every round that never got a result. This is the
-   * data-risk spec §9 п.2 flags (a decisive kill and `finished:true` landing in the same ~10s
-   * poll window can mean no snapshot ever shows the final score) — diffing against the last
-   * known snapshot is the honest fallback, not a guess dressed up as certainty. Tracked as an
-   * open assumption in cs2-migration-spec/data-assumptions.md #5.
+   * settle a locked round only when the last live snapshot proves its one score transition,
+   * then (2) void every unresolved round. If GRID removes the game before exposing the final
+   * score, neutral voiding is safer than eliminating players from stale data.
    */
   private handleMatchEnd(timestamp: IsoDateTime): void {
     for (const [roundNumber, round] of this.rounds) {
@@ -172,6 +170,7 @@ export class Cs2RoundEngine {
       if (condition.discipline !== "cs2") continue;
       const before = this.lockSnapshotByRound.get(roundNumber);
       if (before === undefined || this.lastLiveSnapshot === undefined) continue; // nothing to diff against — leave for the void pass below
+      if (deriveRoundNumber(before) !== roundNumber || deriveRoundNumber(this.lastLiveSnapshot) !== roundNumber + 1) continue;
       this.settle(roundNumber, round, condition, before, this.lastLiveSnapshot, timestamp);
       this.lockSnapshotByRound.delete(roundNumber);
     }
@@ -190,11 +189,13 @@ export class Cs2RoundEngine {
    * next lock (`handleRoundLock`) — this stops the one round that's already in flight (open or
    * locked) at the moment the winner gets declared, per the cascading-generation overlap.
    */
-  voidRemaining(): void {
+  voidRemaining(throughRoundNumber = Number.POSITIVE_INFINITY): void {
     for (const [roundNumber, round] of this.rounds) {
+      if (roundNumber > throughRoundNumber) continue;
       if (round.status !== "open" && round.status !== "locked") continue;
       const voided: PredictionRound = { ...round, status: "voided" };
       this.rounds.set(roundNumber, voided);
+      this.lockSnapshotByRound.delete(roundNumber);
       this.options.onTransition?.({ type: "void", roundId: voided.id, roundNumber });
     }
   }

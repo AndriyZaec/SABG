@@ -202,7 +202,9 @@ export class Cs2ArenaRuntime implements ArenaRuntimeLike {
     const round = [...this.roundEngine.roundsByNumber.values()].find((r) => r.id === roundId);
     if (round === undefined) return { ok: false, reason: "round_not_found" };
     if (round.status !== "open") return { ok: false, reason: "round_locked" };
-    if (this.arenaPlayerStore.getStatus(userId) === "eliminated") return { ok: false, reason: "eliminated" };
+    const playerStatus = this.arenaPlayerStore.getStatus(userId);
+    if (playerStatus === undefined) return { ok: false, reason: "not_participant" };
+    if (playerStatus !== "active") return { ok: false, reason: "eliminated" };
 
     const receivedAt = new Date();
     this.predictionStore.recordAnswer(roundId, userId, answer, receivedAt);

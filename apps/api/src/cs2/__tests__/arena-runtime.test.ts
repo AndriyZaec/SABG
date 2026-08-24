@@ -152,6 +152,27 @@ describe("Cs2ArenaRuntime — elimination wiring", () => {
     expect(runtime.statusFor(PLAYER_YES)).toBe("eliminated");
   });
 
+  it("rejects an authenticated spectator who is not an active arena participant", () => {
+    const { runtime } = buildRuntime([PLAYER_YES], fakeProvider());
+    runtime.openRoundOne("t0");
+
+    expect(runtime.submitAnswer(PLAYER_SILENT, runtime.currentRound!.id, "yes")).toEqual({
+      ok: false,
+      reason: "not_participant",
+    });
+  });
+
+  it("rejects a participant whose status is no longer active", () => {
+    const { runtime, arenaPlayerStore } = buildRuntime([PLAYER_YES], fakeProvider());
+    runtime.openRoundOne("t0");
+    arenaPlayerStore.setStatus(PLAYER_YES, "winner");
+
+    expect(runtime.submitAnswer(PLAYER_YES, runtime.currentRound!.id, "yes")).toEqual({
+      ok: false,
+      reason: "eliminated",
+    });
+  });
+
   it("orders round.settle before its own leaderboard.update (mirrors soccer's ArenaRuntime)", () => {
     const { runtime, bus, broadcasts } = buildRuntime([PLAYER_YES, PLAYER_NO], fakeProvider());
     runtime.openRoundOne("t0");
@@ -260,7 +281,7 @@ describe("Cs2ArenaRuntime — elimination wiring", () => {
     ]);
   });
 
-  it("a voided round persists as voided but eliminates nobody and never reaches the leaderboard", () => {
+  it("an unproven final round is voided without eliminating anyone", () => {
     const { runtime, bus, arenaPlayerStore, upserts, broadcasts } = buildRuntime([PLAYER_YES, PLAYER_NO], fakeProvider());
     runtime.openRoundOne("t0");
     const round1 = runtime.currentRound!;
@@ -275,19 +296,22 @@ describe("Cs2ArenaRuntime — elimination wiring", () => {
     bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(0, 0, 60), timestamp: "t2" });
     bus.publish({ kind: "cs2_match_end", timestamp: "t3" });
 
+    const round1Voided = upserts.find((r) => r.roundNumber === 1 && r.status === "voided");
     const round2 = upserts.find((r) => r.roundNumber === 2 && r.status === "voided");
+    expect(round1Voided).toBeDefined();
     expect(round2).toBeDefined();
 
-    // Nobody's status was touched by the void — Round 1's own settle (fallback diff, score never
-    // moved) is what determines outcomes here, not Round 2.
-    expect(arenaPlayerStore.getStatus(PLAYER_YES)).toBe("eliminated"); // answered "yes", home never scored
+    // No observed score transition means no trustworthy answer and therefore no elimination.
+    expect(arenaPlayerStore.getStatus(PLAYER_YES)).toBe("active");
     expect(arenaPlayerStore.getStatus(PLAYER_NO)).toBe("active");
 
     const settleMsgs = broadcasts.filter((m) => m.type === "round.settle");
-    expect(settleMsgs).toHaveLength(1); // only Round 1 ever settled — Round 2 has no settle broadcast
+    expect(settleMsgs).toHaveLength(0);
 
-    const voidMsg = broadcasts.find((m) => m.type === "round.void");
-    expect(voidMsg).toEqual({ type: "round.void", roundId: round2!.id });
+    expect(broadcasts.filter((m) => m.type === "round.void")).toEqual([
+      { type: "round.void", roundId: round1Voided!.id },
+      { type: "round.void", roundId: round2!.id },
+    ]);
   });
 
   it("finalizes the leaderboard (shared win) when the match ends with more than one player still active — spec §3 tie-break", () => {

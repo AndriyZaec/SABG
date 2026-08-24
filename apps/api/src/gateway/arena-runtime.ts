@@ -120,7 +120,7 @@ export interface ArenaRuntimeOptions {
 
 export type SubmitAnswerOutcome =
   | { ok: true; receivedAt: string }
-  | { ok: false; reason: "round_not_found" | "round_locked" | "eliminated" };
+  | { ok: false; reason: "round_not_found" | "round_locked" | "eliminated" | "not_participant" };
 
 export class ArenaRuntime implements ArenaRuntimeLike {
   private readonly matchId: Uuid;

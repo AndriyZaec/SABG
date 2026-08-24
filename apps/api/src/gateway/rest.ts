@@ -378,14 +378,21 @@ export function createRestRouter(runtimeLookup: ArenaRuntimeLookup): RouterType 
       const userId = (req as unknown as AuthedRequest).userId;
       const outcome = runtime.submitAnswer(userId, roundId, answer);
       if (!outcome.ok) {
-        if (outcome.reason === "round_not_found") {
-          notFound(res, "Round not found");
-        } else if (outcome.reason === "eliminated") {
-          res.status(403).json({ error: "eliminated", message: "Eliminated players cannot submit predictions" });
-        } else {
-          res.status(409).json({ error: "round_locked", message: "Round is no longer open" });
+        switch (outcome.reason) {
+          case "round_not_found":
+            notFound(res, "Round not found");
+            return;
+          case "not_participant":
+            res.status(403).json({ error: "not_participant", message: "Only active arena participants can submit predictions" });
+            return;
+          case "eliminated":
+            res.status(403).json({ error: "eliminated", message: "Eliminated players cannot submit predictions" });
+            return;
+          case "round_locked":
+            res.status(409).json({ error: "round_locked", message: "Round is no longer open" });
+            return;
         }
-        return;
+        outcome.reason satisfies never;
       }
       res.json({ roundId, answer, receivedAt: outcome.receivedAt });
     },

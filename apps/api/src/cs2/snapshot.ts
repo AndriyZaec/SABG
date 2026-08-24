@@ -53,27 +53,30 @@ const RawResponseSchema = z
   })
   .passthrough();
 
-/**
- * Parses one raw GRID response into a diff-able `Cs2GameSnapshot`. Returns `undefined` — never
- * throws — when there's no live game (`games` empty/absent, e.g. between-map warmup or the
- * response's `finished:true` filter already excluded it) or the response doesn't match the
- * expected shape (malformed/partial GraphQL error body). Same safe-skip philosophy as
- * `grid/series-state.ts`'s `hasLiveGame`/`isFreshStart`.
- */
-export function parseSnapshot(raw: unknown): Cs2GameSnapshot | undefined {
+export type Cs2SnapshotObservation =
+  | { kind: "live"; snapshot: Cs2GameSnapshot }
+  | { kind: "no_live_game" }
+  | { kind: "invalid" };
+
+/** Distinguishes an explicit empty game list from malformed upstream data. Only the former is
+ * evidence that a previously-live map ended; invalid data must leave the tracker untouched. */
+export function observeSnapshot(raw: unknown): Cs2SnapshotObservation {
   const parsed = RawResponseSchema.safeParse(raw);
-  if (!parsed.success) return undefined;
+  if (!parsed.success) return { kind: "invalid" };
 
   const games = parsed.data.data?.seriesState?.games;
+  if (games === undefined) return { kind: "invalid" };
+  if (games.length === 0) return { kind: "no_live_game" };
+
   const game = games?.[0];
-  if (game === undefined) return undefined;
+  if (game === undefined) return { kind: "invalid" };
 
   // Exactly two teams expected (spec §7 п.7's math assumes a fixed pair) — a response with any
-  // other count can't be diffed meaningfully, so treat it the same as "no live game".
-  if (game.teams.length !== 2) return undefined;
+  // other count can't be diffed meaningfully and is not evidence that the map ended.
+  if (game.teams.length !== 2) return { kind: "invalid" };
 
   const [a, b] = game.teams;
-  if (a === undefined || b === undefined) return undefined;
+  if (a === undefined || b === undefined) return { kind: "invalid" };
 
   const toTeamStats = (t: (typeof game.teams)[number]): Cs2TeamStats => ({
     name: t.name,
@@ -83,7 +86,13 @@ export function parseSnapshot(raw: unknown): Cs2GameSnapshot | undefined {
     players: t.players,
   });
 
-  return { teams: [toTeamStats(a), toTeamStats(b)], clock: game.clock };
+  return { kind: "live", snapshot: { teams: [toTeamStats(a), toTeamStats(b)], clock: game.clock } };
+}
+
+/** Convenience parser for fixture/settlement callers that only consume live snapshots. */
+export function parseSnapshot(raw: unknown): Cs2GameSnapshot | undefined {
+  const observation = observeSnapshot(raw);
+  return observation.kind === "live" ? observation.snapshot : undefined;
 }
 
 /**

@@ -13,7 +13,19 @@ import type { Cs2SeriesSnapshot } from "../series-snapshot.js";
 const NOW: IsoDateTime = "2026-08-11T12:00:00.000Z";
 
 function rawWithGame(teams: unknown[], clock: unknown = { ticking: true, currentSeconds: 90 }) {
-  return { data: { seriesState: { format: "best-of-3", finished: false, games: [{ clock, teams }] } } };
+  return {
+    data: {
+      seriesState: {
+        format: "best-of-3",
+        finished: false,
+        teams: [
+          { name: "A", score: 0, won: false },
+          { name: "B", score: 0, won: false },
+        ],
+        games: [{ clock, teams }],
+      },
+    },
+  };
 }
 
 function liveTeams(a: number, b: number) {
@@ -74,10 +86,67 @@ describe("handleCs2LivePoll — ordering", () => {
     expect(target.pollCalls[0]).toMatchObject({ now: NOW });
   });
 
-  it("does not throw and calls target.poll(undefined, ...) for a malformed/unrelated payload", async () => {
+  it("does not advance either lifecycle for a malformed/unrelated payload", async () => {
     const target = new FakeTarget();
     await handleCs2LivePoll(target, { unexpected: true }, initialCs2TrackerState(), NOW);
-    expect(target.pollCalls).toEqual([{ snapshot: undefined, now: NOW }]);
+    expect(target.pollCalls).toEqual([]);
+  });
+
+  it("preserves a live map when a malformed payload arrives", async () => {
+    const target = new FakeTarget();
+    const received: MatchSignal[] = [];
+    target.busA.subscribe((signal) => received.push(signal));
+
+    const liveState = await handleCs2LivePoll(
+      target,
+      rawWithGame(liveTeams(3, 2)),
+      initialCs2TrackerState(),
+      NOW,
+    );
+    received.length = 0;
+
+    const stateAfterMalformed = await handleCs2LivePoll(target, {
+      data: {
+        seriesState: {
+          format: "best-of-3",
+          finished: false,
+          teams: [
+            { name: "A", score: 0, won: false },
+            { name: "B", score: 0, won: false },
+          ],
+          // `games` is omitted: valid enough for the old series parser to report no live game,
+          // but not explicit evidence that the active map ended.
+        },
+      },
+    }, liveState, NOW);
+
+    expect(stateAfterMalformed).toEqual(liveState);
+    expect(received).toEqual([]);
+    expect(target.pollCalls).toHaveLength(1); // only the initial valid live poll
+  });
+
+  it("preserves both lifecycles when only the map-level payload is valid", async () => {
+    const target = new FakeTarget();
+    const received: MatchSignal[] = [];
+    target.busA.subscribe((signal) => received.push(signal));
+    const liveState = await handleCs2LivePoll(
+      target,
+      rawWithGame(liveTeams(3, 2)),
+      initialCs2TrackerState(),
+      NOW,
+    );
+    received.length = 0;
+
+    const stateAfterPartial = await handleCs2LivePoll(
+      target,
+      { data: { seriesState: { games: [{ clock: { ticking: true, currentSeconds: 40 }, teams: liveTeams(3, 2) }] } } },
+      liveState,
+      NOW,
+    );
+
+    expect(stateAfterPartial).toEqual(liveState);
+    expect(received).toEqual([]);
+    expect(target.pollCalls).toHaveLength(1);
   });
 
   it("publishes nothing when no arena is currently open (currentBus() returns undefined)", async () => {
@@ -112,7 +181,7 @@ describe("Cs2LivePoller — error backoff", () => {
       const fetchSeriesState = vi.fn().mockImplementation(async () => {
         calls++;
         if (calls === 1) throw new Error("network blip");
-        return rawWithGame(liveTeams(0, 0));
+        return { data: rawWithGame(liveTeams(0, 0)), status: 200 };
       });
 
       const poller = new Cs2LivePoller({ target, fetchSeriesState, pollIntervalMs: 10_000 });
@@ -132,7 +201,7 @@ describe("Cs2LivePoller — error backoff", () => {
 
   it("shutdown() stops the loop and awaits the in-flight iteration", async () => {
     const target = new FakeTarget();
-    const fetchSeriesState = vi.fn().mockResolvedValue(rawWithGame(liveTeams(0, 0)));
+    const fetchSeriesState = vi.fn().mockResolvedValue({ data: rawWithGame(liveTeams(0, 0)), status: 200 });
     const poller = new Cs2LivePoller({ target, fetchSeriesState, pollIntervalMs: 100_000 });
 
     poller.start();

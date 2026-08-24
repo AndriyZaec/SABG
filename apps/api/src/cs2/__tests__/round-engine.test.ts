@@ -117,7 +117,7 @@ function fakeProvider(): Cs2QuestionProvider {
 }
 
 describe("Cs2RoundEngine — synthetic match-end voiding", () => {
-  it("settles the in-flight round from the last known snapshot, then voids the round opened after its lock", () => {
+  it("voids the in-flight round when the last snapshot does not prove a score transition", () => {
     const bus = new MatchSignalBus();
     const events: Cs2RoundLifecycleEvent[] = [];
     const engine = new Cs2RoundEngine(MATCH_ID, ARENA_ID, { questionProvider: fakeProvider(), onTransition: (e) => events.push(e) });
@@ -134,11 +134,33 @@ describe("Cs2RoundEngine — synthetic match-end voiding", () => {
     bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(0, 0, 60), timestamp: "t2" });
     bus.publish({ kind: "cs2_match_end", timestamp: "t3" });
 
-    const settle1 = events.find((e) => e.type === "settle");
-    expect(settle1).toMatchObject({ type: "settle", roundNumber: 1, correctAnswer: "no" }); // score never changed
-    const void2 = events.find((e) => e.type === "void");
-    expect(void2).toMatchObject({ type: "void", roundNumber: 2 });
+    expect(events.filter((e) => e.type === "settle")).toEqual([]);
+    expect(events.filter((e) => e.type === "void").map((e) => e.roundNumber)).toEqual([1, 2]);
 
+    expect(engine.roundsByNumber.get(1)?.status).toBe("voided");
+    expect(engine.roundsByNumber.get(2)?.status).toBe("voided");
+  });
+
+  it("settles the in-flight round when the last snapshot proves exactly one score transition", () => {
+    const bus = new MatchSignalBus();
+    const events: Cs2RoundLifecycleEvent[] = [];
+    const engine = new Cs2RoundEngine(MATCH_ID, ARENA_ID, {
+      questionProvider: fakeProvider(),
+      onTransition: (event) => events.push(event),
+    });
+    engine.subscribeTo(bus);
+
+    engine.onMatchLiveDetected("t0");
+    bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(0, 0, 105), timestamp: "t1" });
+    bus.publish({ kind: "cs2_round_lock", roundNumber: 1, timestamp: "t1" });
+    bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(1, 0, 20), timestamp: "t2" });
+    bus.publish({ kind: "cs2_match_end", timestamp: "t3" });
+
+    expect(events.find((event) => event.type === "settle")).toMatchObject({
+      type: "settle",
+      roundNumber: 1,
+      correctAnswer: "yes",
+    });
     expect(engine.roundsByNumber.get(1)?.status).toBe("settled");
     expect(engine.roundsByNumber.get(2)?.status).toBe("voided");
   });
@@ -159,18 +181,28 @@ describe("Cs2RoundEngine — synthetic match-end voiding", () => {
   });
 });
 
-describe("Cs2RoundEngine — fallback when Round 1's lock arrives before onMatchLiveDetected", () => {
-  it("skips the lock and does not start the cascade", () => {
+describe("Cs2RoundEngine — resync at the next reliable lock", () => {
+  it("voids a stale question and opens the question after the newly-live round", () => {
     const bus = new MatchSignalBus();
     const events: Cs2RoundLifecycleEvent[] = [];
-    const engine = new Cs2RoundEngine(MATCH_ID, ARENA_ID, { onTransition: (e) => events.push(e) });
+    const engine = new Cs2RoundEngine(MATCH_ID, ARENA_ID, {
+      questionProvider: fakeProvider(),
+      onTransition: (e) => events.push(e),
+    });
     engine.subscribeTo(bus);
 
-    // No onMatchLiveDetected() call — Round 1 was never opened.
-    bus.publish({ kind: "cs2_round_lock", roundNumber: 1, timestamp: "t0" });
+    engine.onMatchLiveDetected("t0");
+    // The process joined during Round 1 and missed its lock. The first reliable boundary is
+    // Round 2's lock, after the score has already advanced to 1-0.
+    bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(1, 0, 105), timestamp: "t1" });
+    bus.publish({ kind: "cs2_round_lock", roundNumber: 2, timestamp: "t1" });
 
-    expect(events).toEqual([]);
-    expect(engine.roundsByNumber.size).toBe(0);
+    expect(engine.roundsByNumber.get(1)?.status).toBe("voided");
+    expect(engine.roundsByNumber.has(2)).toBe(false);
+    expect(engine.roundsByNumber.get(3)?.status).toBe("open");
+    expect(events.filter((event) => event.type === "void")).toEqual([
+      { type: "void", roundId: engine.roundsByNumber.get(1)?.id, roundNumber: 1 },
+    ]);
   });
 });
 

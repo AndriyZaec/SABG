@@ -85,11 +85,11 @@ export function trackCs2Poll(
     // First live snapshot ever seen for this match — nothing to close out yet.
     nextState = { ...nextState, roundInProgress: currentRoundByScore };
   } else if (currentRoundByScore !== state.roundInProgress) {
-    // Score advanced — the tracked round ended. (If polling gaps let the round number skip by
-    // more than one, only the immediately-preceding round is closed out here; intermediate
-    // rounds have no observed boundary snapshot and are invisible to this reducer — a known
-    // GRID data-risk, spec §9.)
-    if (state.lockSnapshot !== undefined) {
+    const roundsAdvanced = currentRoundByScore - state.roundInProgress;
+    // Settle only a single observed score transition. After a larger gap the final snapshot
+    // cannot prove which changes belong to which round, so discard the stale lock baseline and
+    // let the next clock reset realign the round engine.
+    if (roundsAdvanced === 1 && state.lockSnapshot !== undefined) {
       signals.push({
         kind: "cs2_round_end",
         roundNumber: state.roundInProgress,
@@ -98,7 +98,11 @@ export function trackCs2Poll(
         timestamp,
       });
     }
-    nextState = { ...nextState, roundInProgress: currentRoundByScore };
+    nextState = {
+      ...nextState,
+      roundInProgress: currentRoundByScore,
+      ...(roundsAdvanced === 1 ? {} : { lockSnapshot: undefined }),
+    };
   }
 
   if (state.lastSnapshot !== undefined && isRoundLive(state.lastSnapshot, snapshot) && nextState.lockedRound !== currentRoundByScore) {

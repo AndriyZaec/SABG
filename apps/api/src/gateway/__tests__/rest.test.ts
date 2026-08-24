@@ -475,6 +475,25 @@ describe("REST gateway routes", () => {
       });
     });
 
+    it("403s when the runtime reports the user is not an arena participant", async () => {
+      const round = { arenaId: ARENA_ID, id: "r1" } as PredictionRound;
+      vi.mocked(predictionRoundRepository.findById).mockResolvedValue(round);
+      const submitAnswer = vi.fn().mockReturnValue({ ok: false, reason: "not_participant" });
+      runtimeLookup.getRuntime.mockReturnValue({ submitAnswer });
+
+      const token = issueToken("u1");
+      const res = await fetch(`${baseUrl}/rounds/r1/answer`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+        body: JSON.stringify({ answer: "yes" }),
+      });
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({
+        error: "not_participant",
+        message: "Only active arena participants can submit predictions",
+      });
+    });
+
     it("200s with the receivedAt echoed back on success", async () => {
       const round = { arenaId: ARENA_ID, id: "r1" } as PredictionRound;
       vi.mocked(predictionRoundRepository.findById).mockResolvedValue(round);
