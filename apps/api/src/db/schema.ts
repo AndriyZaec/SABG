@@ -88,6 +88,8 @@ export const matches = pgTable("match", {
   txoddsFixtureId: integer("txodds_fixture_id").unique(),
   /** FK to `series` — CS2: one entry per map. Disciplines without series structure leave this null. */
   seriesId: uuid("series_id").references(() => series.id),
+  /** Stable 1-based map position inside a CS2 Series. Null for soccer. */
+  seriesMatchIndex: integer("series_match_index"),
   homeTeam: text("home_team").notNull(),
   awayTeam: text("away_team").notNull(),
   startTime: timestamp("start_time", { withTimezone: true }).notNull(),
@@ -100,6 +102,7 @@ export const matches = pgTable("match", {
 }, (t) => [
   uniqueIndex("match_teams_start_time_idx").on(t.homeTeam, t.awayTeam, t.startTime),
   index("match_series_id_idx").on(t.seriesId),
+  uniqueIndex("match_series_match_index_idx").on(t.seriesId, t.seriesMatchIndex),
 ]);
 
 export const arenas = pgTable("arena", {

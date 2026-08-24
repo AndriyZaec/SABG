@@ -8,6 +8,7 @@ import { randomUUID } from "node:crypto";
 import dotenv from "dotenv";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { Cs2ArenaRuntime } from "../arena-runtime.js";
 import type { Cs2SeriesSnapshot } from "../series-snapshot.js";
 
 dotenv.config();
@@ -70,7 +71,15 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
   afterAll(async () => {
     if (db === undefined) return;
     for (const arenaId of arenaIds) {
+      const rounds = await db
+        .select({ id: schema.predictionRounds.id })
+        .from(schema.predictionRounds)
+        .where(eq(schema.predictionRounds.arenaId, arenaId));
+      for (const round of rounds) {
+        await db.delete(schema.predictions).where(eq(schema.predictions.roundId, round.id));
+      }
       await db.delete(schema.predictionRounds).where(eq(schema.predictionRounds.arenaId, arenaId));
+      await db.delete(schema.arenaPlayers).where(eq(schema.arenaPlayers.arenaId, arenaId));
       await db.delete(schema.entryPasses).where(eq(schema.entryPasses.arenaId, arenaId));
       await db.delete(schema.arenas).where(eq(schema.arenas.id, arenaId));
     }
@@ -87,7 +96,7 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
 
     const writeQueue = new WriteQueue();
     const openedArenas: { arenaId: string }[] = [];
-    const orchestrator = new Cs2SeriesOrchestrator(series, {
+    const orchestrator = await Cs2SeriesOrchestrator.create(series, {
       writeQueue,
       entryFeeLamports: 1000,
       onArenaOpened: (arenaId) => openedArenas.push({ arenaId }),
@@ -162,7 +171,7 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     seriesIds.push(series.id);
 
     const writeQueue = new WriteQueue();
-    const orchestrator = new Cs2SeriesOrchestrator(series, { writeQueue, entryFeeLamports: 1000 });
+    const orchestrator = await Cs2SeriesOrchestrator.create(series, { writeQueue, entryFeeLamports: 1000 });
 
     await orchestrator.poll(snapshot({}), at(-10)); // Arena #1 opens
     const match1 = (await matchRepository.list()).find((m) => m.seriesId === series.id)!;
@@ -177,5 +186,54 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
 
     const invalidSeries = await seriesRepository.findById(series.id);
     expect(invalidSeries?.status).toBe("invalid");
+  });
+
+  it("restores the same lobby arena, round, roster, and answer without creating a duplicate match", async () => {
+    const at = clockFrom(new Date(Date.now() + 6 * 60 * MIN).toISOString());
+    const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
+      format: 3,
+      scheduledStartTime: new Date(at(0)),
+    });
+    seriesIds.push(series.id);
+
+    const writeQueue = new WriteQueue();
+    let firstRuntime: Cs2ArenaRuntime | undefined;
+    const first = await Cs2SeriesOrchestrator.create(series, {
+      writeQueue,
+      entryFeeLamports: 1000,
+      onArenaOpened: (_arenaId, runtime) => {
+        firstRuntime = runtime;
+      },
+    });
+    await first.poll(snapshot({}), at(-10));
+
+    const match = (await matchRepository.listBySeriesId(series.id))[0]!;
+    const arena = (await arenaRepository.findByMatchId(match.id))!;
+    matchIds.push(match.id);
+    arenaIds.push(arena.id);
+
+    const user = await userRepository.upsertByWallet(`int-test-wallet-${randomUUID()}`, "restart-player");
+    userIds.push(user.id);
+    firstRuntime!.join(user.id, user.username, at(-9));
+    const originalRound = firstRuntime!.currentRound!;
+    expect(firstRuntime!.submitAnswer(user.id, originalRound.id, "yes").ok).toBe(true);
+    await writeQueue.drain();
+
+    let restoredRuntime: Cs2ArenaRuntime | undefined;
+    let restoredArenaId: string | undefined;
+    await Cs2SeriesOrchestrator.create(series, {
+      writeQueue,
+      entryFeeLamports: 1000,
+      onArenaOpened: (arenaId, runtime) => {
+        restoredArenaId = arenaId;
+        restoredRuntime = runtime;
+      },
+    });
+
+    expect(restoredArenaId).toBe(arena.id);
+    expect(restoredRuntime!.currentRound?.id).toBe(originalRound.id);
+    expect(restoredRuntime!.statusFor(user.id)).toBe("active");
+    expect(restoredRuntime!.answerFor(user.id, originalRound.id)).toBe("yes");
+    expect(await matchRepository.listBySeriesId(series.id)).toHaveLength(1);
   });
 });

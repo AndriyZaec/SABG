@@ -57,6 +57,8 @@ export interface Match {
    * without series structure (soccer) leave this empty.
    */
   seriesId?: Uuid;
+  /** Stable 1-based map position inside a CS2 Series. Absent for soccer. */
+  seriesMatchIndex?: number;
 }
 
 /**

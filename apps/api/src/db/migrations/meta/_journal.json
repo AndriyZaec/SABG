@@ -71,6 +71,13 @@
       "when": 1786465134422,
       "tag": "0009_flippant_baron_zemo",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1787609083368,
+      "tag": "0010_spotty_johnny_storm",
+      "breakpoints": true
     }
   ]
 }

@@ -30,6 +30,8 @@ export type Cs2RoundLifecycleEvent =
 export interface Cs2RoundEngineOptions {
   questionProvider?: Cs2QuestionProvider;
   teamNames?: { home: string; away: string };
+  /** Persisted rounds restored before the bus starts delivering new signals. */
+  initialRounds?: readonly PredictionRound[];
   /** True once the arena has finished. When set, no further rounds are opened — mirrors
    *  soccer's RoundEngineOptions.isArenaFinished. */
   isArenaFinished?: () => boolean;
@@ -52,6 +54,12 @@ export class Cs2RoundEngine {
     private readonly options: Cs2RoundEngineOptions = {},
   ) {
     this.questionProvider = options.questionProvider ?? createCs2QuestionProvider();
+    for (const round of options.initialRounds ?? []) {
+      if (round.roundNumber === undefined || round.matchId !== matchId || round.arenaId !== arenaId) {
+        throw new Error(`Invalid restored CS2 round ${round.id}`);
+      }
+      this.rounds.set(round.roundNumber, round);
+    }
   }
 
   /** Rounds created so far, keyed by Round number (open, locked, settled, or voided). */

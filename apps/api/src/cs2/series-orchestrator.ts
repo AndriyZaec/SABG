@@ -18,13 +18,16 @@ import { createPgArenaPlayerStore } from "../gateway/stores/pg-arena-player-stor
 import { createPgPredictionStore } from "../gateway/stores/pg-prediction-store.js";
 import type { WriteQueue } from "../gateway/stores/write-queue.js";
 import { MatchSignalBus } from "../ingestion/event-bus.js";
+import { arenaPlayerRepository } from "../db/repositories/arena-player.repository.js";
 import { arenaRepository } from "../db/repositories/arena.repository.js";
 import { entryPassRepository } from "../db/repositories/entry-pass.repository.js";
 import { matchRepository } from "../db/repositories/match.repository.js";
+import { predictionRepository } from "../db/repositories/prediction.repository.js";
 import { predictionRoundRepository } from "../db/repositories/prediction-round.repository.js";
 import { seriesRepository } from "../db/repositories/series.repository.js";
+import { userRepository } from "../db/repositories/user.repository.js";
 import { payoutService } from "../payout/index.js";
-import type { IsoDateTime, Series, Uuid } from "@arena/contracts";
+import type { Arena, IsoDateTime, Match, PredictionRound, Series, Uuid } from "@arena/contracts";
 import { Cs2ArenaRuntime, type Cs2ArenaPersistence } from "./arena-runtime.js";
 import {
   initialCs2SeriesLifecycleState,
@@ -38,8 +41,7 @@ export interface Cs2SeriesOrchestratorOptions {
   writeQueue: WriteQueue;
   entryFeeLamports: number;
   broadcaster?: GatewayBroadcaster;
-  /** Called once a new Arena's Cs2ArenaRuntime is up and stored, before Round 1 opens — the
-   *  hook a live gateway (cs2/run.ts) uses to call `wsGateway.registerRuntime(arenaId, runtime)`. */
+  /** Called once an Arena runtime is ready in this process, including a restored lobby. */
   onArenaOpened?: (arenaId: Uuid, runtime: Cs2ArenaRuntime) => void;
 }
 
@@ -53,12 +55,75 @@ interface OpenedArena {
 export class Cs2SeriesOrchestrator {
   private lifecycleState: Cs2SeriesLifecycleState;
   private readonly arenasByMatchIndex = new Map<number, OpenedArena>();
+  private reconcilingFinishedMatch = false;
 
   constructor(
     private readonly series: Series,
     private readonly options: Cs2SeriesOrchestratorOptions,
   ) {
-    this.lifecycleState = initialCs2SeriesLifecycleState(series.scheduledStartTime);
+    this.lifecycleState = {
+      ...initialCs2SeriesLifecycleState(series.scheduledStartTime),
+      format: series.format,
+      decided: series.status === "decided",
+      invalid: series.status === "invalid",
+    };
+  }
+
+  static async create(series: Series, options: Cs2SeriesOrchestratorOptions): Promise<Cs2SeriesOrchestrator> {
+    const orchestrator = new Cs2SeriesOrchestrator(series, options);
+    await orchestrator.restore();
+    return orchestrator;
+  }
+
+  private async restore(): Promise<void> {
+    await matchRepository.ensureSeriesMatchIndexes(this.series.id);
+    const existingMatches = await matchRepository.listBySeriesId(this.series.id);
+    if (existingMatches.length === 0) return;
+    if (existingMatches.some((match) => match.seriesMatchIndex === undefined)) {
+      throw new Error(`Series ${this.series.id} has CS2 matches without a series match index`);
+    }
+
+    const latestMatch = existingMatches[existingMatches.length - 1]!;
+    const matchIndex = latestMatch.seriesMatchIndex!;
+    if (this.series.status !== "active") {
+      this.lifecycleState = { ...this.lifecycleState, openedThrough: matchIndex };
+      return;
+    }
+
+    const arena =
+      (await arenaRepository.findByMatchId(latestMatch.id)) ??
+      (await arenaRepository.upsertForMatch(latestMatch.id, {
+        entryFeeLamports: this.options.entryFeeLamports,
+        prizePoolLamports: 0,
+      }));
+
+    const matchWasLive = arena.status === "live" || arena.status === "finished";
+    this.lifecycleState = {
+      ...this.lifecycleState,
+      openedThrough: matchIndex,
+      matchLiveDetected: matchWasLive,
+      lastHasLiveGame: matchWasLive,
+    };
+
+    if (arena.status === "live") {
+      throw new Error(`Cannot safely restore live CS2 arena ${arena.id} without a GRID lock snapshot`);
+    }
+    if (arena.status === "cancelled") {
+      throw new Error(`Active CS2 series ${this.series.id} has a cancelled latest arena`);
+    }
+    if (arena.status === "finished") {
+      this.reconcilingFinishedMatch = true;
+      return;
+    }
+
+    const rounds = await predictionRoundRepository.listByArenaId(arena.id);
+    if (rounds.some((round) => round.status !== "open")) {
+      throw new Error(`Lobby CS2 arena ${arena.id} contains a non-open round`);
+    }
+    const opened = await this.createRuntime(latestMatch, arena, rounds, true);
+    this.arenasByMatchIndex.set(matchIndex, opened);
+    this.options.onArenaOpened?.(arena.id, opened.runtime);
+    opened.runtime.openRoundOne(latestMatch.startTime);
   }
 
   /**
@@ -76,11 +141,15 @@ export class Cs2SeriesOrchestrator {
   }
 
   async poll(snapshot: Cs2SeriesSnapshot | undefined, now: IsoDateTime): Promise<void> {
+    if (this.reconcilingFinishedMatch && snapshot?.hasLiveGame === true) {
+      throw new Error(`Cannot safely restore active CS2 series ${this.series.id}: its next map is already live`);
+    }
     const { state, actions } = processCs2SeriesPoll(this.lifecycleState, snapshot, now);
     this.lifecycleState = state;
     // Sequential, in action order — matters for the rare same-poll "open Arena #1 then
     // immediately no-show-cancel it" case (series-lifecycle.ts's own doc comment).
     for (const action of actions) await this.apply(action, snapshot, now);
+    if (snapshot !== undefined) this.reconcilingFinishedMatch = false;
   }
 
   private async apply(action: Cs2LifecycleAction, snapshot: Cs2SeriesSnapshot | undefined, now: IsoDateTime): Promise<void> {
@@ -104,7 +173,7 @@ export class Cs2SeriesOrchestrator {
 
   private async openArena(matchIndex: number, snapshot: Cs2SeriesSnapshot | undefined, now: IsoDateTime): Promise<void> {
     const teamNames = snapshot ? { home: snapshot.teams[0].name, away: snapshot.teams[1].name } : undefined;
-    const match = await matchRepository.createForSeriesMap(this.series.id, {
+    const match = await matchRepository.upsertForSeriesMap(this.series.id, matchIndex, {
       homeTeam: teamNames?.home ?? "Home",
       awayTeam: teamNames?.away ?? "Away",
       startTime: new Date(now),
@@ -114,9 +183,35 @@ export class Cs2SeriesOrchestrator {
       prizePoolLamports: 0,
     });
 
+    const opened = await this.createRuntime(match, arena, [], false);
+    this.arenasByMatchIndex.set(matchIndex, opened);
+    this.options.onArenaOpened?.(arena.id, opened.runtime);
+    opened.runtime.openRoundOne(now);
+  }
+
+  private async createRuntime(
+    match: Match,
+    arena: Arena,
+    initialRounds: PredictionRound[],
+    restoring: boolean,
+  ): Promise<OpenedArena> {
     const bus = new MatchSignalBus();
     const predictionStore = createPgPredictionStore(arena.id, this.options.writeQueue);
     const arenaPlayerStore = createPgArenaPlayerStore(arena.id, this.options.writeQueue);
+    const players = restoring ? await arenaPlayerRepository.list(arena.id) : [];
+    arenaPlayerStore.hydrate(players);
+
+    const roster = await Promise.all(
+      players.map(async (player) => {
+        const user = await userRepository.findById(player.userId);
+        if (user === undefined) throw new Error(`Arena player ${player.userId} has no user row`);
+        return { userId: player.userId, username: user.username, joinedAt: player.joinedAt };
+      }),
+    );
+    for (const round of initialRounds) {
+      predictionStore.hydrate(round.id, await predictionRepository.getAnswers(round.id));
+    }
+
     const persistence: Cs2ArenaPersistence = {
       upsertRound: (round) => {
         void this.options.writeQueue.enqueue(arena.id, () => predictionRoundRepository.upsert(round).then(() => undefined));
@@ -138,15 +233,14 @@ export class Cs2SeriesOrchestrator {
       bus,
       predictionStore,
       arenaPlayerStore,
-      roster: [],
+      roster,
       persistence,
+      initialRounds,
       ...(this.options.broadcaster !== undefined ? { broadcaster: this.options.broadcaster } : {}),
-      ...(teamNames !== undefined ? { teamNames } : {}),
+      teamNames: { home: match.homeTeam, away: match.awayTeam },
     });
 
-    this.arenasByMatchIndex.set(matchIndex, { matchId: match.id, arenaId: arena.id, runtime, bus });
-    this.options.onArenaOpened?.(arena.id, runtime);
-    runtime.openRoundOne(now);
+    return { matchId: match.id, arenaId: arena.id, runtime, bus };
   }
 
   private async matchLiveDetected(matchIndex: number, now: IsoDateTime): Promise<void> {

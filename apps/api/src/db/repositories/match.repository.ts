@@ -3,7 +3,7 @@
 // gateway's self-contained event bootstrap (gateway/run.ts) — independent of db:seed, which seeds a
 // different fixture than the replay uses.
 
-import { eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import type { Match, MatchPeriod, Score, Uuid } from "@arena/contracts";
 import { db } from "../client.js";
 import { matches } from "../schema.js";
@@ -23,6 +23,38 @@ export const matchRepository = {
   async findByTxoddsFixtureId(fixtureId: number): Promise<Match | undefined> {
     const [row] = await db.select().from(matches).where(eq(matches.txoddsFixtureId, fixtureId));
     return row ? matchRowToEntity(row) : undefined;
+  },
+
+  async listBySeriesId(seriesId: Uuid): Promise<Match[]> {
+    const rows = await db
+      .select()
+      .from(matches)
+      .where(eq(matches.seriesId, seriesId))
+      .orderBy(asc(matches.seriesMatchIndex));
+    return rows.map(matchRowToEntity);
+  },
+
+  async findBySeriesMatchIndex(seriesId: Uuid, matchIndex: number): Promise<Match | undefined> {
+    const [row] = await db
+      .select()
+      .from(matches)
+      .where(and(eq(matches.seriesId, seriesId), eq(matches.seriesMatchIndex, matchIndex)));
+    return row ? matchRowToEntity(row) : undefined;
+  },
+
+  /** Repairs CS2 rows inserted by an older binary after the map-index migration was applied. */
+  async ensureSeriesMatchIndexes(seriesId: Uuid): Promise<void> {
+    const rows = await db
+      .select({ id: matches.id, seriesMatchIndex: matches.seriesMatchIndex })
+      .from(matches)
+      .where(eq(matches.seriesId, seriesId))
+      .orderBy(asc(matches.createdAt), asc(matches.id));
+    let nextIndex = rows.reduce((max, row) => Math.max(max, row.seriesMatchIndex ?? 0), 0) + 1;
+    for (const row of rows) {
+      if (row.seriesMatchIndex !== null) continue;
+      await db.update(matches).set({ seriesMatchIndex: nextIndex }).where(eq(matches.id, row.id));
+      nextIndex += 1;
+    }
   },
 
   /**
@@ -60,25 +92,10 @@ export const matchRepository = {
     return matchRowToEntity(row);
   },
 
-  /**
-   * Creates a CS2 map Match row for Series `seriesId` (cs2/series-orchestrator.ts, on
-   * `open_arena`). Deliberately NOT idempotent/upserting like `upsertByTxoddsFixtureId` — CS2 has
-   * no natural unique key for "map k of this Series" yet (multiple maps can share team names and
-   * a nominal start time); restart-safe idempotency is a step-5 concern, once a live driver
-   * actually needs to resume after a crash rather than always starting a fresh orchestrator.
-   * `currentMinute`/`period`/`score` are soccer-only fields (spec) and stay at their placeholder
-   * defaults forever for a CS2 row — nothing ever calls `updateLive` for one.
-   *
-   * Residual risk (found via testing, accepted rather than fixed): `matches`' unique index is on
-   * `(homeTeam, awayTeam, startTime)` with no `seriesId` component, so this insert can still
-   * collide — not just across maps of *this* Series (avoided because `startTime` is the real
-   * open-time, strictly increasing map to map), but in principle across two *different* Series
-   * that happen to share both team names and the exact same millisecond open-time. A live poller
-   * makes that astronomically unlikely (real wall-clock timestamps, ~10s cadence); it was only
-   * ever hit by two independent tests literally reusing the same synthetic clock constant.
-   */
-  async createForSeriesMap(
+  /** Idempotent CS2 map bootstrap, keyed by the durable 1-based position inside its Series. */
+  async upsertForSeriesMap(
     seriesId: Uuid,
+    matchIndex: number,
     input: { homeTeam: string; awayTeam: string; startTime: Date },
   ): Promise<Match> {
     const [row] = await db
@@ -86,6 +103,7 @@ export const matchRepository = {
       .values({
         discipline: "cs2",
         seriesId,
+        seriesMatchIndex: matchIndex,
         homeTeam: input.homeTeam,
         awayTeam: input.awayTeam,
         startTime: input.startTime,
@@ -95,9 +113,13 @@ export const matchRepository = {
         scoreHome: 0,
         scoreAway: 0,
       })
+      .onConflictDoNothing({ target: [matches.seriesId, matches.seriesMatchIndex] })
       .returning();
-    if (!row) throw new Error(`createForSeriesMap(${seriesId}) returned no row`);
-    return matchRowToEntity(row);
+    if (row) return matchRowToEntity(row);
+
+    const existing = await this.findBySeriesMatchIndex(seriesId, matchIndex);
+    if (!existing) throw new Error(`upsertForSeriesMap(${seriesId}, ${matchIndex}) found no row after conflict`);
+    return existing;
   },
 
   /** Mirrors MatchState snapshots (spec §13 Match.currentMinute/period/score). */

@@ -59,6 +59,7 @@ export function matchRowToEntity(row: MatchRow): Match {
     period: row.period,
     score: { home: row.scoreHome, away: row.scoreAway },
     ...(row.seriesId !== null ? { seriesId: row.seriesId } : {}),
+    ...(row.seriesMatchIndex !== null ? { seriesMatchIndex: row.seriesMatchIndex } : {}),
   };
 }
 

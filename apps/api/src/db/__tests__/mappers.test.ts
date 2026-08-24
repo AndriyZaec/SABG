@@ -43,6 +43,7 @@ describe("matchRowToEntity", () => {
       discipline: "soccer",
       txoddsFixtureId: 123,
       seriesId: null,
+      seriesMatchIndex: null,
       homeTeam: "A",
       awayTeam: "B",
       startTime,

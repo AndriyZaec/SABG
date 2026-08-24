@@ -123,7 +123,7 @@ async function main(): Promise<void> {
     });
     const { httpServer, wsGateway } = gatewayServer;
 
-    const orchestrator = new Cs2SeriesOrchestrator(series, {
+    const orchestrator = await Cs2SeriesOrchestrator.create(series, {
       writeQueue,
       entryFeeLamports: CS2_ENTRY_FEE_LAMPORTS,
       broadcaster: wsGateway,

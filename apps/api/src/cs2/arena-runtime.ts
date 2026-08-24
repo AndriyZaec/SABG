@@ -58,6 +58,8 @@ export interface Cs2ArenaRuntimeOptions {
   broadcaster?: GatewayBroadcaster;
   persistence?: Cs2ArenaPersistence;
   teamNames?: { home: string; away: string };
+  /** Persisted lobby rounds restored after a process restart. */
+  initialRounds?: readonly PredictionRound[];
   /** Forwarded to Cs2RoundEngine — defaults to createCs2QuestionProvider() there. Overridable
    *  seam for tests that need deterministic questions (the real provider picks randomly, spec
    *  §7 п.7 / §10). */
@@ -101,6 +103,7 @@ export class Cs2ArenaRuntime implements ArenaRuntimeLike {
     this.roundEngine = new Cs2RoundEngine(this.matchId, this.arenaId, {
       ...(options.teamNames !== undefined ? { teamNames: options.teamNames } : {}),
       ...(options.questionProvider !== undefined ? { questionProvider: options.questionProvider } : {}),
+      ...(options.initialRounds !== undefined ? { initialRounds: options.initialRounds } : {}),
       isArenaFinished: () => this.winners !== undefined,
       onTransition: (event) => this.onRoundTransition(event),
     });

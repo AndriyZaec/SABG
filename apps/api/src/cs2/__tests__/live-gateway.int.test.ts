@@ -106,7 +106,7 @@ describe.skipIf(!RUN)("CS2 live gateway wiring (integration, requires DATABASE_U
     const port = (httpServer.address() as AddressInfo).port;
 
     const writeQueue = new WriteQueue();
-    const orchestrator = new Cs2SeriesOrchestrator(series, {
+    const orchestrator = await Cs2SeriesOrchestrator.create(series, {
       writeQueue,
       entryFeeLamports: 1000,
       broadcaster: gateway,
