@@ -23,7 +23,7 @@ const sol = (lamports: number) => Number((lamports / 1_000_000_000).toFixed(3));
 export function Cs2EntryCard() {
   const { connected } = useWallet();
   const { arena } = useCs2BackendArena();
-  const { status, info, error, hasEntry, join } = useCs2ArenaEntry({
+  const { status, info, error, hasEntry, entryRefunded, join } = useCs2ArenaEntry({
     ...(arena?.onchainArenaId != null ? { onchainArenaId: arena.onchainArenaId } : {}),
     ...(arena ? { backendArenaId: arena.id } : {}),
   });
@@ -34,9 +34,15 @@ export function Cs2EntryCard() {
   let action: ReactNode;
   if (!connected) {
     action = <p className="nb-mono" style={{ margin: 0 }}>Connect a wallet in the top bar to join.</p>;
+  } else if (info?.state === "cancelled") {
+    action = (
+      <Badge tone="neutral">
+        {entryRefunded ? "Arena cancelled — entry refunded" : hasEntry ? "Arena cancelled — refund processing" : "Arena cancelled"}
+      </Badge>
+    );
   } else if (hasEntry) {
     action = <div className="nb-hero__joined">✔ You&apos;re in — wait for kickoff</div>;
-  } else if (info?.settled) {
+  } else if (info?.state === "settled") {
     action = <Badge tone="neutral">Arena settled — see payout</Badge>;
   } else if (!arena) {
     action = <Loading label="Loading arena…" />;

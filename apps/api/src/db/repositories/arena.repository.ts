@@ -82,6 +82,13 @@ export const arenaRepository = {
     await db.update(arenas).set({ status }).where(eq(arenas.id, id));
   },
 
+  async clearCancelledBalances(id: Uuid): Promise<void> {
+    await db
+      .update(arenas)
+      .set({ activePlayersCount: 0, prizePoolLamports: 0 })
+      .where(and(eq(arenas.id, id), eq(arenas.status, "cancelled")));
+  },
+
   /**
    * Guarded lobby -> cancelled transition (cs2/series-lifecycle.ts's `cancel_arena` action: spec
    * §4 п.4 no-show, or the Arena #k+1 forfeit-cancellation gap, data-assumptions.md #12). A

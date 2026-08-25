@@ -63,6 +63,21 @@ export async function settleArenaPayoutOnchain(
   return settlePayoutOnchain(onchainArenaId, winnerWallets);
 }
 
+export async function cancelArenaOnchain(onchainArenaId: number): Promise<void> {
+  const { cancelArenaOnchain: cancel } = await import("./arena-program.js");
+  await cancel(onchainArenaId);
+}
+
+export async function refundArenaEntryOnchain(onchainArenaId: number, playerAddress: string): Promise<void> {
+  const { refundEntryOnchain: refund } = await import("./arena-program.js");
+  await refund(onchainArenaId, playerAddress);
+}
+
+export async function listOnchainArenaEntryPlayers(onchainArenaId: number): Promise<string[]> {
+  const { listArenaEntryPlayers } = await import("./arena-program.js");
+  return listArenaEntryPlayers(onchainArenaId);
+}
+
 /** Refuse automatic demo recycling while the previous arena still holds player funds. */
 export async function assertArenaRecyclable(onchainArenaId: number): Promise<void> {
   const { assertArenaRecyclable: assertRecyclable } = await import("./arena-program.js");

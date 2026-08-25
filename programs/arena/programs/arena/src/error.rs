@@ -16,4 +16,14 @@ pub enum ArenaError {
     InvalidEntryFee,
     #[msg("Platform fee exceeds 100%")]
     InvalidPlatformFee,
+    #[msg("Arena is not open")]
+    ArenaNotOpen,
+    #[msg("Arena is not cancelled")]
+    NotCancelled,
+    #[msg("Entry pass was already refunded")]
+    AlreadyRefunded,
+    #[msg("Arena accounting underflow")]
+    AccountingUnderflow,
+    #[msg("Escrow cannot receive a winner payout")]
+    InvalidWinner,
 }

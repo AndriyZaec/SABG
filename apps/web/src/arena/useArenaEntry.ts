@@ -7,6 +7,8 @@ import {
   DEMO_ARENA_ID,
   deriveArenaPdas,
   deriveEntryPass,
+  onchainArenaState,
+  type OnchainArenaState,
   useArenaProgram,
 } from "../solana/program.js";
 import { prepareEntry, submitEntry } from "../api/client.js";
@@ -32,7 +34,7 @@ export interface ArenaInfo {
   entryFeeSol: number;
   prizePoolSol: number;
   playerCount: number;
-  settled: boolean;
+  state: OnchainArenaState;
 }
 
 export interface ArenaEntry {
@@ -41,6 +43,7 @@ export interface ArenaEntry {
   error?: string;
   info: ArenaInfo | null;
   hasEntry: boolean;
+  entryRefunded: boolean;
   createArena: () => Promise<void>;
   join: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -75,18 +78,20 @@ export function useArenaEntry(options: ArenaEntryOptions = {}): ArenaEntry {
   const [error, setError] = useState<string | undefined>();
   const [info, setInfo] = useState<ArenaInfo | null>(null);
   const [hasEntry, setHasEntry] = useState(false);
+  const [entryRefunded, setEntryRefunded] = useState(false);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (showLoading = true) => {
     if (!program) return;
-    setStatus("loading");
-    setError(undefined);
+    if (showLoading) setStatus("loading");
+    if (showLoading) setError(undefined);
     try {
       if (targetArenaId === null) {
         // Real backend arena, not provisioned on-chain yet — no pass can exist for it, so never
         // report "joined" here (see the DEMO_ARENA_ID fallback bug this guards against above).
-        setInfo({ exists: false, entryFeeSol: toSol(DEFAULT_ENTRY_FEE_LAMPORTS), prizePoolSol: 0, playerCount: 0, settled: false });
+        setInfo({ exists: false, entryFeeSol: toSol(DEFAULT_ENTRY_FEE_LAMPORTS), prizePoolSol: 0, playerCount: 0, state: "open" });
         setHasEntry(false);
-        setStatus("idle");
+        setEntryRefunded(false);
+        if (showLoading) setStatus("idle");
         return;
       }
 
@@ -99,28 +104,34 @@ export function useArenaEntry(options: ArenaEntryOptions = {}): ArenaEntry {
               entryFeeSol: toSol(account.entryFeeLamports),
               prizePoolSol: toSol(account.prizePoolLamports),
               playerCount: account.playerCount,
-              settled: account.settled,
+              state: onchainArenaState(account.state),
             }
-          : { exists: false, entryFeeSol: toSol(DEFAULT_ENTRY_FEE_LAMPORTS), prizePoolSol: 0, playerCount: 0, settled: false },
+          : { exists: false, entryFeeSol: toSol(DEFAULT_ENTRY_FEE_LAMPORTS), prizePoolSol: 0, playerCount: 0, state: "open" },
       );
 
       if (publicKey) {
         const pass = await program.account.entryPass.fetchNullable(
           deriveEntryPass(program.programId, arena, publicKey),
         );
-        setHasEntry(pass !== null);
+        setHasEntry(pass !== null && !pass.refunded);
+        setEntryRefunded(pass?.refunded ?? false);
       } else {
         setHasEntry(false);
+        setEntryRefunded(false);
       }
-      setStatus("idle");
+      if (showLoading) setStatus("idle");
     } catch (e) {
-      setStatus("error");
-      setError(e instanceof Error ? e.message : "Failed to load arena");
+      if (showLoading) {
+        setStatus("error");
+        setError(e instanceof Error ? e.message : "Failed to load arena");
+      }
     }
   }, [program, publicKey, targetArenaId]);
 
   useEffect(() => {
     void refresh();
+    const timer = window.setInterval(() => void refresh(false), 10_000);
+    return () => window.clearInterval(timer);
   }, [refresh]);
 
   const run = useCallback(
@@ -148,8 +159,8 @@ export function useArenaEntry(options: ArenaEntryOptions = {}): ArenaEntry {
     );
   }, [program, publicKey, targetArenaId, run]);
 
-  // One-signature join: backend builds the buy_entry tx, the user signs it, backend submits + seats
-  // + issues the session token. Payment and seat are one backend-owned act — no strand possible.
+  // One-signature join: backend builds the buy_entry tx, the user signs it, then backend submits,
+  // seats the player, and issues the session token.
   const join = useCallback(async () => {
     if (!publicKey || !signTransaction || !backendArenaId) return;
     await run(async () => {
@@ -171,6 +182,7 @@ export function useArenaEntry(options: ArenaEntryOptions = {}): ArenaEntry {
     error,
     info,
     hasEntry,
+    entryRefunded,
     createArena,
     join,
     refresh,

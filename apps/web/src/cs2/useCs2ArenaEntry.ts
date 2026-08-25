@@ -2,7 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { BN } from "@coral-xyz/anchor";
 import { LAMPORTS_PER_SOL, Transaction } from "@solana/web3.js";
-import { DEFAULT_ENTRY_FEE_LAMPORTS, deriveArenaPdas, deriveEntryPass, useArenaProgram } from "../solana/program.js";
+import {
+  DEFAULT_ENTRY_FEE_LAMPORTS,
+  deriveArenaPdas,
+  deriveEntryPass,
+  onchainArenaState,
+  type OnchainArenaState,
+  useArenaProgram,
+} from "../solana/program.js";
 import { prepareCs2Entry, submitCs2Entry } from "./api/cs2Client.js";
 import { useAuth } from "../auth/AuthContext.js";
 
@@ -30,7 +37,7 @@ export interface Cs2ArenaInfo {
   entryFeeSol: number;
   prizePoolSol: number;
   playerCount: number;
-  settled: boolean;
+  state: OnchainArenaState;
 }
 
 export interface Cs2ArenaEntry {
@@ -39,6 +46,7 @@ export interface Cs2ArenaEntry {
   error?: string;
   info: Cs2ArenaInfo | null;
   hasEntry: boolean;
+  entryRefunded: boolean;
   join: () => Promise<void>;
   refresh: () => Promise<void>;
 }
@@ -64,16 +72,18 @@ export function useCs2ArenaEntry(options: Cs2ArenaEntryOptions = {}): Cs2ArenaEn
   const [error, setError] = useState<string | undefined>();
   const [info, setInfo] = useState<Cs2ArenaInfo | null>(null);
   const [hasEntry, setHasEntry] = useState(false);
+  const [entryRefunded, setEntryRefunded] = useState(false);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (showLoading = true) => {
     if (!program) return;
-    setStatus("loading");
-    setError(undefined);
+    if (showLoading) setStatus("loading");
+    if (showLoading) setError(undefined);
     try {
       if (targetArenaId === null) {
-        setInfo({ exists: false, entryFeeSol: toSol(DEFAULT_ENTRY_FEE_LAMPORTS), prizePoolSol: 0, playerCount: 0, settled: false });
+        setInfo({ exists: false, entryFeeSol: toSol(DEFAULT_ENTRY_FEE_LAMPORTS), prizePoolSol: 0, playerCount: 0, state: "open" });
         setHasEntry(false);
-        setStatus("idle");
+        setEntryRefunded(false);
+        if (showLoading) setStatus("idle");
         return;
       }
 
@@ -86,26 +96,32 @@ export function useCs2ArenaEntry(options: Cs2ArenaEntryOptions = {}): Cs2ArenaEn
               entryFeeSol: toSol(account.entryFeeLamports),
               prizePoolSol: toSol(account.prizePoolLamports),
               playerCount: account.playerCount,
-              settled: account.settled,
+              state: onchainArenaState(account.state),
             }
-          : { exists: false, entryFeeSol: toSol(DEFAULT_ENTRY_FEE_LAMPORTS), prizePoolSol: 0, playerCount: 0, settled: false },
+          : { exists: false, entryFeeSol: toSol(DEFAULT_ENTRY_FEE_LAMPORTS), prizePoolSol: 0, playerCount: 0, state: "open" },
       );
 
       if (publicKey) {
         const pass = await program.account.entryPass.fetchNullable(deriveEntryPass(program.programId, arena, publicKey));
-        setHasEntry(pass !== null);
+        setHasEntry(pass !== null && !pass.refunded);
+        setEntryRefunded(pass?.refunded ?? false);
       } else {
         setHasEntry(false);
+        setEntryRefunded(false);
       }
-      setStatus("idle");
+      if (showLoading) setStatus("idle");
     } catch (e) {
-      setStatus("error");
-      setError(e instanceof Error ? e.message : "Failed to load arena");
+      if (showLoading) {
+        setStatus("error");
+        setError(e instanceof Error ? e.message : "Failed to load arena");
+      }
     }
   }, [program, publicKey, targetArenaId]);
 
   useEffect(() => {
     void refresh();
+    const timer = window.setInterval(() => void refresh(false), 10_000);
+    return () => window.clearInterval(timer);
   }, [refresh]);
 
   const run = useCallback(
@@ -138,5 +154,5 @@ export function useCs2ArenaEntry(options: Cs2ArenaEntryOptions = {}): Cs2ArenaEn
     });
   }, [publicKey, signTransaction, backendArenaId, run, setSession]);
 
-  return { ready: program !== null, status, error, info, hasEntry, join, refresh };
+  return { ready: program !== null, status, error, info, hasEntry, entryRefunded, join, refresh };
 }

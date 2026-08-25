@@ -79,14 +79,23 @@ export function assertEscrowEmpty(balanceLamports: number, onchainArenaId: numbe
 }
 
 export function assertArenaRecyclableState(
-  settled: boolean,
+  state: "open" | "settled" | "cancelled",
   escrowBalanceLamports: number,
   onchainArenaId: number,
 ): void {
-  if (!settled) {
-    throw new Error(`Refusing to recycle on-chain arena ${onchainArenaId}: arena is not settled`);
+  if (state === "open") {
+    throw new Error(`Refusing to recycle on-chain arena ${onchainArenaId}: arena is not terminal`);
   }
   assertEscrowEmpty(escrowBalanceLamports, onchainArenaId);
+}
+
+function decodeArenaState(state: unknown): "open" | "settled" | "cancelled" {
+  if (typeof state === "object" && state !== null) {
+    if ("open" in state) return "open";
+    if ("settled" in state) return "settled";
+    if ("cancelled" in state) return "cancelled";
+  }
+  throw new Error("On-chain arena has an unknown state");
 }
 
 /** entry_pass PDA — same seeds as the program & frontend (deriveEntryPass). */
@@ -108,6 +117,13 @@ function buildProgram(): { program: anchor.Program; authority: Keypair } {
     commitment: "confirmed",
   });
   return { program: new anchor.Program(ARENA_IDL as anchor.Idl, provider), authority };
+}
+
+async function confirmFinalized(program: anchor.Program, signature: string): Promise<void> {
+  const confirmation = await program.provider.connection.confirmTransaction(signature, "finalized");
+  if (confirmation.value.err !== null) {
+    throw new Error(`Transaction ${signature} failed: ${JSON.stringify(confirmation.value.err)}`);
+  }
 }
 
 export interface ProvisionedArena {
@@ -253,8 +269,8 @@ export async function assertArenaRecyclable(onchainArenaId: number): Promise<voi
     program.provider.connection.getBalance(escrow, "finalized"),
   ]);
   if (!arenaAccount) throw new Error(`On-chain arena ${onchainArenaId} does not exist`);
-  const decoded = program.coder.accounts.decode("arena", arenaAccount.data) as { settled: boolean };
-  assertArenaRecyclableState(decoded.settled, balanceLamports, onchainArenaId);
+  const decoded = program.coder.accounts.decode("arena", arenaAccount.data) as { state: unknown };
+  assertArenaRecyclableState(decodeArenaState(decoded.state), balanceLamports, onchainArenaId);
 }
 
 /**
@@ -285,7 +301,10 @@ export async function submitSignedEntry(signedTxBase64: string): Promise<string>
   const connection = program.provider.connection;
   const raw = Buffer.from(signedTxBase64, "base64");
   const signature = await connection.sendRawTransaction(raw);
-  await connection.confirmTransaction(signature, "confirmed");
+  const confirmation = await connection.confirmTransaction(signature, "finalized");
+  if (confirmation.value.err !== null) {
+    throw new Error(`Entry transaction ${signature} failed: ${JSON.stringify(confirmation.value.err)}`);
+  }
   return signature;
 }
 
@@ -307,4 +326,62 @@ export async function settlePayoutOnchain(
     .accounts({ arena, escrow, payoutAuthority: authority.publicKey })
     .remainingAccounts(remainingAccounts)
     .rpc();
+}
+
+/** Close an open arena to further entries. Exact retries are successful no-ops. */
+export async function cancelArenaOnchain(onchainArenaId: number): Promise<string | undefined> {
+  const { program, authority } = buildProgram();
+  const { arena } = deriveArenaPdas(program.programId, new anchor.BN(onchainArenaId));
+  const accountInfo = await program.provider.connection.getAccountInfo(arena, "finalized");
+  if (!accountInfo) throw new Error(`On-chain arena ${onchainArenaId} does not exist`);
+  const decoded = program.coder.accounts.decode("arena", accountInfo.data) as { state: unknown };
+  const state = decodeArenaState(decoded.state);
+  if (state === "cancelled") return undefined;
+  if (state !== "open") throw new Error(`Cannot cancel on-chain arena ${onchainArenaId}: it is ${state}`);
+
+  const signature = await (program.methods as unknown as LooseMethods)
+    .cancelArena!()
+    .accounts({ arena, payoutAuthority: authority.publicKey })
+    .rpc();
+  await confirmFinalized(program, signature);
+  return signature;
+}
+
+/** Refund one deterministic EntryPass. Exact retries are successful no-ops. */
+export async function refundEntryOnchain(
+  onchainArenaId: number,
+  playerAddress: string,
+): Promise<string | undefined> {
+  const { program } = buildProgram();
+  const player = new PublicKey(playerAddress);
+  const { arena, escrow } = deriveArenaPdas(program.programId, new anchor.BN(onchainArenaId));
+  const entryPass = deriveEntryPass(program.programId, arena, player);
+  const accountInfo = await program.provider.connection.getAccountInfo(entryPass, "finalized");
+  if (!accountInfo) throw new Error(`On-chain entry pass for ${playerAddress} does not exist`);
+  const decoded = program.coder.accounts.decode("entryPass", accountInfo.data) as {
+    player: PublicKey;
+    refunded: boolean;
+  };
+  if (!decoded.player.equals(player)) throw new Error("On-chain entry pass belongs to a different player");
+  if (decoded.refunded) return undefined;
+
+  const signature = await (program.methods as unknown as LooseMethods)
+    .refund!()
+    .accounts({ arena, entryPass, escrow, player })
+    .rpc();
+  await confirmFinalized(program, signature);
+  return signature;
+}
+
+/** Every EntryPass player recorded by the program, including passes missing from Postgres. */
+export async function listArenaEntryPlayers(onchainArenaId: number): Promise<string[]> {
+  const { program } = buildProgram();
+  const { arena } = deriveArenaPdas(program.programId, new anchor.BN(onchainArenaId));
+  const entryPassClient = (program.account as unknown as {
+    entryPass: {
+      all(filters: { memcmp: { offset: number; bytes: string } }[]): Promise<{ account: { player: PublicKey } }[]>;
+    };
+  }).entryPass;
+  const passes = await entryPassClient.all([{ memcmp: { offset: 8, bytes: arena.toBase58() } }]);
+  return passes.map(({ account }) => account.player.toBase58());
 }

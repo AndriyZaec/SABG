@@ -1,6 +1,4 @@
-// EntryPass persistence, backing POST /arenas/:id/entry. Records the client-reported
-// on-chain tx signature without chain verification (out of scope here — see the plan's
-// non-goals).
+// EntryPass persistence, backing POST /arenas/:id/entry and cancelled-arena reconciliation.
 
 import { and, eq } from "drizzle-orm";
 import type { EntryPass, Uuid, WalletAddress } from "@arena/contracts";
@@ -41,19 +39,13 @@ export const entryPassRepository = {
     return entryPassRowToEntity(row);
   },
 
-  /** Every entry pass for `arenaId` — cs2/series-orchestrator.ts reads this on `cancel_arena` to
-   *  find who needs refunding. */
+  /** Every entry pass for `arenaId`, including already-refunded rows for reconciliation. */
   async listByArenaId(arenaId: Uuid): Promise<EntryPass[]> {
     const rows = await db.select().from(entryPasses).where(eq(entryPasses.arenaId, arenaId));
     return rows.map(entryPassRowToEntity);
   },
 
-  /**
-   * Off-chain refund stub (cs2/series-orchestrator.ts, on `cancel_arena`): flips `status` to
-   * `"refunded"` in the DB only — no on-chain instruction is called. Real lamport movement is a
-   * separate, explicitly out-of-scope piece of work for the on-chain track (the Anchor program's
-   * `refund` instruction body is itself still a stub — see `programs/arena/.../lib.rs`).
-   */
+  /** Called only after an on-chain refund confirms, reconciles as complete, or for an off-chain arena. */
   async markRefunded(id: Uuid): Promise<EntryPass> {
     const [row] = await db.update(entryPasses).set({ status: "refunded" }).where(eq(entryPasses.id, id)).returning();
     if (!row) throw new Error(`entryPassRepository.markRefunded(${id}) returned no row`);

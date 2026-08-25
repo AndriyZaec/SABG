@@ -195,6 +195,52 @@ export type Arena = {
       "args": []
     },
     {
+      "name": "cancelArena",
+      "docs": [
+        "Permanently close entry and enable deterministic per-EntryPass refunds."
+      ],
+      "discriminator": [
+        104,
+        161,
+        139,
+        47,
+        18,
+        111,
+        92,
+        43
+      ],
+      "accounts": [
+        {
+          "name": "arena",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  114,
+                  101,
+                  110,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "arena.arena_id",
+                "account": "arena"
+              }
+            ]
+          }
+        },
+        {
+          "name": "payoutAuthority",
+          "signer": true
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "initArena",
       "docs": [
         "Create an arena with a fixed entry fee and a designated payout authority."
@@ -342,7 +388,8 @@ export type Arena = {
     {
       "name": "refund",
       "docs": [
-        "Refund an entry if the arena is cancelled / underfilled."
+        "Refund one entry from a cancelled arena. Anyone may submit; destination and amount are",
+        "fixed by the program-owned EntryPass."
       ],
       "discriminator": [
         2,
@@ -356,9 +403,84 @@ export type Arena = {
       ],
       "accounts": [
         {
-          "name": "player",
+          "name": "arena",
           "writable": true,
-          "signer": true
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  114,
+                  101,
+                  110,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "arena.arena_id",
+                "account": "arena"
+              }
+            ]
+          },
+          "relations": [
+            "entryPass"
+          ]
+        },
+        {
+          "name": "entryPass",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  110,
+                  116,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "arena"
+              },
+              {
+                "kind": "account",
+                "path": "entry_pass.player",
+                "account": "entryPass"
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "arena"
+              }
+            ]
+          }
+        },
+        {
+          "name": "player",
+          "writable": true
         },
         {
           "name": "systemProgram",
@@ -518,6 +640,31 @@ export type Arena = {
       "code": 6006,
       "name": "invalidPlatformFee",
       "msg": "Platform fee exceeds 100%"
+    },
+    {
+      "code": 6007,
+      "name": "arenaNotOpen",
+      "msg": "Arena is not open"
+    },
+    {
+      "code": 6008,
+      "name": "notCancelled",
+      "msg": "Arena is not cancelled"
+    },
+    {
+      "code": 6009,
+      "name": "alreadyRefunded",
+      "msg": "Entry pass was already refunded"
+    },
+    {
+      "code": 6010,
+      "name": "accountingUnderflow",
+      "msg": "Arena accounting underflow"
+    },
+    {
+      "code": 6011,
+      "name": "invalidWinner",
+      "msg": "Escrow cannot receive a winner payout"
     }
   ],
   "types": [
@@ -573,11 +720,15 @@ export type Arena = {
             "type": "u32"
           },
           {
-            "name": "settled",
+            "name": "state",
             "docs": [
-              "Set once payout has run; blocks further entries/payouts."
+              "Open until the authority settles winners or cancels for deterministic refunds."
             ],
-            "type": "bool"
+            "type": {
+              "defined": {
+                "name": "arenaState"
+              }
+            }
           },
           {
             "name": "resultHash",
@@ -598,6 +749,23 @@ export type Arena = {
           {
             "name": "escrowBump",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "arenaState",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "open"
+          },
+          {
+            "name": "settled"
+          },
+          {
+            "name": "cancelled"
           }
         ]
       }

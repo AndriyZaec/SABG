@@ -5,10 +5,20 @@ import { PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { ARENA_IDL } from "@arena/contracts/onchain";
 import type { ArenaProgram } from "@arena/contracts/onchain";
 
-/** Single shared demo arena + fee for the devnet demo (no backend to list arenas yet).
- *  Bump this whenever the on-chain Arena layout changes — old accounts won't deserialize. */
+/** Single shared demo arena + fee for the devnet demo (no backend to list arenas yet). */
 export const DEMO_ARENA_ID = new BN(2);
 export const DEFAULT_ENTRY_FEE_LAMPORTS = new BN(0.1 * LAMPORTS_PER_SOL);
+
+export type OnchainArenaState = "open" | "settled" | "cancelled";
+
+export function onchainArenaState(state: unknown): OnchainArenaState {
+  if (typeof state === "object" && state !== null) {
+    if ("open" in state) return "open";
+    if ("settled" in state) return "settled";
+    if ("cancelled" in state) return "cancelled";
+  }
+  throw new Error("Unknown on-chain arena state");
+}
 
 /** Anchor program bound to the connected wallet, or null until a wallet connects. */
 export function useArenaProgram(): Program<ArenaProgram> | null {

@@ -72,9 +72,10 @@ describe("automatic arena cycling safety", () => {
   });
 
   it("refuses to recycle an arena while escrow still contains player funds", () => {
-    expect(() => assertArenaRecyclableState(true, 0, 42)).not.toThrow();
-    expect(() => assertArenaRecyclableState(false, 0, 42)).toThrow("arena is not settled");
-    expect(() => assertArenaRecyclableState(true, 1, 42)).toThrow("escrow still holds 1 lamports");
+    expect(() => assertArenaRecyclableState("settled", 0, 42)).not.toThrow();
+    expect(() => assertArenaRecyclableState("cancelled", 0, 42)).not.toThrow();
+    expect(() => assertArenaRecyclableState("open", 0, 42)).toThrow("arena is not terminal");
+    expect(() => assertArenaRecyclableState("settled", 1, 42)).toThrow("escrow still holds 1 lamports");
   });
 });
 

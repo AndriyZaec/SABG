@@ -26,6 +26,11 @@ import { predictionRepository } from "../db/repositories/prediction.repository.j
 import { predictionRoundRepository } from "../db/repositories/prediction-round.repository.js";
 import { seriesRepository } from "../db/repositories/series.repository.js";
 import { userRepository } from "../db/repositories/user.repository.js";
+import {
+  cancelArenaOnchain,
+  listOnchainArenaEntryPlayers,
+  refundArenaEntryOnchain,
+} from "../onchain/index.js";
 import { payoutService } from "../payout/index.js";
 import type { Arena, IsoDateTime, Match, PredictionRound, Series, Uuid } from "@arena/contracts";
 import { Cs2ArenaRuntime, type Cs2ArenaPersistence } from "./arena-runtime.js";
@@ -56,6 +61,7 @@ export class Cs2SeriesOrchestrator {
   private lifecycleState: Cs2SeriesLifecycleState;
   private readonly arenasByMatchIndex = new Map<number, OpenedArena>();
   private reconcilingFinishedMatch = false;
+  private pendingCancellation: { matchIndex: number; reason: "no_show" | "series_decided" } | undefined;
 
   constructor(
     private readonly series: Series,
@@ -87,6 +93,8 @@ export class Cs2SeriesOrchestrator {
     const matchIndex = latestMatch.seriesMatchIndex!;
     if (this.series.status !== "active") {
       this.lifecycleState = { ...this.lifecycleState, openedThrough: matchIndex };
+      const terminalArena = await arenaRepository.findByMatchId(latestMatch.id);
+      if (terminalArena?.status === "cancelled") await this.refundCancelledArena(terminalArena);
       return;
     }
 
@@ -109,7 +117,15 @@ export class Cs2SeriesOrchestrator {
       throw new Error(`Cannot safely restore live CS2 arena ${arena.id} without a GRID lock snapshot`);
     }
     if (arena.status === "cancelled") {
-      throw new Error(`Active CS2 series ${this.series.id} has a cancelled latest arena`);
+      await this.refundCancelledArena(arena);
+      if (arena.cancelledReason === "no_show") {
+        await seriesRepository.setStatus(this.series.id, "invalid");
+        this.lifecycleState = { ...this.lifecycleState, invalid: true };
+      } else {
+        await seriesRepository.setStatus(this.series.id, "decided");
+        this.lifecycleState = { ...this.lifecycleState, decided: true };
+      }
+      return;
     }
     if (arena.status === "finished") {
       this.reconcilingFinishedMatch = true;
@@ -141,6 +157,10 @@ export class Cs2SeriesOrchestrator {
   }
 
   async poll(snapshot: Cs2SeriesSnapshot | undefined, now: IsoDateTime): Promise<void> {
+    if (this.pendingCancellation !== undefined) {
+      await this.cancelArena(this.pendingCancellation.matchIndex, this.pendingCancellation.reason);
+      return;
+    }
     if (this.reconcilingFinishedMatch && snapshot?.hasLiveGame === true) {
       throw new Error(`Cannot safely restore active CS2 series ${this.series.id}: its next map is already live`);
     }
@@ -252,18 +272,58 @@ export class Cs2SeriesOrchestrator {
   }
 
   private async cancelArena(matchIndex: number, reason: "no_show" | "series_decided"): Promise<void> {
+    this.pendingCancellation = { matchIndex, reason };
     const opened = this.arenasByMatchIndex.get(matchIndex);
-    if (opened === undefined) return;
+    if (opened === undefined) throw new Error(`Cannot cancel unopened CS2 arena #${matchIndex}`);
 
     await closeEntrySubmissions(opened.arenaId);
+    const current = await arenaRepository.findById(opened.arenaId);
+    if (current?.status === "cancelled") {
+      await this.refundCancelledArena(current);
+      await seriesRepository.setStatus(this.series.id, reason === "no_show" ? "invalid" : "decided");
+      this.options.broadcaster?.broadcast(opened.arenaId, { type: "arena.cancelled", reason });
+      this.pendingCancellation = undefined;
+      return;
+    }
+    if (current?.status !== "lobby") {
+      throw new Error(`Cannot cancel arena ${opened.arenaId} from state ${current?.status ?? "missing"}`);
+    }
+    if (current.onchainArenaId !== undefined) await cancelArenaOnchain(current.onchainArenaId);
+
     const cancelled = await arenaRepository.cancelIfLobby(opened.arenaId, reason);
-    if (cancelled === undefined) return; // already left lobby — nothing to cancel
+    if (cancelled === undefined) {
+      throw new Error(`Arena ${opened.arenaId} changed state after its on-chain cancellation`);
+    }
 
-    if (reason === "no_show") await seriesRepository.setStatus(this.series.id, "invalid");
-
-    const passes = await entryPassRepository.listByArenaId(opened.arenaId);
-    for (const pass of passes) await entryPassRepository.markRefunded(pass.id);
+    await seriesRepository.setStatus(this.series.id, reason === "no_show" ? "invalid" : "decided");
+    await this.refundCancelledArena(cancelled);
 
     this.options.broadcaster?.broadcast(opened.arenaId, { type: "arena.cancelled", reason });
+    this.pendingCancellation = undefined;
+  }
+
+  private async refundCancelledArena(arena: Arena): Promise<void> {
+    if (arena.onchainArenaId !== undefined) await cancelArenaOnchain(arena.onchainArenaId);
+    const passes = await entryPassRepository.listByArenaId(arena.id);
+    const passByWallet = new Map(passes.map((pass) => [pass.walletAddress, pass]));
+    const wallets = new Set(passByWallet.keys());
+    if (arena.onchainArenaId !== undefined) {
+      for (const wallet of await listOnchainArenaEntryPlayers(arena.onchainArenaId)) wallets.add(wallet);
+    }
+
+    let firstFailure: unknown;
+    for (const wallet of wallets) {
+      try {
+        if (arena.onchainArenaId !== undefined) {
+          await refundArenaEntryOnchain(arena.onchainArenaId, wallet);
+        }
+        const pass = passByWallet.get(wallet);
+        if (pass !== undefined && pass.status !== "refunded") await entryPassRepository.markRefunded(pass.id);
+      } catch (error) {
+        firstFailure ??= error;
+      }
+    }
+    if (firstFailure !== undefined) throw firstFailure;
+    await arenaRepository.clearCancelledBalances(arena.id);
   }
 }
