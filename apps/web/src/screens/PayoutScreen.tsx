@@ -10,7 +10,7 @@ import { Loading } from "../ui/Loading.js";
 export function PayoutScreen() {
   const { connected, publicKey } = useWallet();
   const { arena: backendArena } = useBackendArena();
-  const { status, error, exists, prizePoolSol, settled, isPayoutAuthority, settle } = useArenaPayout(
+  const { status, error, exists, prizePoolSol, settled, cancelled, isPayoutAuthority, settle } = useArenaPayout(
     backendArena?.onchainArenaId != null ? { onchainArenaId: backendArena.onchainArenaId } : {},
   );
   const [winners, setWinners] = useState("");
@@ -31,12 +31,18 @@ export function PayoutScreen() {
       )}
 
       {connected && exists && (
-        <Panel title="Prize Pool" accent={settled ? "green" : "yellow"} className="nb-rise">
+        <Panel title="Prize Pool" accent={settled ? "green" : cancelled ? "red" : "yellow"} className="nb-rise">
           <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
             <span className="nb-stat">{prizePoolSol}</span>
             <span className="nb-display" style={{ fontSize: "1.4rem" }}>SOL</span>
             <span style={{ marginLeft: "auto" }}>
-              {settled ? <Badge tone="survive">Paid out</Badge> : <Badge tone="live">In play</Badge>}
+              {settled ? (
+                <Badge tone="survive">Paid out</Badge>
+              ) : cancelled ? (
+                <Badge tone="neutral">Cancelled</Badge>
+              ) : (
+                <Badge tone="live">In play</Badge>
+              )}
             </span>
           </div>
 
@@ -57,7 +63,13 @@ export function PayoutScreen() {
             </div>
           )}
 
-          {!settled && isPayoutAuthority && (
+          {cancelled && (
+            <p className="nb-label" style={{ marginTop: 16 }}>
+              Arena cancelled — entries are refunded individually.
+            </p>
+          )}
+
+          {!settled && !cancelled && isPayoutAuthority && (
             <div style={{ display: "grid", gap: 12, marginTop: 16 }}>
               <label style={{ display: "grid", gap: 6 }}>
                 <span className="nb-label">Winner address(es) — comma/space separated, split equally</span>
@@ -84,7 +96,7 @@ export function PayoutScreen() {
             </div>
           )}
 
-          {!settled && !isPayoutAuthority && (
+          {!settled && !cancelled && !isPayoutAuthority && (
             <p className="nb-label" style={{ marginTop: 16 }}>
               Only the payout authority can settle this arena.
             </p>

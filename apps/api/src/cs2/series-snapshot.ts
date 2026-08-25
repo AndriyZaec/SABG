@@ -1,0 +1,63 @@
+import { z } from "zod";
+import { parseFormat } from "./snapshot.js";
+
+const SeriesTeamSchema = z.object({
+  name: z.string(),
+  /** Maps won, not the live game's round score. */
+  score: z.number(),
+  won: z.boolean(),
+});
+
+const SeriesStateSchema = z
+  .object({
+    format: z.string().optional(),
+    finished: z.boolean(),
+    teams: z.array(SeriesTeamSchema),
+    games: z.array(z.unknown()).optional(),
+  })
+  .passthrough();
+
+const RawResponseSchema = z
+  .object({
+    data: z
+      .object({
+        seriesState: SeriesStateSchema.nullable().optional(),
+      })
+      .passthrough()
+      .nullable()
+      .optional(),
+  })
+  .passthrough();
+
+export interface Cs2SeriesTeam {
+  name: string;
+  score: number;
+  won: boolean;
+}
+
+export interface Cs2SeriesSnapshot {
+  format: number | undefined;
+  finished: boolean;
+  hasLiveGame: boolean;
+  teams: readonly [Cs2SeriesTeam, Cs2SeriesTeam];
+}
+
+/** Malformed or partial payloads are skipped rather than interpreted as series state. */
+export function parseSeriesSnapshot(raw: unknown): Cs2SeriesSnapshot | undefined {
+  const parsed = RawResponseSchema.safeParse(raw);
+  if (!parsed.success) return undefined;
+
+  const seriesState = parsed.data.data?.seriesState;
+  if (seriesState === undefined || seriesState === null) return undefined;
+  if (seriesState.teams.length !== 2) return undefined;
+
+  const [a, b] = seriesState.teams;
+  if (a === undefined || b === undefined) return undefined;
+
+  return {
+    format: parseFormat(seriesState.format),
+    finished: seriesState.finished,
+    hasLiveGame: Array.isArray(seriesState.games) && seriesState.games.length > 0,
+    teams: [a, b],
+  };
+}

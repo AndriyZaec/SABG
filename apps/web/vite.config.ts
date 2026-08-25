@@ -28,8 +28,18 @@ export default defineConfig({
     port: 5173,
     allowedHosts: [".ngrok-free.app"],
     proxy: {
-      "/api": { target: "http://localhost:4000", changeOrigin: true },
-      "/ws": { target: "ws://localhost:4000", ws: true },
+      "/api": { target: "http://localhost:4100", changeOrigin: true },
+      "/ws": { target: "ws://localhost:4100", ws: true },
+      "/cs2-api": {
+        target: "http://localhost:4100",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/cs2-api/, "/api"),
+      },
+      "/cs2-ws": {
+        target: "ws://localhost:4100",
+        ws: true,
+        rewrite: (path) => path.replace(/^\/cs2-ws/, "/ws"),
+      },
     },
   },
 });

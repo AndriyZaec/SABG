@@ -1,44 +1,90 @@
-// S5 — machine-readable settlement condition DSL (build plan §S5).
-// Produced by Question Generator (B5), consumed by Settlement Engine (B4).
-// The Settlement Engine is a pure function: (condition, events[]) => Answer.
-
 import type { TargetEventType, TeamSide, Answer } from "./enums.js";
 
-/**
- * Deterministic settlement condition attached to every PredictionRound.
- * `resolve` currently supports a single strategy; keep it extensible.
- */
-export interface SettlementCondition {
+export interface SoccerSettlementCondition {
+  discipline: "soccer";
   targetEventType: TargetEventType;
   targetTeam: TeamSide;
-  /** Window start minute, inclusive (match clock, spec §3). */
   windowStartMinute: number;
-  /** Window end minute, inclusive of stoppage folded into boundary windows. */
   windowEndMinute: number;
-  /** YES if >= 1 confirmed matching event occurs in [start, end]. */
   resolve: "event_in_window";
 }
 
-/**
- * Minimal event shape the pure settlement function needs (subset of LiveEvent).
- *
- * `team` includes `"any"` — normalize.ts's `participantToSide` falls back to `"any"` for a raw
- * message it can't attribute to a specific side. That's still real settlement evidence for an
- * `"any"`-team condition (the question doesn't care which team), just not for a specific-team one
- * (home/away) where an unattributable event genuinely can't confirm that side did it. `resolve.ts`
- * already encodes exactly that distinction (`condition.targetTeam === "any" || e.team ===
- * condition.targetTeam`) — this type only needs to stop rejecting the "any" case outright.
- */
+export const CS2_TOPICS = [
+  "round_winner",
+  "weapon_kill",
+  "team_ace",
+  "multikill",
+  "survivors_team",
+  "survivors_round",
+  "pistol_round",
+  "ot_score",
+] as const;
+export type Cs2Topic = (typeof CS2_TOPICS)[number];
+
+export const CS2_WEAPON_WHITELIST = [
+  "awp",
+  "ak47",
+  "usp_silencer",
+  "deagle",
+  "molotov",
+  "glock",
+  "tec9",
+  "hegrenade",
+] as const;
+export type Cs2Weapon = (typeof CS2_WEAPON_WHITELIST)[number];
+
+export interface Cs2TopicParams {
+  /** Present only for team-targeted topics. */
+  targetTeam?: TeamSide;
+  /** Present only for weapon-kill topics. */
+  weapon?: Cs2Weapon;
+  /** Present only for threshold-based topics. */
+  y?: number;
+}
+
+export interface Cs2SettlementCondition {
+  discipline: "cs2";
+  topic: Cs2Topic;
+  params: Cs2TopicParams;
+  roundNumber: number;
+  resolve: "snapshot_diff";
+}
+
+export type SettlementCondition = SoccerSettlementCondition | Cs2SettlementCondition;
+
+export interface Cs2TeamStats {
+  name: string;
+  /** In-map round score, not series map wins. */
+  score: number;
+  deaths: number;
+  weaponKills: ReadonlyArray<{ weaponName: string; count: number }>;
+  players: ReadonlyArray<{ id: string; kills: number }>;
+}
+
+export interface Cs2Clock {
+  ticking: boolean;
+  currentSeconds: number;
+}
+
+export interface Cs2GameSnapshot {
+  teams: readonly [Cs2TeamStats, Cs2TeamStats];
+  clock: Cs2Clock;
+}
+
+export type Cs2SettleFn = (
+  condition: Cs2SettlementCondition,
+  before: Cs2GameSnapshot,
+  after: Cs2GameSnapshot,
+) => Answer;
+
 export interface SettleableEvent {
   eventType: TargetEventType;
   team: TeamSide;
-  /** Match minute incl. stoppage (e.g. 45 for 45+2 folded into 40–45 window). */
   matchMinute: number;
   confirmed: boolean;
 }
 
-/** Signature of the isolated, unit-testable settlement function (B4 / build plan §S5). */
 export type SettleFn = (
-  condition: SettlementCondition,
+  condition: SoccerSettlementCondition,
   events: SettleableEvent[],
 ) => Answer;

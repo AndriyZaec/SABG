@@ -1,7 +1,3 @@
-// EntryPass persistence, backing POST /arenas/:id/entry. Records the client-reported
-// on-chain tx signature without chain verification (out of scope here — see the plan's
-// non-goals).
-
 import { and, eq } from "drizzle-orm";
 import type { EntryPass, Uuid, WalletAddress } from "@arena/contracts";
 import { db } from "../client.js";
@@ -9,7 +5,6 @@ import { entryPasses } from "../schema.js";
 import { entryPassRowToEntity } from "../mappers.js";
 
 export const entryPassRepository = {
-  /** For callers that need to check "already entered" before `create` (e.g. an idempotent event bootstrap). */
   async findByArenaAndUser(arenaId: Uuid, userId: Uuid): Promise<EntryPass | undefined> {
     const [row] = await db
       .select()
@@ -38,6 +33,19 @@ export const entryPassRepository = {
       })
       .returning();
     if (!row) throw new Error(`entryPassRepository.create(${input.arenaId}, ${input.userId}) returned no row`);
+    return entryPassRowToEntity(row);
+  },
+
+  // Include refunded rows so reconciliation sees the complete payment history.
+  async listByArenaId(arenaId: Uuid): Promise<EntryPass[]> {
+    const rows = await db.select().from(entryPasses).where(eq(entryPasses.arenaId, arenaId));
+    return rows.map(entryPassRowToEntity);
+  },
+
+  // Mark refunded only after chain finalization or successful reconciliation.
+  async markRefunded(id: Uuid): Promise<EntryPass> {
+    const [row] = await db.update(entryPasses).set({ status: "refunded" }).where(eq(entryPasses.id, id)).returning();
+    if (!row) throw new Error(`entryPassRepository.markRefunded(${id}) returned no row`);
     return entryPassRowToEntity(row);
   },
 };

@@ -1,6 +1,3 @@
-// Payout persistence — one row per winner per arena. Created `pending`, then marked
-// `sent` (with the settle tx signature) or `failed` by the payout service.
-
 import { eq } from "drizzle-orm";
 import type { Payout, Uuid } from "@arena/contracts";
 import { db } from "../client.js";
@@ -22,8 +19,15 @@ export const payoutRepository = {
     return payoutRowToEntity(row);
   },
 
-  async markSent(id: Uuid, txSignature: string): Promise<void> {
-    await db.update(payouts).set({ status: "sent", txSignature }).where(eq(payouts.id, id));
+  async markSent(id: Uuid, txSignature?: string): Promise<void> {
+    await db
+      .update(payouts)
+      .set(txSignature === undefined ? { status: "sent" } : { status: "sent", txSignature })
+      .where(eq(payouts.id, id));
+  },
+
+  async delete(id: Uuid): Promise<void> {
+    await db.delete(payouts).where(eq(payouts.id, id));
   },
 
   async markFailed(id: Uuid): Promise<void> {

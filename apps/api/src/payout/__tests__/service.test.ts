@@ -14,27 +14,27 @@ const arena = (overrides: Partial<Arena> = {}): Arena => ({
   ...overrides,
 });
 
-// Real base58 wallets — the payout service only pays winners whose wallet is a valid on-chain pubkey.
 const WALLET: Record<string, string> = {
   u1: "5FHwkrdxntdK24hgQU8qgBjn35Y1zwhz1GZwCkP2UJnM",
   u2: "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
 };
 
-// Records created payouts and hands back ids so markSent/markFailed can be asserted.
 function makeDeps(over: Partial<PayoutServiceDeps> = {}) {
   const created: { id: Uuid; userId: Uuid; amountLamports: number }[] = [];
   let n = 0;
   const deps: PayoutServiceDeps = {
     findArena: vi.fn().mockResolvedValue(arena()),
     findWallet: vi.fn(async (userId: Uuid) => WALLET[userId]),
+    listPayouts: vi.fn().mockResolvedValue([]),
     createPayout: vi.fn(async (input) => {
       const p: Payout = { id: `p${++n}`, status: "pending", ...input };
       created.push({ id: p.id, userId: input.userId, amountLamports: input.amountLamports });
       return p;
     }),
+    deletePayout: vi.fn().mockResolvedValue(undefined),
     markSent: vi.fn().mockResolvedValue(undefined),
     markFailed: vi.fn().mockResolvedValue(undefined),
-    settleOnchain: vi.fn().mockResolvedValue("sig-123"),
+    settleOnchain: vi.fn().mockResolvedValue({ status: "submitted", txSignature: "sig-123" }),
     ...over,
   };
   return { deps, created };
@@ -45,7 +45,6 @@ describe("payout service — settleArena", () => {
     const { deps, created } = makeDeps();
     await createPayoutService(deps).settleArena("arena-1", ["u1", "u2"]);
 
-    // 300 / 2 → 150 + 150
     expect(created.map((c) => c.amountLamports)).toEqual([150, 150]);
     expect(deps.settleOnchain).toHaveBeenCalledWith(42, [WALLET.u1, WALLET.u2]);
     expect(deps.markSent).toHaveBeenCalledTimes(2);
@@ -64,6 +63,75 @@ describe("payout service — settleArena", () => {
     await createPayoutService(deps).settleArena("arena-1", ["u1", "u2"]);
     expect(deps.markFailed).toHaveBeenCalledTimes(2);
     expect(deps.markSent).not.toHaveBeenCalled();
+  });
+
+  it("reconciles existing failed payouts when the arena is already settled on-chain", async () => {
+    const existing: Payout = {
+      id: "p-existing",
+      arenaId: "arena-1",
+      userId: "u1",
+      amountLamports: 300,
+      status: "failed",
+    };
+    const { deps } = makeDeps({
+      listPayouts: vi.fn().mockResolvedValue([existing]),
+      settleOnchain: vi.fn().mockResolvedValue({ status: "already-settled" }),
+    });
+
+    await createPayoutService(deps).settleArena("arena-1", ["u1"]);
+
+    expect(deps.createPayout).not.toHaveBeenCalled();
+    expect(deps.markSent).toHaveBeenCalledWith("p-existing", undefined);
+    expect(deps.markFailed).not.toHaveBeenCalled();
+  });
+
+  it("skips a payout already synchronized as sent", async () => {
+    const existing: Payout = {
+      id: "p-existing",
+      arenaId: "arena-1",
+      userId: "u1",
+      amountLamports: 300,
+      status: "sent",
+      txSignature: "sig-123",
+    };
+    const { deps } = makeDeps({ listPayouts: vi.fn().mockResolvedValue([existing]) });
+
+    await createPayoutService(deps).settleArena("arena-1", ["u1"]);
+
+    expect(deps.createPayout).not.toHaveBeenCalled();
+    expect(deps.settleOnchain).not.toHaveBeenCalled();
+    expect(deps.markSent).not.toHaveBeenCalled();
+  });
+
+  it("does not invent a payout plan for an arena already settled on-chain", async () => {
+    const { deps } = makeDeps({
+      settleOnchain: vi.fn().mockResolvedValue({ status: "already-settled" }),
+    });
+
+    await createPayoutService(deps).settleArena("arena-1", ["u1"]);
+
+    expect(deps.markSent).not.toHaveBeenCalled();
+    expect(deps.deletePayout).toHaveBeenCalledWith("p1");
+    expect(deps.markFailed).not.toHaveBeenCalled();
+  });
+
+  it("does not downgrade sent payouts when database synchronization fails", async () => {
+    const existing: Payout = {
+      id: "p-existing",
+      arenaId: "arena-1",
+      userId: "u1",
+      amountLamports: 300,
+      status: "failed",
+    };
+    const { deps } = makeDeps({
+      listPayouts: vi.fn().mockResolvedValue([existing]),
+      settleOnchain: vi.fn().mockResolvedValue({ status: "already-settled" }),
+      markSent: vi.fn().mockRejectedValue(new Error("database unavailable")),
+    });
+
+    await createPayoutService(deps).settleArena("arena-1", ["u1"]);
+
+    expect(deps.markFailed).not.toHaveBeenCalled();
   });
 
   it("skips arenas that were never provisioned on-chain", async () => {

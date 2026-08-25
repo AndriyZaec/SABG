@@ -2,6 +2,13 @@
 
 use anchor_lang::prelude::*;
 
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, InitSpace, PartialEq, Eq)]
+pub enum ArenaState {
+    Open,
+    Settled,
+    Cancelled,
+}
+
 #[account]
 #[derive(InitSpace)]
 pub struct Arena {
@@ -18,8 +25,8 @@ pub struct Arena {
     /// Optional platform fee in basis points (0 for MVP).
     pub platform_fee_bps: u16,
     pub player_count: u32,
-    /// Set once payout has run; blocks further entries/payouts.
-    pub settled: bool,
+    /// Open until the authority settles winners or cancels for deterministic refunds.
+    pub state: ArenaState,
     /// Hash of the final leaderboard, recorded after settlement (zeros until set).
     pub result_hash: [u8; 32],
     pub bump: u8,

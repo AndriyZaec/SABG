@@ -1,8 +1,3 @@
-// REST handler tests — DB-free: the repository modules are mocked (vi.mock) so this exercises
-// routing, status codes, auth gating, and the mock's documented quirks (bare Match from
-// /matches/:id, uniform ApiError, 404 fallthrough) without touching Postgres. The DB layer itself
-// is covered separately by db/__tests__/repositories.int.test.ts (DATABASE_URL-gated).
-
 import { createServer, type Server as HttpServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import express from "express";
@@ -58,6 +53,7 @@ const MATCH_ID = "match-1";
 function fakeMatch(overrides: Partial<Match> = {}): Match {
   return {
     id: MATCH_ID,
+    discipline: "soccer",
     homeTeam: "A",
     awayTeam: "B",
     startTime: "2024-01-01T00:00:00.000Z",
@@ -87,12 +83,14 @@ function fakeRound(overrides: Partial<PredictionRound> = {}): PredictionRound {
     id: "round-1",
     arenaId: ARENA_ID,
     matchId: MATCH_ID,
+    discipline: "soccer",
     windowStartMinute: 0,
     windowEndMinute: 5,
     question: "Will there be a shot?",
     targetEventType: "shot",
     targetTeam: "any",
     settlementCondition: {
+      discipline: "soccer",
       targetEventType: "shot",
       targetTeam: "any",
       windowStartMinute: 0,
@@ -130,7 +128,6 @@ describe("REST gateway routes", () => {
   });
 
   describe("POST /auth/nonce + /auth/wallet", () => {
-    // Real sign-in flow: fetch a nonce, sign the canonical message, verify server-side.
     const signIn = async (secretKey: Uint8Array, walletAddress: string, message: string) => {
       const signature = bs58.encode(nacl.sign.detached(new TextEncoder().encode(message), secretKey));
       return fetch(`${baseUrl}/auth/wallet`, {
@@ -472,6 +469,25 @@ describe("REST gateway routes", () => {
       });
     });
 
+    it("403s when the runtime reports the user is not an arena participant", async () => {
+      const round = { arenaId: ARENA_ID, id: "r1" } as PredictionRound;
+      vi.mocked(predictionRoundRepository.findById).mockResolvedValue(round);
+      const submitAnswer = vi.fn().mockReturnValue({ ok: false, reason: "not_participant" });
+      runtimeLookup.getRuntime.mockReturnValue({ submitAnswer });
+
+      const token = issueToken("u1");
+      const res = await fetch(`${baseUrl}/rounds/r1/answer`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+        body: JSON.stringify({ answer: "yes" }),
+      });
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({
+        error: "not_participant",
+        message: "Only active arena participants can submit predictions",
+      });
+    });
+
     it("200s with the receivedAt echoed back on success", async () => {
       const round = { arenaId: ARENA_ID, id: "r1" } as PredictionRound;
       vi.mocked(predictionRoundRepository.findById).mockResolvedValue(round);
@@ -564,7 +580,6 @@ describe("REST gateway routes", () => {
         { round: openRound, predictions: [] },
         { round: lockedRound, predictions: [] },
       ]);
-      // Never even queried for predictions on a not-yet-settled round.
       expect(predictionRepository.listByRoundId).not.toHaveBeenCalled();
     });
 

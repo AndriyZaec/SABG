@@ -17,11 +17,10 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 const sol = (lamports: number) => Number((lamports / 1_000_000_000).toFixed(3));
 
-/** Entry / join state for the featured match — rendered docked into the lobby hero footer. */
 export function EntryCard() {
   const { connected } = useWallet();
   const { arena } = useBackendArena();
-  const { status, info, error, hasEntry, join } = useArenaEntry({
+  const { status, info, error, hasEntry, entryRefunded, join } = useArenaEntry({
     ...(arena?.onchainArenaId != null ? { onchainArenaId: arena.onchainArenaId } : {}),
     ...(arena ? { backendArenaId: arena.id } : {}),
   });
@@ -29,13 +28,18 @@ export function EntryCard() {
   const busy = status === "working";
   const lobbyOpen = arena?.status === "lobby";
 
-  // One action for the current state — joined wins over everything, then settled, then join/closed.
   let action: ReactNode;
   if (!connected) {
     action = <p className="nb-mono" style={{ margin: 0 }}>Connect a wallet in the top bar to join.</p>;
+  } else if (info?.state === "cancelled") {
+    action = (
+      <Badge tone="neutral">
+        {entryRefunded ? "Arena cancelled — entry refunded" : hasEntry ? "Arena cancelled — refund processing" : "Arena cancelled"}
+      </Badge>
+    );
   } else if (hasEntry) {
     action = <div className="nb-hero__joined">✔ You&apos;re in — wait for kickoff</div>;
-  } else if (info?.settled) {
+  } else if (info?.state === "settled") {
     action = <Badge tone="neutral">Arena settled — see payout</Badge>;
   } else if (!arena) {
     action = <Loading label="Loading arena…" />;

@@ -1,7 +1,3 @@
-// PredictionRound persistence. `upsert` is called from arena-runtime.ts on every round/settlement
-// lifecycle transition (open/lock/settle) with the full current round shape, so one write path
-// covers create-on-open and update-on-lock/settle.
-
 import { eq } from "drizzle-orm";
 import type { PredictionRound, Uuid } from "@arena/contracts";
 import { db } from "../client.js";
@@ -18,11 +14,13 @@ export const predictionRoundRepository = {
       id: round.id,
       arenaId: round.arenaId,
       matchId: round.matchId,
-      windowStartMinute: round.windowStartMinute,
-      windowEndMinute: round.windowEndMinute,
+      discipline: round.discipline,
+      windowStartMinute: round.windowStartMinute ?? null,
+      windowEndMinute: round.windowEndMinute ?? null,
+      roundNumber: round.roundNumber ?? null,
       question: round.question,
-      targetEventType: round.targetEventType,
-      targetTeam: round.targetTeam,
+      targetEventType: round.targetEventType ?? null,
+      targetTeam: round.targetTeam ?? null,
       settlementCondition: round.settlementCondition,
       status: round.status,
       correctAnswer: round.correctAnswer ?? null,
@@ -46,13 +44,12 @@ export const predictionRoundRepository = {
     return row ? predictionRoundRowToEntity(row) : undefined;
   },
 
-  /** GET /arenas/:id/rounds (history) — every round created for the arena, in window order. */
   async listByArenaId(arenaId: Uuid): Promise<PredictionRound[]> {
     const rows = await db
       .select()
       .from(predictionRounds)
       .where(eq(predictionRounds.arenaId, arenaId))
-      .orderBy(predictionRounds.windowStartMinute);
+      .orderBy(predictionRounds.windowStartMinute, predictionRounds.roundNumber);
     return rows.map(predictionRoundRowToEntity);
   },
 };

@@ -1,7 +1,3 @@
-// Real WS integration test (actual `ws` server + client over a loopback port) — unlike
-// arena-runtime.test.ts's broadcaster spy, this exercises the transport itself: auth-gated
-// upgrade, subscribe-triggered resync, per-arena broadcast isolation, and answer forwarding.
-
 import { createServer, type Server as HttpServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,7 +5,7 @@ import WebSocket from "ws";
 import type { ClientMessage, ServerMessage } from "@arena/contracts";
 import { GatewayWebSocketServer } from "../ws.js";
 import { issueToken } from "../auth.js";
-import type { ArenaRuntime, SubmitAnswerOutcome } from "../arena-runtime.js";
+import type { ArenaRuntime, ArenaRuntimeLike, SubmitAnswerOutcome } from "../arena-runtime.js";
 
 const ARENA_ID = "arena-1";
 const OTHER_ARENA_ID = "arena-2";
@@ -27,7 +23,6 @@ function waitForClose(socket: WebSocket): Promise<{ code: number }> {
   });
 }
 
-/** Collects every parsed ServerMessage a client receives, in order. */
 function collectMessages(socket: WebSocket): ServerMessage[] {
   const messages: ServerMessage[] = [];
   socket.on("message", (data) => {
@@ -80,7 +75,6 @@ describe("GatewayWebSocketServer", () => {
     await waitForOpen(socket);
     const messages = collectMessages(socket);
 
-    // Broadcast before any subscribe — should be cached, not delivered yet (no subscriber).
     gateway.broadcast(ARENA_ID, {
       type: "match.state",
       state: {
@@ -173,7 +167,6 @@ describe("GatewayWebSocketServer", () => {
     const statusMsg = messagesEliminated.find((m) => m.type === "player.status");
     expect(statusMsg).toEqual({ type: "player.status", status: "eliminated" });
 
-    // A different, unknown-to-the-runtime user gets no player.status push on subscribe.
     const tokenUnknown = issueToken("user-unknown");
     const socketUnknown = connect(tokenUnknown);
     await waitForOpen(socketUnknown);
@@ -184,6 +177,51 @@ describe("GatewayWebSocketServer", () => {
 
     socketEliminated.close();
     socketUnknown.close();
+  });
+
+  it("a CS2-shaped runtime (no statusFor/pendingPredictionsFor) doesn't crash subscribe and sends neither player.pending nor player.status", async () => {
+    const token = issueToken("user-1");
+    const socket = connect(token);
+    await waitForOpen(socket);
+    const messages = collectMessages(socket);
+
+    const cs2LikeRuntime: ArenaRuntimeLike = {
+      currentRound: undefined,
+      join: vi.fn(),
+      submitAnswer: vi.fn(() => ({ ok: true as const, receivedAt: "2024-01-01T00:00:00.000Z" })),
+      leaderboardSnapshot: () => [],
+      finalWinners: () => undefined,
+    };
+    gateway.registerRuntime(ARENA_ID, cs2LikeRuntime);
+
+    send(socket, { type: "subscribe", arenaId: ARENA_ID });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(messages.some((m) => m.type === "player.pending")).toBe(false);
+    expect(messages.some((m) => m.type === "player.status")).toBe(false);
+
+    socket.close();
+  });
+
+  it("caches and replays round.void and arena.cancelled on subscribe (CS2 reconnect resync)", async () => {
+    const token = issueToken("user-1");
+    const socket = connect(token);
+    await waitForOpen(socket);
+    const messages = collectMessages(socket);
+
+    gateway.broadcast(ARENA_ID, { type: "round.void", roundId: "r1" });
+    gateway.broadcast(ARENA_ID, { type: "arena.cancelled", reason: "no_show" });
+
+    send(socket, { type: "subscribe", arenaId: ARENA_ID });
+
+    await vi.waitFor(() => {
+      expect(messages.some((m) => m.type === "arena.cancelled")).toBe(true);
+    });
+    expect(messages.some((m) => m.type === "round.void")).toBe(true);
+    const cancelledMsg = messages.find((m) => m.type === "arena.cancelled");
+    expect(cancelledMsg).toEqual({ type: "arena.cancelled", reason: "no_show" });
+
+    socket.close();
   });
 
   it("only replays the latest round message, not a stale round.open after it locked", async () => {
@@ -198,12 +236,14 @@ describe("GatewayWebSocketServer", () => {
         id: "r1",
         arenaId: ARENA_ID,
         matchId: "m1",
+        discipline: "soccer",
         windowStartMinute: 0,
         windowEndMinute: 5,
         question: "?",
         targetEventType: "shot",
         targetTeam: "any",
         settlementCondition: {
+          discipline: "soccer",
           targetEventType: "shot",
           targetTeam: "any",
           windowStartMinute: 0,
@@ -239,7 +279,6 @@ describe("GatewayWebSocketServer", () => {
       entries: [],
     });
 
-    // Give the (would-be) delivery a tick to happen if it were going to.
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(messages).toHaveLength(0);
 
@@ -274,6 +313,7 @@ describe("GatewayWebSocketServer", () => {
     const token = issueToken("user-1");
     const socket = connect(token);
     await waitForOpen(socket);
+    const messages = collectMessages(socket);
 
     const submitAnswer = vi.fn<(userId: string, roundId: string, answer: string) => SubmitAnswerOutcome>(() => ({
       ok: true,
@@ -292,14 +332,23 @@ describe("GatewayWebSocketServer", () => {
     await vi.waitFor(() => {
       expect(submitAnswer).toHaveBeenCalledWith("user-1", "round-1", "yes");
     });
+    await vi.waitFor(() => {
+      expect(messages).toContainEqual({
+        type: "answer.accepted",
+        roundId: "round-1",
+        answer: "yes",
+        receivedAt: "2024-01-01T00:00:00.000Z",
+      });
+    });
 
     socket.close();
   });
 
-  it("ignores an 'answer' sent before subscribing (no arena context yet)", async () => {
+  it("rejects an 'answer' sent before subscribing (no arena context yet)", async () => {
     const token = issueToken("user-1");
     const socket = connect(token);
     await waitForOpen(socket);
+    const messages = collectMessages(socket);
 
     const submitAnswer = vi.fn();
     gateway.registerRuntime(ARENA_ID, {
@@ -312,6 +361,12 @@ describe("GatewayWebSocketServer", () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(submitAnswer).not.toHaveBeenCalled();
+    expect(messages).toContainEqual({
+      type: "answer.rejected",
+      roundId: "round-1",
+      answer: "yes",
+      reason: "not_subscribed",
+    });
     socket.close();
   });
 });

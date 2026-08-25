@@ -1,8 +1,3 @@
-// Real REST handlers, replacing the mock (apps/api/src/mock/routes.ts) against Postgres + the
-// arena runtime registry instead of fixtures. Deliberately preserves the mock's
-// documented quirks: GET /matches/:id returns a bare `Match` (not `{match}`), uniform `ApiError`
-// shape, and a 404 fallthrough for unmatched routes.
-
 import { Router } from "express";
 import type { Router as RouterType, Response } from "express";
 import type {
@@ -55,7 +50,6 @@ function notFound(res: Response, message: string): void {
 export function createRestRouter(runtimeLookup: ArenaRuntimeLookup): RouterType {
   const router = Router();
 
-  /** POST /auth/nonce — issue a fresh nonce for the wallet to embed in its sign-in message. */
   router.post<Record<string, never>, WalletNonceResponse | ApiError, WalletNonceRequest>(
     "/auth/nonce",
     (req, res) => {
@@ -68,12 +62,7 @@ export function createRestRouter(runtimeLookup: ArenaRuntimeLookup): RouterType 
     },
   );
 
-  /**
-   * POST /auth/wallet — verify the wallet's ed25519 signature over a server-issued nonce, then
-   * upsert the User and issue a session token. Verification is gated by
-   * `AUTH_REQUIRE_SIGNATURE` (default on); disabling it keeps the old address-only behavior for
-   * demo runs.
-   */
+  // Disabling signature verification restores insecure address-only authentication for demos.
   router.post<Record<string, never>, WalletSignInResponse | ApiError, WalletSignInRequest>(
     "/auth/wallet",
     async (req, res) => {
@@ -110,7 +99,7 @@ export function createRestRouter(runtimeLookup: ArenaRuntimeLookup): RouterType 
     res.json({ matches });
   });
 
-  // Bare Match, not {match} — matches the mock's asymmetry with GET /matches above.
+  // This endpoint's persisted API shape is a bare Match, not { match }.
   router.get<{ id: string }>("/matches/:id", async (req, res) => {
     const match = await matchRepository.findById(req.params.id);
     if (!match) {
@@ -120,7 +109,6 @@ export function createRestRouter(runtimeLookup: ArenaRuntimeLookup): RouterType 
     res.json(match);
   });
 
-  /** GET /arenas?matchId= — lobby discovery: find the arena(s) running against a match. */
   router.get<Record<string, never>, ArenaListResponse | ApiError>("/arenas", async (req, res) => {
     const matchId = req.query["matchId"];
     if (typeof matchId !== "string" || matchId.length === 0) {
@@ -146,17 +134,13 @@ export function createRestRouter(runtimeLookup: ArenaRuntimeLookup): RouterType 
     const body: ArenaDetailResponse = {
       arena,
       match,
-      ...(runtime !== undefined ? { matchState: runtime.matchState } : {}),
+      ...(runtime?.matchState !== undefined ? { matchState: runtime.matchState } : {}),
       ...(runtime?.currentRound !== undefined ? { currentRound: runtime.currentRound } : {}),
     };
     res.json(body);
   });
 
-  /**
-   * POST /arenas/:id/entry — confirm an on-chain entry purchase (records the reported
-   * txSignature without on-chain verification — out of scope here, see the plan's non-goals)
-   * and joins the arena (spec §9: pre-kickoff only).
-   */
+  // This route trusts the reported transaction signature without on-chain verification.
   router.post<{ id: string }, BuyEntryResponse | ApiError, BuyEntryRequest>(
     "/arenas/:id/entry",
     requireAuth,
@@ -202,8 +186,6 @@ export function createRestRouter(runtimeLookup: ArenaRuntimeLookup): RouterType 
       const player = await arenaPlayerRepository.join(arenaId, userId);
       await arenaRepository.bumpActivePlayers(arenaId, 1);
       await arenaRepository.bumpPrizePool(arenaId, arena.entryFeeLamports);
-      // Keeps the live runtime's roster (leaderboard + ArenaPlayerStore) in sync with the DAL —
-      // a no-op if this arena has no running runtime yet, or the player already joined.
       runtimeLookup.getRuntime(arenaId)?.join(userId, user.username, player.joinedAt);
 
       const updatedArena = (await arenaRepository.findById(arenaId)) ?? arena;
@@ -212,11 +194,7 @@ export function createRestRouter(runtimeLookup: ArenaRuntimeLookup): RouterType 
     },
   );
 
-  /**
-   * POST /arenas/:id/entry/prepare — backend builds the unsigned buy_entry tx for the user to sign.
-   * Lobby-only: this is where a join "starts". No auth — a validly-signed tx is what authorizes;
-   * the token is issued on /submit.
-   */
+  // The wallet signature authorizes this flow; no session token exists until submission.
   router.post<{ id: string }, PrepareEntryResponse | ApiError, PrepareEntryRequest>(
     "/arenas/:id/entry/prepare",
     async (req, res) => {
@@ -257,12 +235,7 @@ export function createRestRouter(runtimeLookup: ArenaRuntimeLookup): RouterType 
     },
   );
 
-  /**
-   * POST /arenas/:id/entry/submit — submit the user-signed tx, seat the player, issue a session
-   * token. Atomicity hinge: re-checks joinable right before the irreversible submit, so a payment
-   * can't land without a seat. Idempotent — a repeat submit returns the existing seat, never buys
-   * twice.
-   */
+  // Re-check joinability before payment and return an existing seat on exact retries.
   router.post<{ id: string }, SubmitEntryResponse | ApiError, SubmitEntryRequest>(
     "/arenas/:id/entry/submit",
     async (req, res) => {
@@ -285,8 +258,7 @@ export function createRestRouter(runtimeLookup: ArenaRuntimeLookup): RouterType 
         return;
       }
 
-      // Closing the lobby first blocks new submits; kickoff then waits for accepted submits to
-      // finish both the irreversible on-chain transfer and DB seating.
+      // Kickoff waits for accepted submissions to finish payment and DB seating.
       const runtime = runtimeLookup.getRuntime(arenaId);
       const joinable = arena.status === "lobby";
       if (!joinable) {
@@ -304,7 +276,7 @@ export function createRestRouter(runtimeLookup: ArenaRuntimeLookup): RouterType 
           `fan_${pending.walletAddress.slice(0, 6)}`,
         );
 
-        // Idempotent: already seated (double submit / reconcile) → return the seat, don't buy again.
+        // Reconciliation must return an existing seat without buying again.
         const existing = await entryPassRepository.findByArenaAndUser(arenaId, user.id);
         if (existing) {
           const player = await arenaPlayerRepository.join(arenaId, user.id);
@@ -352,7 +324,6 @@ export function createRestRouter(runtimeLookup: ArenaRuntimeLookup): RouterType 
     },
   );
 
-  /** POST /rounds/:id/answer — submit/change answer while open (spec §5, §9). */
   router.post<{ id: string }, SubmitAnswerResponse | ApiError, SubmitAnswerRequest>(
     "/rounds/:id/answer",
     requireAuth,
@@ -378,14 +349,21 @@ export function createRestRouter(runtimeLookup: ArenaRuntimeLookup): RouterType 
       const userId = (req as unknown as AuthedRequest).userId;
       const outcome = runtime.submitAnswer(userId, roundId, answer);
       if (!outcome.ok) {
-        if (outcome.reason === "round_not_found") {
-          notFound(res, "Round not found");
-        } else if (outcome.reason === "eliminated") {
-          res.status(403).json({ error: "eliminated", message: "Eliminated players cannot submit predictions" });
-        } else {
-          res.status(409).json({ error: "round_locked", message: "Round is no longer open" });
+        switch (outcome.reason) {
+          case "round_not_found":
+            notFound(res, "Round not found");
+            return;
+          case "not_participant":
+            res.status(403).json({ error: "not_participant", message: "Only active arena participants can submit predictions" });
+            return;
+          case "eliminated":
+            res.status(403).json({ error: "eliminated", message: "Eliminated players cannot submit predictions" });
+            return;
+          case "round_locked":
+            res.status(409).json({ error: "round_locked", message: "Round is no longer open" });
+            return;
         }
-        return;
+        outcome.reason satisfies never;
       }
       res.json({ roundId, answer, receivedAt: outcome.receivedAt });
     },
@@ -403,12 +381,7 @@ export function createRestRouter(runtimeLookup: ArenaRuntimeLookup): RouterType 
     res.json({ entries, ...(winners !== undefined ? { winners } : {}) });
   });
 
-  /**
-   * GET /arenas/:id/rounds — round history. Every round the arena has created,
-   * each carrying every player's Prediction — but only once that round is `settled`; an open or
-   * locked round reports an empty `predictions` array, since individual answers are never
-   * revealed before settle (spec §8).
-   */
+  // Never reveal individual predictions before settlement.
   router.get<{ id: string }, ArenaRoundsResponse | ApiError>("/arenas/:id/rounds", async (req, res) => {
     const arena = await arenaRepository.findById(req.params.id);
     if (!arena) {
@@ -426,7 +399,6 @@ export function createRestRouter(runtimeLookup: ArenaRuntimeLookup): RouterType 
     res.json({ rounds: withPredictions });
   });
 
-  // Fallthrough — matches the ApiError shape for anything not implemented above.
   router.use((req, res) => {
     notFound(res, `No route for ${req.method} ${req.path}`);
   });

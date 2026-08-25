@@ -1,21 +1,8 @@
-// DB integration test — the one place the repositories + write-through PG stores are
-// exercised against a real Postgres. Gated on DATABASE_URL so the rest of the suite (and CI by
-// default) stays DB-free; run locally (or in a DB-enabled job) with DATABASE_URL set.
-//
-// Important: db/client.ts throws synchronously at import time if DATABASE_URL is unset. Every
-// module here that transitively imports it (all repositories, the PG stores) is therefore
-// dynamically imported inside beforeAll — which never runs when describe.skipIf skips the suite —
-// rather than as static top-level imports, which vitest would still evaluate even when skipped.
-
 import { randomInt, randomUUID } from "node:crypto";
 import dotenv from "dotenv";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-// Same class of import-order fragility fixed in db/client.ts: this file deliberately avoids any
-// top-level import that transitively loads db/client.ts (so it stays importable when skipped),
-// which means nothing else guarantees .env has been read by the time `RUN` is evaluated below —
-// load it here directly, matching every other config-reading module in this repo.
 dotenv.config();
 
 const RUN = Boolean(process.env["DATABASE_URL"]);
@@ -34,10 +21,9 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
   let createPgPredictionStore: typeof import("../../gateway/stores/pg-prediction-store.js")["createPgPredictionStore"];
   let createPgArenaPlayerStore: typeof import("../../gateway/stores/pg-arena-player-store.js")["createPgArenaPlayerStore"];
   let tryAcquireFixtureRuntimeLock: typeof import("../client.js")["tryAcquireFixtureRuntimeLock"];
+  let tryAcquireSeriesRuntimeLock: typeof import("../client.js")["tryAcquireSeriesRuntimeLock"];
   let resetReplayFixture: typeof import("../replay-reset.js")["resetReplayFixture"];
 
-  // Unique per test run so repeated runs never collide on (walletAddress) / (homeTeam,awayTeam,startTime)
-  // unique indexes, and so cleanup only ever removes rows this run created.
   const runId = randomUUID();
   const walletAddress = `int-test-wallet-${runId}`;
   const homeTeam = `IntTestHome-${runId}`;
@@ -51,7 +37,7 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
   let roundId: string;
 
   beforeAll(async () => {
-    ({ db, tryAcquireFixtureRuntimeLock } = await import("../client.js"));
+    ({ db, tryAcquireFixtureRuntimeLock, tryAcquireSeriesRuntimeLock } = await import("../client.js"));
     ({ resetReplayFixture } = await import("../replay-reset.js"));
     schema = await import("../schema.js");
     ({ userRepository } = await import("../repositories/user.repository.js"));
@@ -67,8 +53,7 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
   });
 
   afterAll(async () => {
-    if (db === undefined) return; // suite was skipped; nothing to clean up
-    // Delete in FK-dependency order (children first).
+    if (db === undefined) return;
     if (roundId) await db.delete(schema.predictions).where(eq(schema.predictions.roundId, roundId));
     if (roundId) await db.delete(schema.predictionRounds).where(eq(schema.predictionRounds.id, roundId));
     if (arenaId) await db.delete(schema.arenaPlayers).where(eq(schema.arenaPlayers.arenaId, arenaId));
@@ -85,8 +70,6 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
     expect(first.walletAddress).toBe(walletAddress);
     expect(first.username).toBe("first-username");
 
-    // Repeat sign-in with a different reported username — only wallet identity is upserted,
-    // per user.repository.ts's doc comment; the original username must survive.
     const second = await userRepository.upsertByWallet(walletAddress, "second-username");
     expect(second.id).toBe(first.id);
     expect(second.username).toBe("first-username");
@@ -99,7 +82,7 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
     const first = await matchRepository.upsertByTxoddsFixtureId(fixtureId, { homeTeam, awayTeam, startTime });
     matchId = first.id;
     const second = await matchRepository.upsertByTxoddsFixtureId(fixtureId, { homeTeam, awayTeam, startTime });
-    expect(second.id).toBe(first.id); // idempotent — no duplicate row
+    expect(second.id).toBe(first.id);
 
     await matchRepository.updateLive(matchId, {
       currentMinute: 42,
@@ -147,7 +130,7 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
 
   it("arena-player.repository: join is idempotent, getActivePlayerIds/setStatus round-trip", async () => {
     const first = await arenaPlayerRepository.join(arenaId, userId);
-    const second = await arenaPlayerRepository.join(arenaId, userId); // idempotent re-join
+    const second = await arenaPlayerRepository.join(arenaId, userId);
     expect(second.id).toBe(first.id);
 
     const active = await arenaPlayerRepository.getActivePlayerIds(arenaId);
@@ -160,7 +143,6 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
     const roster = await arenaPlayerRepository.list(arenaId);
     expect(roster.find((p) => p.userId === userId)?.status).toBe("eliminated");
 
-    // Restore to active for the write-through store tests below.
     await arenaPlayerRepository.setStatus(arenaId, userId, "active");
   });
 
@@ -169,12 +151,14 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
       id: randomUUID(),
       arenaId,
       matchId,
+      discipline: "soccer" as const,
       windowStartMinute: 20,
       windowEndMinute: 25,
       question: "Will there be a shot between 20:00 and 25:00?",
       targetEventType: "shot" as const,
       targetTeam: "any" as const,
       settlementCondition: {
+        discipline: "soccer" as const,
         targetEventType: "shot" as const,
         targetTeam: "any" as const,
         windowStartMinute: 20,
@@ -211,7 +195,6 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
     let answers = await predictionRepository.getAnswers(roundId);
     expect(answers.get(userId)).toBe("yes");
 
-    // Re-answering (spec §5: change before lock) overwrites, not duplicates (unique index).
     await predictionRepository.submitAnswer(roundId, userId, "no", new Date());
     answers = await predictionRepository.getAnswers(roundId);
     expect(answers.get(userId)).toBe("no");
@@ -230,10 +213,9 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
 
     const receivedAt = new Date();
     store.recordAnswer(roundId, userId, "yes", receivedAt);
-    // Synchronous read reflects the write immediately, before the PG mirror necessarily lands.
     expect(store.getAnswers(roundId).get(userId)).toBe("yes");
 
-    // Wait for the enqueued PG write specifically, rather than an arbitrary sleep.
+    // Await the queued write rather than relying on wall-clock timing.
     await writeQueue.enqueue(arenaId, async () => {});
     const persisted = await predictionRepository.getAnswers(roundId);
     expect(persisted.get(userId)).toBe("yes");
@@ -251,6 +233,23 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
     await writeQueue.enqueue(arenaId, async () => {});
     const roster = await arenaPlayerRepository.list(arenaId);
     expect(roster.find((p) => p.userId === userId)?.status).toBe("eliminated");
+  });
+
+  it("tryAcquireSeriesRuntimeLock excludes a second acquire for the same gridSeriesId, releases cleanly", async () => {
+    const gridSeriesId = `int-test-series-${randomUUID()}`;
+    const release = await tryAcquireSeriesRuntimeLock(gridSeriesId);
+    expect(release).toBeDefined();
+    expect(await tryAcquireSeriesRuntimeLock(gridSeriesId)).toBeUndefined();
+
+    const otherGridSeriesId = `int-test-series-${randomUUID()}`;
+    const releaseOther = await tryAcquireSeriesRuntimeLock(otherGridSeriesId);
+    expect(releaseOther).toBeDefined();
+    await releaseOther?.();
+
+    await release?.();
+    const reacquired = await tryAcquireSeriesRuntimeLock(gridSeriesId);
+    expect(reacquired).toBeDefined();
+    await reacquired?.();
   });
 
   it("replay reset lock excludes an active runtime, then reset deletes atomically and restart recreates a lobby", async () => {

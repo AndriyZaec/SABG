@@ -1,16 +1,13 @@
-// Pure row <-> @arena/contracts entity mappers. No I/O; unit-testable in isolation
-// (db/__tests__/mappers.test.ts). Keeps the Drizzle row shape (snake_case columns, split
-// scoreHome/scoreAway, Date objects) from leaking into the engines/gateway, which only ever see
-// @arena/contracts entity shapes.
-
 import type {
   Arena,
+  ArenaCancelledReason,
   ArenaPlayer,
   EntryPass,
   Match,
   Payout,
   Prediction,
   PredictionRound,
+  Series,
   SettlementCondition,
   User,
 } from "@arena/contracts";
@@ -22,6 +19,7 @@ import type {
   payouts,
   predictionRounds,
   predictions,
+  series,
   users,
 } from "./schema.js";
 
@@ -33,6 +31,7 @@ type PredictionRoundRow = typeof predictionRounds.$inferSelect;
 type ArenaPlayerRow = typeof arenaPlayers.$inferSelect;
 type PredictionRow = typeof predictions.$inferSelect;
 type PayoutRow = typeof payouts.$inferSelect;
+type SeriesRow = typeof series.$inferSelect;
 
 export function userRowToEntity(row: UserRow): User {
   return {
@@ -46,6 +45,7 @@ export function userRowToEntity(row: UserRow): User {
 export function matchRowToEntity(row: MatchRow): Match {
   return {
     id: row.id,
+    discipline: row.discipline,
     homeTeam: row.homeTeam,
     awayTeam: row.awayTeam,
     startTime: row.startTime.toISOString(),
@@ -53,6 +53,8 @@ export function matchRowToEntity(row: MatchRow): Match {
     currentMinute: row.currentMinute,
     period: row.period,
     score: { home: row.scoreHome, away: row.scoreAway },
+    ...(row.seriesId !== null ? { seriesId: row.seriesId } : {}),
+    ...(row.seriesMatchIndex !== null ? { seriesMatchIndex: row.seriesMatchIndex } : {}),
   };
 }
 
@@ -66,6 +68,18 @@ export function arenaRowToEntity(row: ArenaRow): Arena {
     prizePoolLamports: row.prizePoolLamports,
     escrowAccount: row.escrowAccount,
     ...(row.onchainArenaId != null ? { onchainArenaId: row.onchainArenaId } : {}),
+    // Only the DAL writes this non-enum value.
+    ...(row.cancelledReason !== null ? { cancelledReason: row.cancelledReason as ArenaCancelledReason } : {}),
+  };
+}
+
+export function seriesRowToEntity(row: SeriesRow): Series {
+  return {
+    id: row.id,
+    gridSeriesId: row.gridSeriesId,
+    format: row.format,
+    scheduledStartTime: row.scheduledStartTime.toISOString(),
+    status: row.status,
   };
 }
 
@@ -98,15 +112,16 @@ export function predictionRoundRowToEntity(row: PredictionRoundRow): PredictionR
     id: row.id,
     arenaId: row.arenaId,
     matchId: row.matchId,
-    windowStartMinute: row.windowStartMinute,
-    windowEndMinute: row.windowEndMinute,
+    discipline: row.discipline,
     question: row.question,
-    targetEventType: row.targetEventType,
-    targetTeam: row.targetTeam,
-    // jsonb column — the DAL is the only writer (prediction-round.repository.ts), so the shape
-    // is trusted rather than re-validated on every read.
+    // Only the DAL writes this unvalidated JSON shape.
     settlementCondition: row.settlementCondition as SettlementCondition,
     status: row.status,
+    ...(row.windowStartMinute !== null ? { windowStartMinute: row.windowStartMinute } : {}),
+    ...(row.windowEndMinute !== null ? { windowEndMinute: row.windowEndMinute } : {}),
+    ...(row.roundNumber !== null ? { roundNumber: row.roundNumber } : {}),
+    ...(row.targetEventType !== null ? { targetEventType: row.targetEventType } : {}),
+    ...(row.targetTeam !== null ? { targetTeam: row.targetTeam } : {}),
     ...(row.correctAnswer !== null ? { correctAnswer: row.correctAnswer } : {}),
     ...(row.openedAt !== null ? { openedAt: row.openedAt.toISOString() } : {}),
     ...(row.lockedAt !== null ? { lockedAt: row.lockedAt.toISOString() } : {}),

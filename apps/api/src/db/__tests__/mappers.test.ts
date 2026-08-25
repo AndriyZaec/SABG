@@ -40,7 +40,10 @@ describe("matchRowToEntity", () => {
     const startTime = new Date("2024-01-01T00:00:00.000Z");
     const entity = matchRowToEntity({
       id: "m1",
+      discipline: "soccer",
       txoddsFixtureId: 123,
+      seriesId: null,
+      seriesMatchIndex: null,
       homeTeam: "A",
       awayTeam: "B",
       startTime,
@@ -54,6 +57,7 @@ describe("matchRowToEntity", () => {
     });
     expect(entity).toEqual({
       id: "m1",
+      discipline: "soccer",
       homeTeam: "A",
       awayTeam: "B",
       startTime: startTime.toISOString(),
@@ -76,6 +80,7 @@ describe("arenaRowToEntity", () => {
       prizePoolLamports: 5000,
       escrowAccount: "Escrow111",
       onchainArenaId: 42,
+      cancelledReason: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -126,12 +131,15 @@ describe("predictionRoundRowToEntity", () => {
       id: "r1",
       arenaId: "a1",
       matchId: "m1",
+      discipline: "soccer",
       windowStartMinute: 20,
       windowEndMinute: 25,
+      roundNumber: null,
       question: "Will there be a shot?",
       targetEventType: "shot",
       targetTeam: "home",
       settlementCondition: {
+        discipline: "soccer",
         targetEventType: "shot",
         targetTeam: "home",
         windowStartMinute: 20,
@@ -151,12 +159,14 @@ describe("predictionRoundRowToEntity", () => {
       id: "r1",
       arenaId: "a1",
       matchId: "m1",
+      discipline: "soccer",
       windowStartMinute: 20,
       windowEndMinute: 25,
       question: "Will there be a shot?",
       targetEventType: "shot",
       targetTeam: "home",
       settlementCondition: {
+        discipline: "soccer",
         targetEventType: "shot",
         targetTeam: "home",
         windowStartMinute: 20,
@@ -175,12 +185,15 @@ describe("predictionRoundRowToEntity", () => {
       id: "r1",
       arenaId: "a1",
       matchId: "m1",
+      discipline: "soccer",
       windowStartMinute: 20,
       windowEndMinute: 25,
+      roundNumber: null,
       question: "Will there be a shot?",
       targetEventType: "shot",
       targetTeam: "home",
       settlementCondition: {
+        discipline: "soccer",
         targetEventType: "shot",
         targetTeam: "home",
         windowStartMinute: 20,

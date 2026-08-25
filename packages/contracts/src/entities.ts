@@ -1,28 +1,25 @@
-// Entity types — direct mapping of spec v2 §13 Data Models.
-// These are the persisted/domain shapes shared by API, engines and frontend.
-
 import type {
   Answer,
+  ArenaCancelledReason,
   ArenaPlayerStatus,
   ArenaStatus,
+  Discipline,
   EntryPassStatus,
   MatchPeriod,
   MatchStatus,
   PayoutStatus,
   PredictionResult,
   RoundStatus,
+  SeriesStatus,
   SettledBy,
   TargetEventType,
   TeamSide,
 } from "./enums.js";
 import type { SettlementCondition } from "./settlement.js";
 
-/** ISO-8601 timestamp string. */
 export type IsoDateTime = string;
 export type Uuid = string;
-/** Base-58 Solana address. */
 export type WalletAddress = string;
-/** Base-58 Solana transaction signature. */
 export type TxSignature = string;
 
 export interface Score {
@@ -39,14 +36,27 @@ export interface User {
 
 export interface Match {
   id: Uuid;
+  discipline: Discipline;
   homeTeam: string;
   awayTeam: string;
   startTime: IsoDateTime;
   status: MatchStatus;
-  /** Current minute incl. stoppage (match clock, spec §3.1). */
   currentMinute: number;
   period: MatchPeriod;
   score: Score;
+  /** CS2 only; absent for disciplines without series. */
+  seriesId?: Uuid;
+  /** CS2 only; stable 1-based map position within the series. */
+  seriesMatchIndex?: number;
+}
+
+/** Groups map-level matches; each arena belongs to one map-level match. */
+export interface Series {
+  id: Uuid;
+  gridSeriesId: string;
+  format: number;
+  scheduledStartTime: IsoDateTime;
+  status: SeriesStatus;
 }
 
 export interface Arena {
@@ -56,10 +66,11 @@ export interface Arena {
   activePlayersCount: number;
   entryFeeLamports: number;
   prizePoolLamports: number;
-  /** On-chain escrow PDA address. */
   escrowAccount: WalletAddress;
-  /** Numeric id used as the on-chain program's `arena_id` PDA seed. Absent until provisioned. */
+  /** Absent until the arena is provisioned on-chain. */
   onchainArenaId?: number;
+  /** Present only for terminal cancellation. */
+  cancelledReason?: ArenaCancelledReason;
 }
 
 export interface EntryPass {
@@ -87,17 +98,20 @@ export interface PredictionRound {
   id: Uuid;
   arenaId: Uuid;
   matchId: Uuid;
-  windowStartMinute: number;
-  windowEndMinute: number;
+  discipline: Discipline;
+  /** Soccer only. */
+  windowStartMinute?: number;
+  windowEndMinute?: number;
+  /** CS2 only. */
+  roundNumber?: number;
   question: string;
-  targetEventType: TargetEventType;
-  targetTeam: TeamSide;
+  /** Soccer only. */
+  targetEventType?: TargetEventType;
+  targetTeam?: TeamSide;
   settlementCondition: SettlementCondition;
   status: RoundStatus;
   correctAnswer?: Answer;
-  /** T - leadTime (leadTime >= 60s), spec §5. */
   openedAt?: IsoDateTime;
-  /** Exactly window start T, spec §5. */
   lockedAt?: IsoDateTime;
   settledAt?: IsoDateTime;
   settledBy?: SettledBy;
@@ -109,7 +123,7 @@ export interface Prediction {
   userId: Uuid;
   answer: Answer;
   answeredAt: IsoDateTime;
-  /** When backend received it — source of truth for reconnect tie-break (spec §9). */
+  /** Authoritative receive time for reconnect conflict resolution. */
   receivedAt: IsoDateTime;
   result?: PredictionResult;
 }
@@ -119,10 +133,8 @@ export interface LiveEvent {
   matchId: Uuid;
   eventType: TargetEventType;
   team: TeamSide;
-  /** Match minute incl. stoppage. */
   matchMinute: number;
   timestamp: IsoDateTime;
-  /** provisional (false) vs confirmed (true) — spec §5.1. */
   confirmed: boolean;
   rawPayload?: unknown;
 }
@@ -136,7 +148,6 @@ export interface Payout {
   status: PayoutStatus;
 }
 
-/** Aggregated match state maintained by the Match State Engine (B2). */
 export interface MatchState {
   matchId: Uuid;
   period: MatchPeriod;
@@ -149,13 +160,11 @@ export interface MatchState {
   activeWindowStartMinute?: number;
 }
 
-/** A single ranked entry in the leaderboard (spec §7). */
 export interface LeaderboardEntry {
   userId: Uuid;
   username: string;
   status: ArenaPlayerStatus;
   score: number;
-  /** Avg (answeredAt - openedAt) ms — tie-breaker 1. */
   avgAnswerMs?: number;
   missedCount: number;
   joinedAt: IsoDateTime;

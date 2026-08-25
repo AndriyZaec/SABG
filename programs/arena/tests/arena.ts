@@ -37,6 +37,17 @@ const entryPassPda = (arena: web3.PublicKey, player: web3.PublicKey) =>
 
 const fundedPlayer = async (): Promise<web3.Keypair> => {
   const kp = Keypair.generate();
+  if (process.env["SELF_FUND_TEST_PLAYERS"] === "true") {
+    const transaction = new web3.Transaction().add(
+      web3.SystemProgram.transfer({
+        fromPubkey: authority.publicKey,
+        toPubkey: kp.publicKey,
+        lamports: 0.12 * LAMPORTS_PER_SOL,
+      }),
+    );
+    await provider.sendAndConfirm(transaction);
+    return kp;
+  }
   const sig = await provider.connection.requestAirdrop(kp.publicKey, LAMPORTS_PER_SOL);
   await provider.connection.confirmTransaction(sig, "confirmed");
   return kp;
@@ -69,7 +80,7 @@ describe("arena — escrow + entry pass", () => {
     assert.equal(arena.entryFeeLamports.toString(), entryFee.toString());
     assert.equal(arena.prizePoolLamports.toString(), "0");
     assert.equal(arena.playerCount, 0);
-    assert.equal(arena.settled, false);
+    assert.deepEqual(arena.state, { open: {} });
   });
 
   it("buy_entry moves the fee into escrow and grows the pool", async () => {
@@ -132,7 +143,7 @@ describe("arena — payout", () => {
     assert.equal(await provider.connection.getBalance(escrow), 0, "escrow drained");
 
     const state = await program.account.arena.fetch(arena);
-    assert.equal(state.settled, true);
+    assert.deepEqual(state.state, { settled: {} });
     assert.equal(state.prizePoolLamports.toString(), "0");
   });
 
@@ -197,6 +208,75 @@ describe("arena — payout", () => {
       threw = true;
     }
     assert.isTrue(threw, "second settle must fail");
+  });
+});
+
+describe("arena — cancellation + refund", () => {
+  it("rejects an unauthorized cancellation", async () => {
+    const arenaId = freshArenaId();
+    const { arena } = deriveArena(arenaId);
+    await initArena(arenaId);
+    const impostor = await fundedPlayer();
+
+    let threw = false;
+    try {
+      await program.methods
+        .cancelArena()
+        .accounts({ arena, payoutAuthority: impostor.publicKey })
+        .signers([impostor])
+        .rpc();
+    } catch (_e) {
+      threw = true;
+    }
+    assert.isTrue(threw, "only the payout authority may cancel");
+  });
+
+  it("refunds exactly once without the player signing and blocks later entries", async () => {
+    const arenaId = freshArenaId();
+    const { arena, escrow } = deriveArena(arenaId);
+    await initArena(arenaId);
+    const player = await buyIn(arena);
+    const entryPass = entryPassPda(arena, player.publicKey);
+
+    await program.methods
+      .cancelArena()
+      .accounts({ arena, payoutAuthority: authority.publicKey })
+      .rpc();
+    assert.deepEqual((await program.account.arena.fetch(arena)).state, { cancelled: {} });
+
+    const before = await provider.connection.getBalance(player.publicKey);
+    await program.methods
+      .refund()
+      .accounts({ arena, entryPass, escrow, player: player.publicKey })
+      .rpc();
+    const after = await provider.connection.getBalance(player.publicKey);
+    assert.equal(after - before, entryFee.toNumber(), "player receives the exact entry fee");
+
+    const state = await program.account.arena.fetch(arena);
+    const pass = await program.account.entryPass.fetch(entryPass);
+    assert.equal(state.prizePoolLamports.toString(), "0");
+    assert.equal(state.playerCount, 0);
+    assert.equal(pass.refunded, true);
+
+    for (const operation of [
+      () => program.methods.refund().accounts({ arena, entryPass, escrow, player: player.publicKey }).rpc(),
+      async () => {
+        const latePlayer = await fundedPlayer();
+        await program.methods
+          .buyEntry()
+          .accounts({ arena, player: latePlayer.publicKey })
+          .signers([latePlayer])
+          .rpc();
+      },
+    ]) {
+      let threw = false;
+      try {
+        await operation();
+      } catch (_e) {
+        threw = true;
+      }
+      assert.isTrue(threw);
+    }
   });
 });
 

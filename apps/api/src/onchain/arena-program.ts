@@ -1,11 +1,3 @@
-// On-chain arena provisioning: the backend acts as the arena `authority` + `payout_authority`,
-// creating the arena via the deployed program. Loaded only when provisioning is enabled.
-//
-// Default import, not `* as anchor`: under this project's ESM runtime (tsx), a namespace import
-// of @coral-xyz/anchor's CJS build does not expose `anchor.BN` as a constructor (Program/
-// AnchorProvider/Wallet resolve fine, BN alone doesn't) — found by actually exercising this path
-// against devnet for the first time (it had only ever run with ONCHAIN_ARENAS_ENABLED=false
-// before). The default import exposes all four correctly.
 import anchor from "@coral-xyz/anchor";
 import {
   ComputeBudgetInstruction,
@@ -23,7 +15,6 @@ import nacl from "tweetnacl";
 import { ARENA_IDL } from "@arena/contracts/onchain";
 import { onchainConfig } from "./config.js";
 
-/** Accepts a JSON byte array or a base58 secret, matching the live worker's key format. */
 export function loadKeypair(secret: string): Keypair {
   if (secret.trim().startsWith("[")) {
     return Keypair.fromSecretKey(Uint8Array.from(JSON.parse(secret) as number[]));
@@ -31,7 +22,6 @@ export function loadKeypair(secret: string): Keypair {
   return Keypair.fromSecretKey(bs58.decode(secret));
 }
 
-/** Arena + escrow PDAs for a numeric arena id (pure — same seeds as the program & frontend). */
 export function deriveArenaPdas(programId: PublicKey, arenaId: anchor.BN) {
   const idBuf = arenaId.toArrayLike(Buffer, "le", 8);
   const [arena] = PublicKey.findProgramAddressSync([Buffer.from("arena"), idBuf], programId);
@@ -42,10 +32,6 @@ export function deriveArenaPdas(programId: PublicKey, arenaId: anchor.BN) {
   return { arena, escrow };
 }
 
-/**
- * Loosely-typed method builder: the generated IDL types target a newer anchor than apps/api
- * pins, but the camelCase method + accounts/remainingAccounts resolve at runtime from the IDL.
- */
 type RpcBuilder = {
   accounts: (a: Record<string, PublicKey>) => RpcBuilder;
   remainingAccounts: (r: { pubkey: PublicKey; isWritable: boolean; isSigner: boolean }[]) => RpcBuilder;
@@ -79,17 +65,36 @@ export function assertEscrowEmpty(balanceLamports: number, onchainArenaId: numbe
 }
 
 export function assertArenaRecyclableState(
-  settled: boolean,
+  state: "open" | "settled" | "cancelled",
   escrowBalanceLamports: number,
   onchainArenaId: number,
 ): void {
-  if (!settled) {
-    throw new Error(`Refusing to recycle on-chain arena ${onchainArenaId}: arena is not settled`);
+  if (state === "open") {
+    throw new Error(`Refusing to recycle on-chain arena ${onchainArenaId}: arena is not terminal`);
   }
   assertEscrowEmpty(escrowBalanceLamports, onchainArenaId);
 }
 
-/** entry_pass PDA — same seeds as the program & frontend (deriveEntryPass). */
+function decodeArenaState(state: unknown): "open" | "settled" | "cancelled" {
+  if (typeof state === "object" && state !== null) {
+    if ("open" in state) return "open";
+    if ("settled" in state) return "settled";
+    if ("cancelled" in state) return "cancelled";
+  }
+  throw new Error("On-chain arena has an unknown state");
+}
+
+async function fetchArenaState(
+  program: anchor.Program,
+  arena: PublicKey,
+  onchainArenaId: number,
+): Promise<"open" | "settled" | "cancelled"> {
+  const accountInfo = await program.provider.connection.getAccountInfo(arena, "finalized");
+  if (!accountInfo) throw new Error(`On-chain arena ${onchainArenaId} does not exist`);
+  const decoded = program.coder.accounts.decode("arena", accountInfo.data) as { state: unknown };
+  return decodeArenaState(decoded.state);
+}
+
 function deriveEntryPass(programId: PublicKey, arena: PublicKey, player: PublicKey): PublicKey {
   const [entryPass] = PublicKey.findProgramAddressSync(
     [Buffer.from("entry"), arena.toBuffer(), player.toBuffer()],
@@ -110,13 +115,41 @@ function buildProgram(): { program: anchor.Program; authority: Keypair } {
   return { program: new anchor.Program(ARENA_IDL as anchor.Idl, provider), authority };
 }
 
+async function confirmFinalized(program: anchor.Program, signature: string): Promise<void> {
+  const confirmation = await program.provider.connection.confirmTransaction(signature, "finalized");
+  if (confirmation.value.err !== null) {
+    throw new Error(`Transaction ${signature} failed: ${JSON.stringify(confirmation.value.err)}`);
+  }
+}
+
+async function waitForFinalizedSignature(
+  connection: Connection,
+  signature: string,
+  lastValidBlockHeight: number,
+): Promise<void> {
+  for (;;) {
+    const response = await connection.getSignatureStatuses([signature], { searchTransactionHistory: true });
+    const status = response.value[0];
+    if (status?.err != null) {
+      throw new Error(`Transaction ${signature} failed: ${JSON.stringify(status.err)}`);
+    }
+    if (status?.confirmationStatus === "finalized") return;
+
+    // Blockhash expiry is conclusive only if the transaction never landed.
+    if (status === null && await connection.getBlockHeight("confirmed") > lastValidBlockHeight) {
+      throw new Error(`Transaction ${signature} expired before landing`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+}
+
 export interface ProvisionedArena {
   onchainArenaId: number;
   escrowAccount: string;
   signature?: string;
 }
 
-/** Stable 52-bit seed lets a retry recover the same PDA after Solana succeeds but DB commit fails. */
+// Stable seeds reconcile a successful chain write after a failed DB commit.
 export function deriveOnchainArenaId(databaseArenaId: string, authoritySecretKey: Uint8Array): number {
   const compact = databaseArenaId.replaceAll("-", "");
   if (!/^[0-9a-f]{32}$/i.test(compact)) throw new Error(`Invalid database arena UUID: ${databaseArenaId}`);
@@ -124,7 +157,6 @@ export function deriveOnchainArenaId(databaseArenaId: string, authoritySecretKey
   return Number.parseInt(digest.slice(0, 13), 16);
 }
 
-/** Create or recover an on-chain arena as the service authority; returns the ids to persist. */
 export async function provisionArena(
   entryFeeLamports: number,
   databaseArenaId: string,
@@ -156,7 +188,6 @@ export async function provisionArena(
     onchainConfig.authorityReserveLamports,
   );
 
-  // Backend is both authority and payout_authority; platform fee 0 for MVP.
   const signature = await (program.methods as unknown as LooseMethods)
     .initArena!(arenaId, new anchor.BN(entryFeeLamports), authority.publicKey, 0)
     .accounts({ arena, escrow, authority: authority.publicKey })
@@ -244,7 +275,7 @@ function sameEntryInstructions(prepared: TransactionInstruction[], signed: Trans
   });
 }
 
-/** Auto-cycle must never delete DB references while player funds remain in the old escrow. */
+// Never recycle DB references while the previous escrow holds player funds.
 export async function assertArenaRecyclable(onchainArenaId: number): Promise<void> {
   const { program } = buildProgram();
   const { arena, escrow } = deriveArenaPdas(program.programId, new anchor.BN(onchainArenaId));
@@ -253,15 +284,11 @@ export async function assertArenaRecyclable(onchainArenaId: number): Promise<voi
     program.provider.connection.getBalance(escrow, "finalized"),
   ]);
   if (!arenaAccount) throw new Error(`On-chain arena ${onchainArenaId} does not exist`);
-  const decoded = program.coder.accounts.decode("arena", arenaAccount.data) as { settled: boolean };
-  assertArenaRecyclableState(decoded.settled, balanceLamports, onchainArenaId);
+  const decoded = program.coder.accounts.decode("arena", arenaAccount.data) as { state: unknown };
+  assertArenaRecyclableState(decodeArenaState(decoded.state), balanceLamports, onchainArenaId);
 }
 
-/**
- * Build an unsigned `buy_entry` tx for the user to sign. The user (`player`) is the sole signer
- * and fee payer — the backend never signs it, only submits it (submitSignedEntry). Returns the
- * base64 wire tx; the caller stashes it and hands it to the browser to sign.
- */
+// The player must remain the sole signer and fee payer.
 export async function buildBuyEntryTx(onchainArenaId: number, playerAddress: string): Promise<string> {
   const { program } = buildProgram();
   const player = new PublicKey(playerAddress);
@@ -279,32 +306,121 @@ export async function buildBuyEntryTx(onchainArenaId: number, playerAddress: str
   return tx.serialize({ requireAllSignatures: false }).toString("base64");
 }
 
-/** Submit a user-signed `buy_entry` tx and wait for confirmation; returns the signature. */
 export async function submitSignedEntry(signedTxBase64: string): Promise<string> {
   const { program } = buildProgram();
   const connection = program.provider.connection;
   const raw = Buffer.from(signedTxBase64, "base64");
   const signature = await connection.sendRawTransaction(raw);
-  await connection.confirmTransaction(signature, "confirmed");
+  const confirmation = await connection.confirmTransaction(signature, "finalized");
+  if (confirmation.value.err !== null) {
+    throw new Error(`Entry transaction ${signature} failed: ${JSON.stringify(confirmation.value.err)}`);
+  }
   return signature;
 }
 
-/** Settle an arena's escrow to the winner wallets (equal split on-chain); returns the tx sig. */
+export type PayoutSettlement =
+  | { status: "submitted"; txSignature: string }
+  | { status: "reconciled" }
+  | { status: "already-settled" };
+
+// Exact retries reconcile against finalized on-chain state.
 export async function settlePayoutOnchain(
   onchainArenaId: number,
   winnerWallets: string[],
-): Promise<string> {
+): Promise<PayoutSettlement> {
   const { program, authority } = buildProgram();
   const { arena, escrow } = deriveArenaPdas(program.programId, new anchor.BN(onchainArenaId));
+  const state = await fetchArenaState(program, arena, onchainArenaId);
+  if (state === "settled") return { status: "already-settled" };
+  if (state !== "open") throw new Error(`Cannot settle on-chain arena ${onchainArenaId}: it is ${state}`);
   const remainingAccounts = winnerWallets.map((w) => ({
     pubkey: new PublicKey(w),
     isWritable: true,
     isSigner: false,
   }));
-
-  return (program.methods as unknown as LooseMethods)
+  const connection = program.provider.connection;
+  const transaction = await (program.methods as unknown as LooseMethods)
     .settlePayout!()
     .accounts({ arena, escrow, payoutAuthority: authority.publicKey })
     .remainingAccounts(remainingAccounts)
+    .transaction();
+  const latestBlockhash = await connection.getLatestBlockhash("confirmed");
+  transaction.feePayer = authority.publicKey;
+  transaction.recentBlockhash = latestBlockhash.blockhash;
+  transaction.sign(authority);
+  const signatureBytes = transaction.signature;
+  if (signatureBytes === null) throw new Error("Signed payout transaction has no signature");
+  const txSignature = bs58.encode(signatureBytes);
+
+  let submissionError: unknown;
+  try {
+    await connection.sendRawTransaction(transaction.serialize());
+  } catch (error) {
+    submissionError = error;
+  }
+
+  try {
+    await waitForFinalizedSignature(connection, txSignature, latestBlockhash.lastValidBlockHeight);
+    return { status: "submitted", txSignature };
+  } catch (error) {
+    if (await fetchArenaState(program, arena, onchainArenaId) === "settled") {
+      return { status: "reconciled" };
+    }
+    throw submissionError ?? error;
+  }
+}
+
+// Exact retries are successful no-ops.
+export async function cancelArenaOnchain(onchainArenaId: number): Promise<string | undefined> {
+  const { program, authority } = buildProgram();
+  const { arena } = deriveArenaPdas(program.programId, new anchor.BN(onchainArenaId));
+  const state = await fetchArenaState(program, arena, onchainArenaId);
+  if (state === "cancelled") return undefined;
+  if (state !== "open") throw new Error(`Cannot cancel on-chain arena ${onchainArenaId}: it is ${state}`);
+
+  const signature = await (program.methods as unknown as LooseMethods)
+    .cancelArena!()
+    .accounts({ arena, payoutAuthority: authority.publicKey })
     .rpc();
+  await confirmFinalized(program, signature);
+  return signature;
+}
+
+// Exact retries are successful no-ops.
+export async function refundEntryOnchain(
+  onchainArenaId: number,
+  playerAddress: string,
+): Promise<string | undefined> {
+  const { program } = buildProgram();
+  const player = new PublicKey(playerAddress);
+  const { arena, escrow } = deriveArenaPdas(program.programId, new anchor.BN(onchainArenaId));
+  const entryPass = deriveEntryPass(program.programId, arena, player);
+  const accountInfo = await program.provider.connection.getAccountInfo(entryPass, "finalized");
+  if (!accountInfo) throw new Error(`On-chain entry pass for ${playerAddress} does not exist`);
+  const decoded = program.coder.accounts.decode("entryPass", accountInfo.data) as {
+    player: PublicKey;
+    refunded: boolean;
+  };
+  if (!decoded.player.equals(player)) throw new Error("On-chain entry pass belongs to a different player");
+  if (decoded.refunded) return undefined;
+
+  const signature = await (program.methods as unknown as LooseMethods)
+    .refund!()
+    .accounts({ arena, entryPass, escrow, player })
+    .rpc();
+  await confirmFinalized(program, signature);
+  return signature;
+}
+
+// Include chain entries missing from Postgres so reconciliation cannot strand funds.
+export async function listArenaEntryPlayers(onchainArenaId: number): Promise<string[]> {
+  const { program } = buildProgram();
+  const { arena } = deriveArenaPdas(program.programId, new anchor.BN(onchainArenaId));
+  const entryPassClient = (program.account as unknown as {
+    entryPass: {
+      all(filters: { memcmp: { offset: number; bytes: string } }[]): Promise<{ account: { player: PublicKey } }[]>;
+    };
+  }).entryPass;
+  const passes = await entryPassClient.all([{ memcmp: { offset: 8, bytes: arena.toBase58() } }]);
+  return passes.map(({ account }) => account.player.toBase58());
 }

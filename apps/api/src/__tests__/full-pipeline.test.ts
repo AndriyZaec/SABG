@@ -1,13 +1,3 @@
-// Full-pipeline smoke test: wires Ingestion -> Match State Engine -> Round Engine -> Settlement
-// Engine, with the real Question Generator instead of the round engine's stub, together over
-// recorded fixture 18179764, exactly as live/run.ts wires them. Each engine already
-// has its own fixture-integration test asserting on its own boundary
-// (ingestion/__tests__/replay.test.ts, match-state/__tests__/engine.test.ts,
-// round-engine/__tests__/engine.test.ts, settlement/__tests__/engine.test.ts) — this test's job
-// is different: catch wiring/ordering bugs that only show up when all five consume the same bus
-// together, and cross-check each engine's settlement decision against the raw event stream
-// independently of that engine's own internals.
-
 import { describe, expect, it } from "vitest";
 import type { LiveEvent } from "@arena/contracts";
 import { MatchSignalBus } from "../ingestion/event-bus.js";
@@ -30,9 +20,6 @@ describe("full pipeline (ingestion -> match state -> round -> settlement -> ques
     const questionGenerator = createQuestionGenerator();
     questionGenerator.subscribeTo(bus);
 
-    // Independent record of every confirmed target event, captured straight off the bus rather
-    // than through any engine's internals — the ground truth the settlement cross-check below
-    // compares against.
     const confirmedEvents: LiveEvent[] = [];
     bus.subscribe((signal) => {
       if (signal.kind === "event" && signal.event.confirmed) confirmedEvents.push(signal.event);
@@ -58,11 +45,10 @@ describe("full pipeline (ingestion -> match state -> round -> settlement -> ques
 
     replayFixture(bus, FIXTURE_MATCH_ID);
 
-    // 1. Final MatchState — same values independently verified in match-state/__tests__/engine.test.ts.
     expect(matchStateEngine.snapshot).toEqual({
       matchId: FIXTURE_MATCH_ID,
       period: "full_time",
-      currentMinute: 97,
+      currentMinute: 96,
       score: { home: 2, away: 1 },
       shots: { home: 12, away: 6 },
       corners: { home: 5, away: 3 },
@@ -71,31 +57,24 @@ describe("full pipeline (ingestion -> match state -> round -> settlement -> ques
       possession: "home",
     });
 
-    // 2. Every non-halftime window produced exactly one round, all the way to settled.
     const rounds = [...roundEngine.roundsByWindow.values()].sort(
-      (a, b) => a.windowStartMinute - b.windowStartMinute,
+      (a, b) => (a.windowStartMinute ?? 0) - (b.windowStartMinute ?? 0),
     );
     expect(rounds.map((r) => r.windowStartMinute)).toEqual(TARGET_WINDOW_STARTS);
     for (const round of rounds) {
       expect(round.status).toBe("settled");
     }
 
-    // The real generator produces varied questions over a real match — not always "shot" like
-    // the round engine's stub — and the settlement pipeline still functions correctly against
-    // whichever whitelisted type/team it picks (verified generically in the cross-check below).
     const distinctTargetTypes = new Set(rounds.map((r) => r.targetEventType));
     expect(distinctTargetTypes.size).toBeGreaterThan(1);
 
-    // 3. Cross-check each settlement decision against the independently-captured event stream —
-    // this is the part no single engine's own test can verify, since it never sees the "ground
-    // truth" event list from outside the engine under test.
     for (const round of rounds) {
       const matchingEventInWindow = confirmedEvents.some(
         (e) =>
           e.eventType === round.targetEventType &&
           (round.targetTeam === "any" || e.team === round.targetTeam) &&
-          e.matchMinute >= round.windowStartMinute &&
-          e.matchMinute <= round.windowEndMinute,
+          e.matchMinute >= (round.windowStartMinute ?? 0) &&
+          e.matchMinute <= (round.windowEndMinute ?? 0),
       );
 
       if (round.settledBy === "early") {

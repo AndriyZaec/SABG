@@ -1,0 +1,1 @@
+ALTER TYPE "public"."settled_by" ADD VALUE 'round_end';

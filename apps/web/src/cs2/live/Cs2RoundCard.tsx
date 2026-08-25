@@ -1,0 +1,110 @@
+import type { Answer } from "@arena/contracts";
+import type { Cs2AnswerSubmission, Cs2RoundView } from "../cs2View.js";
+import { Panel } from "../../ui/Panel.js";
+import { Button } from "../../ui/Button.js";
+import { Badge } from "../../ui/Badge.js";
+
+export function Cs2RoundCard({
+  round,
+  onAnswer,
+  submission,
+  connected,
+  eliminated = false,
+  participant = true,
+}: {
+  round: Cs2RoundView;
+  onAnswer?: (a: Answer) => void;
+  submission: Cs2AnswerSubmission;
+  connected: boolean;
+  eliminated?: boolean;
+  participant?: boolean;
+}) {
+  const isOpen = round.status === "open";
+  const currentSubmission = "roundId" in submission && submission.roundId === round.roundId ? submission : undefined;
+  const picked = currentSubmission?.status === "submitting" ? currentSubmission.answer : round.myAnswer;
+  const submitting = currentSubmission?.status === "submitting";
+  const pressed = { transform: "translate(4px, 4px)", boxShadow: "0 0 0 var(--ink)" } as const;
+
+  const answer = (a: Answer) => {
+    onAnswer?.(a);
+  };
+
+  return (
+    <Panel title={`Round ${round.roundNumber}`} accent="blue" className="nb-rise">
+      <h2 style={{ marginBottom: 14 }}>{round.question}</h2>
+
+      <div className="nb-row" style={{ justifyContent: "space-between" }}>
+        <span className="nb-label">
+          {round.status === "voided" ? "Voided" : round.status === "locked" ? "Locked" : "Open — no fixed lock time"}
+        </span>
+      </div>
+
+      {isOpen && participant && !eliminated && (
+        <div className="nb-yesno">
+          <Button
+            disabled={!connected || submitting}
+            variant="survive"
+            lg
+            block
+            onClick={() => answer("yes")}
+            style={picked === "yes" ? pressed : undefined}
+          >
+            Yes
+          </Button>
+          <Button
+            disabled={!connected || submitting}
+            variant="danger"
+            lg
+            block
+            onClick={() => answer("no")}
+            style={picked === "no" ? pressed : undefined}
+          >
+            No
+          </Button>
+        </div>
+      )}
+
+      {isOpen && participant && eliminated && (
+        <p className="nb-label" style={{ marginTop: 12 }}>You&apos;re eliminated — spectating only.</p>
+      )}
+
+      {isOpen && !participant && (
+        <p className="nb-label" style={{ marginTop: 12 }}>You&apos;re spectating — joining CS2 arenas isn&apos;t available yet.</p>
+      )}
+
+      {picked && round.status !== "settled" && round.status !== "voided" && (
+        <p className="nb-mono" style={{ marginTop: 12 }}>
+          You answered <b>{picked.toUpperCase()}</b>
+          {isOpen && <span className="nb-label"> — change until lock</span>}
+        </p>
+      )}
+
+      {submitting && (
+        <p className="nb-label" style={{ marginTop: 12 }}>Saving answer…</p>
+      )}
+
+      {currentSubmission?.status === "rejected" && (
+        <p className="nb-label" style={{ marginTop: 12 }}>
+          Answer rejected ({currentSubmission.reason}).
+        </p>
+      )}
+
+      {round.status === "locked" && (
+        <p className="nb-label" style={{ marginTop: 12 }}>Locked — waiting for the outcome…</p>
+      )}
+
+      {round.status === "voided" && (
+        <p className="nb-label" style={{ marginTop: 12 }}>The match ended before this round played out — no penalty.</p>
+      )}
+
+      {round.status === "settled" && round.correctAnswer && participant && (
+        <div style={{ marginTop: 14 }}>
+          <Badge tone={!eliminated && picked === round.correctAnswer ? "survive" : "eliminated"}>
+            {!eliminated && picked === round.correctAnswer ? "Survived" : "Eliminated"} · answer
+            was {round.correctAnswer.toUpperCase()}
+          </Badge>
+        </div>
+      )}
+    </Panel>
+  );
+}

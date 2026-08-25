@@ -11,17 +11,6 @@ function ctx(windowStartMinute: number) {
   return { matchId: MATCH_ID, arenaId: ARENA_ID, windowStartMinute, windowEndMinute: windowStartMinute + 5 };
 }
 
-/**
- * Drives `generate()` the way RoundEngine actually does — once per round, at the real match
- * window starts (0,5,...,40,50,...,85), not a dense run of consecutive integers.
- *
- * `matches` defaults to 40 (680 draws), not a handful: since candidates.ts's pick is now
- * genuinely random (no windowStartMinute seed — see its file header), several of this file's
- * assertions are "some draw among many produced X" rather than a guaranteed pool-membership
- * check. With a ~20-candidate pool, a small sample (e.g. 5 matches = 85 draws) has a ~1% chance
- * per assertion of never drawing a specific reachable candidate — too flaky for CI. 680 draws
- * drops that below 1e-15.
- */
 function realisticPicks(generator: QuestionGenerator, matches = 40) {
   const picks = [];
   for (let m = 0; m < matches; m++) {
@@ -54,6 +43,7 @@ describe("QuestionGenerator", () => {
     expect(["home", "away", "any"]).toContain(generated.targetTeam);
     expect(generated.question.length).toBeGreaterThan(0);
     expect(generated.settlementCondition).toEqual({
+      discipline: "soccer",
       targetEventType: generated.targetEventType,
       targetTeam: generated.targetTeam,
       windowStartMinute: 20,
@@ -95,7 +85,6 @@ describe("QuestionGenerator", () => {
       kind: "event",
       event: { id: "e1", matchId: MATCH_ID, eventType: "shot", team: "home", matchMinute: 10, timestamp: "t", confirmed: true },
     });
-    // No throw, and generate() still works normally.
     expect(() => generator.generate(ctx(0))).not.toThrow();
   });
 

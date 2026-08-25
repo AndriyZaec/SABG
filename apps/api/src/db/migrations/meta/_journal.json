@@ -50,6 +50,34 @@
       "when": 1784381377956,
       "tag": "0006_melted_overlord",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1786441627879,
+      "tag": "0007_tricky_roxanne_simpson",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1786453928920,
+      "tag": "0008_tough_hemingway",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1786465134422,
+      "tag": "0009_flippant_baron_zemo",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1787609083368,
+      "tag": "0010_spotty_johnny_storm",
+      "breakpoints": true
     }
   ]
 }

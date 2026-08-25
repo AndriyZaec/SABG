@@ -1,18 +1,15 @@
-// Postgres schema for spec v2 §13 Data Models.
-// Persisted entities only — MatchState / LeaderboardEntry are in-memory engine
-// aggregates, not tables. Enum values are derived from @arena/contracts
-// so the DB stays in lockstep with that shared-type source of truth.
-
 import {
   ANSWERS,
   ARENA_PLAYER_STATUSES,
   ARENA_STATUSES,
+  DISCIPLINES,
   ENTRY_PASS_STATUSES,
   MATCH_PERIODS,
   MATCH_STATUSES,
   PAYOUT_STATUSES,
   PREDICTION_RESULTS,
   ROUND_STATUSES,
+  SERIES_STATUSES,
   SETTLED_BY_VALUES,
   TARGET_EVENT_TYPES,
   TEAM_SIDES,
@@ -43,11 +40,9 @@ export const predictionResultEnum = pgEnum("prediction_result", PREDICTION_RESUL
 export const payoutStatusEnum = pgEnum("payout_status", PAYOUT_STATUSES);
 export const targetEventTypeEnum = pgEnum("target_event_type", TARGET_EVENT_TYPES);
 export const teamSideEnum = pgEnum("team_side", TEAM_SIDES);
+export const disciplineEnum = pgEnum("discipline", DISCIPLINES);
+export const seriesStatusEnum = pgEnum("series_status", SERIES_STATUSES);
 
-/**
- * Audit columns for every table. `updatedAt` is kept current by the
- * `set_updated_at` trigger (see migrations), not by application code.
- */
 const timestamps = {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -63,10 +58,21 @@ export const users = pgTable("user", {
   uniqueIndex("user_wallet_address_idx").on(t.walletAddress),
 ]);
 
+export const series = pgTable("series", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  gridSeriesId: text("grid_series_id").notNull().unique(),
+  format: integer("format").notNull(),
+  scheduledStartTime: timestamp("scheduled_start_time", { withTimezone: true }).notNull(),
+  status: seriesStatusEnum("status").notNull(),
+  ...timestamps,
+});
+
 export const matches = pgTable("match", {
   id: uuid("id").primaryKey().defaultRandom(),
-  /** TXODDS numeric fixture id — the join key to the /scores/stream feed. */
+  discipline: disciplineEnum("discipline").notNull().default("soccer"),
   txoddsFixtureId: integer("txodds_fixture_id").unique(),
+  seriesId: uuid("series_id").references(() => series.id),
+  seriesMatchIndex: integer("series_match_index"),
   homeTeam: text("home_team").notNull(),
   awayTeam: text("away_team").notNull(),
   startTime: timestamp("start_time", { withTimezone: true }).notNull(),
@@ -78,6 +84,8 @@ export const matches = pgTable("match", {
   ...timestamps,
 }, (t) => [
   uniqueIndex("match_teams_start_time_idx").on(t.homeTeam, t.awayTeam, t.startTime),
+  index("match_series_id_idx").on(t.seriesId),
+  uniqueIndex("match_series_match_index_idx").on(t.seriesId, t.seriesMatchIndex),
 ]);
 
 export const arenas = pgTable("arena", {
@@ -90,8 +98,8 @@ export const arenas = pgTable("arena", {
   entryFeeLamports: bigint("entry_fee_lamports", { mode: "number" }).notNull(),
   prizePoolLamports: bigint("prize_pool_lamports", { mode: "number" }).notNull(),
   escrowAccount: text("escrow_account").notNull(),
-  /** On-chain program `arena_id` PDA seed. Null until the arena is provisioned on-chain. */
   onchainArenaId: bigint("onchain_arena_id", { mode: "number" }),
+  cancelledReason: text("cancelled_reason"),
   ...timestamps,
 }, (t) => [
   index("arena_match_id_idx").on(t.matchId),
@@ -124,12 +132,13 @@ export const predictionRounds = pgTable("prediction_round", {
   matchId: uuid("match_id")
     .notNull()
     .references(() => matches.id),
-  windowStartMinute: integer("window_start_minute").notNull(),
-  windowEndMinute: integer("window_end_minute").notNull(),
+  discipline: disciplineEnum("discipline").notNull().default("soccer"),
+  windowStartMinute: integer("window_start_minute"),
+  windowEndMinute: integer("window_end_minute"),
+  roundNumber: integer("round_number"),
   question: text("question").notNull(),
-  targetEventType: targetEventTypeEnum("target_event_type").notNull(),
-  targetTeam: teamSideEnum("target_team").notNull(),
-  /** Machine-readable settlement condition (SettlementCondition from @arena/contracts). */
+  targetEventType: targetEventTypeEnum("target_event_type"),
+  targetTeam: teamSideEnum("target_team"),
   settlementCondition: jsonb("settlement_condition").notNull(),
   status: roundStatusEnum("status").notNull(),
   correctAnswer: answerEnum("correct_answer"),
@@ -170,7 +179,7 @@ export const predictions = pgTable("prediction", {
     .references(() => users.id),
   answer: answerEnum("answer").notNull(),
   answeredAt: timestamp("answered_at", { withTimezone: true }).notNull(),
-  /** When backend received it — source of truth for reconnect tie-break (spec §9). */
+  // Persist receipt time as the reconnect tie-break authority.
   receivedAt: timestamp("received_at", { withTimezone: true }).notNull(),
   result: predictionResultEnum("result"),
   ...timestamps,
@@ -188,7 +197,6 @@ export const liveEvents = pgTable("live_event", {
   team: teamSideEnum("team").notNull(),
   matchMinute: integer("match_minute").notNull(),
   timestamp: timestamp("timestamp", { withTimezone: true }).notNull(),
-  /** provisional (false) vs confirmed (true) — spec §5.1. */
   confirmed: boolean("confirmed").notNull(),
   rawPayload: jsonb("raw_payload"),
   ...timestamps,
@@ -212,7 +220,7 @@ export const payouts = pgTable("payout", {
   index("payout_arena_id_idx").on(t.arenaId),
 ]);
 
-/** Immutable record committed atomically with each destructive replay reset. */
+// Commit an immutable audit record with each destructive reset.
 export const replayResetAudits = pgTable("demo_reset_audit", {
   id: uuid("id").primaryKey().defaultRandom(),
   recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull(),

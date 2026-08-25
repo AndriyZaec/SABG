@@ -8,8 +8,6 @@ import { Badge } from "../../ui/Badge.js";
 
 const clock = (secs: number) => `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
 
-/** The heart of the arena: question + countdown-to-lock + YES/NO. Eliminated players still see
- *  the round play out (spectating) but can't submit — the buttons are replaced by a note. */
 export function PredictionCard({
   round,
   onAnswer,
@@ -19,17 +17,15 @@ export function PredictionCard({
   round: RoundView;
   onAnswer?: (a: Answer) => void;
   eliminated?: boolean;
-  /** Whether the viewer actually joined this arena (owns a pass) — spectators can watch a round
-   *  play out but must not get the answer actions. Defaults true for the demo/legacy callers. */
   participant?: boolean;
 }) {
   const [picked, setPicked] = useState<Answer | undefined>(round.myAnswer);
   const { remainingMs, locked } = useCountdown(round.lockAt);
 
   const isOpen = round.status === "open" && !locked;
-  const secs = Math.ceil(remainingMs / 1000);
-  const pct = Math.max(0, Math.min(100, (remainingMs / 60_000) * 100));
-  const low = remainingMs <= 10_000 && !locked;
+  const secs = remainingMs !== undefined ? Math.ceil(remainingMs / 1000) : undefined;
+  const pct = remainingMs !== undefined ? Math.max(0, Math.min(100, (remainingMs / 60_000) * 100)) : 0;
+  const low = remainingMs !== undefined && remainingMs <= 10_000 && !locked;
 
   const answer = (a: Answer) => {
     setPicked(a);
@@ -44,7 +40,7 @@ export function PredictionCard({
       <div className="nb-row" style={{ justifyContent: "space-between" }}>
         <span className="nb-label">{locked ? "Answers locked" : "Locks in"}</span>
         <span className="nb-mono" style={{ fontWeight: 700, fontSize: "1.05rem" }}>
-          {locked ? "LOCKED" : clock(secs)}
+          {locked ? "LOCKED" : secs !== undefined ? clock(secs) : "—"}
         </span>
       </div>
       <div className={`nb-timer ${low ? "nb-timer--low" : ""}`} style={{ marginTop: 6 }}>

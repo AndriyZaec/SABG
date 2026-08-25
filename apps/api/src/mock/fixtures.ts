@@ -27,6 +27,7 @@ export const mockUser: User = {
 
 export const mockMatch: Match = {
   id: MOCK_MATCH_ID,
+  discipline: "soccer",
   homeTeam: "Dynamo",
   awayTeam: "Shakhtar",
   startTime: new Date().toISOString(),
@@ -41,6 +42,7 @@ export const mockMatches: Match[] = [
   mockMatch,
   {
     id: "00000000-0000-0000-0000-000000000011",
+    discipline: "soccer",
     homeTeam: "Zorya",
     awayTeam: "Vorskla",
     startTime: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(),
@@ -51,6 +53,7 @@ export const mockMatches: Match[] = [
   },
   {
     id: "00000000-0000-0000-0000-000000000012",
+    discipline: "soccer",
     homeTeam: "Kolos",
     awayTeam: "Metalist",
     startTime: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
@@ -151,12 +154,14 @@ export function buildMockRound(
     id: `00000000-0000-0000-0000-0000000001${String(windowIndex).padStart(2, "0")}`,
     arenaId: MOCK_ARENA_ID,
     matchId: MOCK_MATCH_ID,
+    discipline: "soccer",
     windowStartMinute: window.start,
     windowEndMinute: window.end,
     question: `Will there be a shot on target (${window.start}-${window.end}')?`,
     targetEventType: "shot_on_target",
     targetTeam: "any",
     settlementCondition: {
+      discipline: "soccer",
       targetEventType: "shot_on_target",
       targetTeam: "any",
       windowStartMinute: window.start,

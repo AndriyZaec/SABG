@@ -1,8 +1,6 @@
 // SABG arena program. On-chain layer: entry escrow, proof of participation, winner
 // payout, result hash / badge. Live game logic stays off-chain.
 //
-// Implemented: init_arena, buy_entry. settle_payout / refund / record_result are stubs.
-
 use anchor_lang::prelude::*;
 use anchor_lang::system_program::{transfer, Transfer};
 
@@ -39,7 +37,7 @@ pub mod arena {
         arena.prize_pool_lamports = 0;
         arena.platform_fee_bps = platform_fee_bps;
         arena.player_count = 0;
-        arena.settled = false;
+        arena.state = ArenaState::Open;
         arena.result_hash = [0u8; 32];
         arena.bump = ctx.bumps.arena;
         arena.escrow_bump = ctx.bumps.escrow;
@@ -50,7 +48,7 @@ pub mod arena {
     /// The EntryPass PDA `init` rejects a second entry by the same player.
     pub fn buy_entry(ctx: Context<BuyEntry>) -> Result<()> {
         let arena = &mut ctx.accounts.arena;
-        require!(!arena.settled, ArenaError::AlreadySettled);
+        require!(arena.state == ArenaState::Open, ArenaError::ArenaNotOpen);
 
         let fee = arena.entry_fee_lamports;
         transfer(
@@ -82,7 +80,7 @@ pub mod arena {
         ctx: Context<'_, '_, '_, 'info, SettlePayout<'info>>,
     ) -> Result<()> {
         let arena = &mut ctx.accounts.arena;
-        require!(!arena.settled, ArenaError::AlreadySettled);
+        require!(arena.state == ArenaState::Open, ArenaError::ArenaNotOpen);
         require_keys_eq!(
             ctx.accounts.payout_authority.key(),
             arena.payout_authority,
@@ -93,6 +91,9 @@ pub mod arena {
         require!(!winners.is_empty(), ArenaError::NoWinners);
 
         let escrow = ctx.accounts.escrow.to_account_info();
+        for winner in winners {
+            require_keys_neq!(winner.key(), escrow.key(), ArenaError::InvalidWinner);
+        }
         let pool = escrow.lamports();
         let n = winners.len() as u64;
         let share = pool / n;
@@ -106,7 +107,10 @@ pub mod arena {
             transfer(
                 CpiContext::new_with_signer(
                     ctx.accounts.system_program.to_account_info(),
-                    Transfer { from: escrow.clone(), to: winner.clone() },
+                    Transfer {
+                        from: escrow.clone(),
+                        to: winner.clone(),
+                    },
                     &[escrow_seeds],
                 ),
                 amount,
@@ -114,20 +118,65 @@ pub mod arena {
         }
 
         arena.prize_pool_lamports = 0;
-        arena.settled = true;
+        arena.state = ArenaState::Settled;
         Ok(())
     }
 
-    /// Refund an entry if the arena is cancelled / underfilled.
-    pub fn refund(_ctx: Context<Refund>) -> Result<()> {
-        // TODO: return escrowed entry, mark EntryPass refunded.
+    /// Permanently close entry and enable deterministic per-EntryPass refunds.
+    pub fn cancel_arena(ctx: Context<CancelArena>) -> Result<()> {
+        let arena = &mut ctx.accounts.arena;
+        require!(arena.state == ArenaState::Open, ArenaError::ArenaNotOpen);
+        require_keys_eq!(
+            ctx.accounts.payout_authority.key(),
+            arena.payout_authority,
+            ArenaError::Unauthorized,
+        );
+        arena.state = ArenaState::Cancelled;
+        Ok(())
+    }
+
+    /// Refund one entry from a cancelled arena. Anyone may submit; destination and amount are
+    /// fixed by the program-owned EntryPass.
+    pub fn refund(ctx: Context<Refund>) -> Result<()> {
+        let arena = &mut ctx.accounts.arena;
+        let pass = &mut ctx.accounts.entry_pass;
+        require!(
+            arena.state == ArenaState::Cancelled,
+            ArenaError::NotCancelled
+        );
+        require!(!pass.refunded, ArenaError::AlreadyRefunded);
+
+        let amount = pass.amount_lamports;
+        let arena_key = arena.key();
+        let escrow_seeds: &[&[u8]] = &[b"escrow", arena_key.as_ref(), &[arena.escrow_bump]];
+        transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.system_program.to_account_info(),
+                Transfer {
+                    from: ctx.accounts.escrow.to_account_info(),
+                    to: ctx.accounts.player.to_account_info(),
+                },
+                &[escrow_seeds],
+            ),
+            amount,
+        )?;
+
+        arena.prize_pool_lamports = arena
+            .prize_pool_lamports
+            .checked_sub(amount)
+            .ok_or(ArenaError::AccountingUnderflow)?;
+        arena.player_count = arena
+            .player_count
+            .checked_sub(1)
+            .ok_or(ArenaError::AccountingUnderflow)?;
+        pass.refunded = true;
         Ok(())
     }
 
     /// Record the final leaderboard hash on-chain after settlement, for verification.
     pub fn record_result(ctx: Context<RecordResult>, result_hash: [u8; 32]) -> Result<()> {
         let arena = &mut ctx.accounts.arena;
-        require!(arena.settled, ArenaError::NotSettled);
+        require!(arena.state == ArenaState::Settled, ArenaError::NotSettled);
         require_keys_eq!(
             ctx.accounts.payout_authority.key(),
             arena.payout_authority,
@@ -140,6 +189,10 @@ pub mod arena {
     /// Issue a proof-of-win badge to a winning wallet. The badge PDA `init` prevents
     /// awarding the same winner twice.
     pub fn award_badge(ctx: Context<AwardBadge>) -> Result<()> {
+        require!(
+            ctx.accounts.arena.state == ArenaState::Settled,
+            ArenaError::NotSettled
+        );
         require_keys_eq!(
             ctx.accounts.payout_authority.key(),
             ctx.accounts.arena.payout_authority,
@@ -213,9 +266,31 @@ pub struct SettlePayout<'info> {
 }
 
 #[derive(Accounts)]
+pub struct CancelArena<'info> {
+    #[account(mut, seeds = [b"arena", arena.arena_id.to_le_bytes().as_ref()], bump = arena.bump)]
+    pub arena: Account<'info, Arena>,
+    pub payout_authority: Signer<'info>,
+}
+
+#[derive(Accounts)]
 pub struct Refund<'info> {
-    #[account(mut)]
-    pub player: Signer<'info>,
+    #[account(mut, seeds = [b"arena", arena.arena_id.to_le_bytes().as_ref()], bump = arena.bump)]
+    pub arena: Account<'info, Arena>,
+
+    #[account(
+        mut,
+        seeds = [b"entry", arena.key().as_ref(), entry_pass.player.as_ref()],
+        bump = entry_pass.bump,
+        has_one = arena,
+    )]
+    pub entry_pass: Account<'info, EntryPass>,
+
+    #[account(mut, seeds = [b"escrow", arena.key().as_ref()], bump = arena.escrow_bump)]
+    pub escrow: SystemAccount<'info>,
+
+    /// CHECK: refund destination is fixed by EntryPass; ownership is irrelevant for receiving lamports.
+    #[account(mut, address = entry_pass.player)]
+    pub player: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
 
