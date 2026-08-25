@@ -8,7 +8,8 @@
     "test": "anchor test",
     "test:novalidator": "anchor test --skip-local-validator",
     "deploy:devnet": "anchor deploy --provider.cluster devnet",
-    "test:devnet": "anchor test --provider.cluster devnet --skip-deploy"
+    "test:devnet": "anchor test --provider.cluster devnet --skip-deploy",
+    "test:devnet:paid": "SELF_FUND_TEST_PLAYERS=true anchor test --provider.cluster devnet --skip-deploy"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",

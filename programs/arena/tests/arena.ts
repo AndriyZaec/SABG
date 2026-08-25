@@ -37,6 +37,17 @@ const entryPassPda = (arena: web3.PublicKey, player: web3.PublicKey) =>
 
 const fundedPlayer = async (): Promise<web3.Keypair> => {
   const kp = Keypair.generate();
+  if (process.env["SELF_FUND_TEST_PLAYERS"] === "true") {
+    const transaction = new web3.Transaction().add(
+      web3.SystemProgram.transfer({
+        fromPubkey: authority.publicKey,
+        toPubkey: kp.publicKey,
+        lamports: 0.12 * LAMPORTS_PER_SOL,
+      }),
+    );
+    await provider.sendAndConfirm(transaction);
+    return kp;
+  }
   const sig = await provider.connection.requestAirdrop(kp.publicKey, LAMPORTS_PER_SOL);
   await provider.connection.confirmTransaction(sig, "confirmed");
   return kp;
