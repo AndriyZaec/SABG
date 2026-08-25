@@ -98,6 +98,17 @@ function decodeArenaState(state: unknown): "open" | "settled" | "cancelled" {
   throw new Error("On-chain arena has an unknown state");
 }
 
+async function fetchArenaState(
+  program: anchor.Program,
+  arena: PublicKey,
+  onchainArenaId: number,
+): Promise<"open" | "settled" | "cancelled"> {
+  const accountInfo = await program.provider.connection.getAccountInfo(arena, "finalized");
+  if (!accountInfo) throw new Error(`On-chain arena ${onchainArenaId} does not exist`);
+  const decoded = program.coder.accounts.decode("arena", accountInfo.data) as { state: unknown };
+  return decodeArenaState(decoded.state);
+}
+
 /** entry_pass PDA — same seeds as the program & frontend (deriveEntryPass). */
 function deriveEntryPass(programId: PublicKey, arena: PublicKey, player: PublicKey): PublicKey {
   const [entryPass] = PublicKey.findProgramAddressSync(
@@ -123,6 +134,28 @@ async function confirmFinalized(program: anchor.Program, signature: string): Pro
   const confirmation = await program.provider.connection.confirmTransaction(signature, "finalized");
   if (confirmation.value.err !== null) {
     throw new Error(`Transaction ${signature} failed: ${JSON.stringify(confirmation.value.err)}`);
+  }
+}
+
+async function waitForFinalizedSignature(
+  connection: Connection,
+  signature: string,
+  lastValidBlockHeight: number,
+): Promise<void> {
+  for (;;) {
+    const response = await connection.getSignatureStatuses([signature], { searchTransactionHistory: true });
+    const status = response.value[0];
+    if (status?.err != null) {
+      throw new Error(`Transaction ${signature} failed: ${JSON.stringify(status.err)}`);
+    }
+    if (status?.confirmationStatus === "finalized") return;
+
+    // Expiry is conclusive only while the signature has never landed. A processed/confirmed
+    // transaction may finalize after its recent blockhash is no longer valid for new submissions.
+    if (status === null && await connection.getBlockHeight("confirmed") > lastValidBlockHeight) {
+      throw new Error(`Transaction ${signature} expired before landing`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
   }
 }
 
@@ -308,34 +341,63 @@ export async function submitSignedEntry(signedTxBase64: string): Promise<string>
   return signature;
 }
 
-/** Settle an arena's escrow to the winner wallets (equal split on-chain); returns the tx sig. */
+export type PayoutSettlement =
+  | { status: "submitted"; txSignature: string }
+  | { status: "reconciled" }
+  | { status: "already-settled" };
+
+/** Settle an arena's escrow. Exact retries reconcile from the finalized on-chain state. */
 export async function settlePayoutOnchain(
   onchainArenaId: number,
   winnerWallets: string[],
-): Promise<string> {
+): Promise<PayoutSettlement> {
   const { program, authority } = buildProgram();
   const { arena, escrow } = deriveArenaPdas(program.programId, new anchor.BN(onchainArenaId));
+  const state = await fetchArenaState(program, arena, onchainArenaId);
+  if (state === "settled") return { status: "already-settled" };
+  if (state !== "open") throw new Error(`Cannot settle on-chain arena ${onchainArenaId}: it is ${state}`);
   const remainingAccounts = winnerWallets.map((w) => ({
     pubkey: new PublicKey(w),
     isWritable: true,
     isSigner: false,
   }));
-
-  return (program.methods as unknown as LooseMethods)
+  const connection = program.provider.connection;
+  const transaction = await (program.methods as unknown as LooseMethods)
     .settlePayout!()
     .accounts({ arena, escrow, payoutAuthority: authority.publicKey })
     .remainingAccounts(remainingAccounts)
-    .rpc();
+    .transaction();
+  const latestBlockhash = await connection.getLatestBlockhash("confirmed");
+  transaction.feePayer = authority.publicKey;
+  transaction.recentBlockhash = latestBlockhash.blockhash;
+  transaction.sign(authority);
+  const signatureBytes = transaction.signature;
+  if (signatureBytes === null) throw new Error("Signed payout transaction has no signature");
+  const txSignature = bs58.encode(signatureBytes);
+
+  let submissionError: unknown;
+  try {
+    await connection.sendRawTransaction(transaction.serialize());
+  } catch (error) {
+    submissionError = error;
+  }
+
+  try {
+    await waitForFinalizedSignature(connection, txSignature, latestBlockhash.lastValidBlockHeight);
+    return { status: "submitted", txSignature };
+  } catch (error) {
+    if (await fetchArenaState(program, arena, onchainArenaId) === "settled") {
+      return { status: "reconciled" };
+    }
+    throw submissionError ?? error;
+  }
 }
 
 /** Close an open arena to further entries. Exact retries are successful no-ops. */
 export async function cancelArenaOnchain(onchainArenaId: number): Promise<string | undefined> {
   const { program, authority } = buildProgram();
   const { arena } = deriveArenaPdas(program.programId, new anchor.BN(onchainArenaId));
-  const accountInfo = await program.provider.connection.getAccountInfo(arena, "finalized");
-  if (!accountInfo) throw new Error(`On-chain arena ${onchainArenaId} does not exist`);
-  const decoded = program.coder.accounts.decode("arena", accountInfo.data) as { state: unknown };
-  const state = decodeArenaState(decoded.state);
+  const state = await fetchArenaState(program, arena, onchainArenaId);
   if (state === "cancelled") return undefined;
   if (state !== "open") throw new Error(`Cannot cancel on-chain arena ${onchainArenaId}: it is ${state}`);
 

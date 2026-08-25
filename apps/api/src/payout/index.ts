@@ -10,7 +10,9 @@ import { createPayoutService } from "./service.js";
 export const payoutService = createPayoutService({
   findArena: (id) => arenaRepository.findById(id),
   findWallet: async (userId) => (await userRepository.findById(userId))?.walletAddress,
+  listPayouts: (arenaId) => payoutRepository.listByArena(arenaId),
   createPayout: (input) => payoutRepository.create(input),
+  deletePayout: (id) => payoutRepository.delete(id),
   markSent: (id, txSignature) => payoutRepository.markSent(id, txSignature),
   markFailed: (id) => payoutRepository.markFailed(id),
   settleOnchain: settleArenaPayoutOnchain,

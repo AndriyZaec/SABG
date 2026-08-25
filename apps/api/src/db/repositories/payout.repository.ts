@@ -22,8 +22,15 @@ export const payoutRepository = {
     return payoutRowToEntity(row);
   },
 
-  async markSent(id: Uuid, txSignature: string): Promise<void> {
-    await db.update(payouts).set({ status: "sent", txSignature }).where(eq(payouts.id, id));
+  async markSent(id: Uuid, txSignature?: string): Promise<void> {
+    await db
+      .update(payouts)
+      .set(txSignature === undefined ? { status: "sent" } : { status: "sent", txSignature })
+      .where(eq(payouts.id, id));
+  },
+
+  async delete(id: Uuid): Promise<void> {
+    await db.delete(payouts).where(eq(payouts.id, id));
   },
 
   async markFailed(id: Uuid): Promise<void> {

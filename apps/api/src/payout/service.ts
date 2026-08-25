@@ -14,10 +14,19 @@ function isPayableWallet(wallet: string): boolean {
 export interface PayoutServiceDeps {
   findArena: (arenaId: Uuid) => Promise<Arena | undefined>;
   findWallet: (userId: Uuid) => Promise<WalletAddress | undefined>;
+  listPayouts: (arenaId: Uuid) => Promise<Payout[]>;
   createPayout: (input: { arenaId: Uuid; userId: Uuid; amountLamports: number }) => Promise<Payout>;
-  markSent: (payoutId: Uuid, txSignature: string) => Promise<void>;
+  deletePayout: (payoutId: Uuid) => Promise<void>;
+  markSent: (payoutId: Uuid, txSignature?: string) => Promise<void>;
   markFailed: (payoutId: Uuid) => Promise<void>;
-  settleOnchain: (onchainArenaId: number, winnerWallets: WalletAddress[]) => Promise<string>;
+  settleOnchain: (
+    onchainArenaId: number,
+    winnerWallets: WalletAddress[],
+  ) => Promise<
+    | { status: "submitted"; txSignature: string }
+    | { status: "reconciled" }
+    | { status: "already-settled" }
+  >;
   log?: (event: string, data: Record<string, unknown>) => void;
 }
 
@@ -65,23 +74,62 @@ export function createPayoutService(deps: PayoutServiceDeps): PayoutService {
       const share = Math.floor(arena.prizePoolLamports / resolved.length);
       const remainder = arena.prizePoolLamports - share * resolved.length;
 
-      const payoutIds: Uuid[] = [];
+      const existingPayouts = await deps.listPayouts(arenaId);
+      const expectedUsers = new Set(resolved.map((winner) => winner.userId));
+      if (existingPayouts.some((payout) => !expectedUsers.has(payout.userId))) {
+        throw new Error(`Existing payouts for arena ${arenaId} do not match the finalized winners`);
+      }
+      if (new Set(existingPayouts.map((payout) => payout.userId)).size !== existingPayouts.length) {
+        throw new Error(`Arena ${arenaId} has duplicate payout rows`);
+      }
+      const payoutRows: Payout[] = [];
+      const createdPayoutRows: Payout[] = [];
       for (const [i, w] of resolved.entries()) {
         const amountLamports = i === 0 ? share + remainder : share;
-        const payout = await deps.createPayout({ arenaId, userId: w.userId, amountLamports });
-        payoutIds.push(payout.id);
+        const existing = existingPayouts.find((payout) => payout.userId === w.userId);
+        if (existing && existing.amountLamports !== amountLamports) {
+          throw new Error(`Existing payout ${existing.id} does not match the finalized payout amount`);
+        }
+        if (existing) {
+          payoutRows.push(existing);
+        } else {
+          const created = await deps.createPayout({ arenaId, userId: w.userId, amountLamports });
+          createdPayoutRows.push(created);
+          payoutRows.push(created);
+        }
       }
 
+      if (payoutRows.every((payout) => payout.status === "sent")) {
+        log("payout.skip", { arenaId, reason: "already sent" });
+        return;
+      }
+
+      let settlement: Awaited<ReturnType<PayoutServiceDeps["settleOnchain"]>>;
       try {
-        const txSignature = await deps.settleOnchain(
+        settlement = await deps.settleOnchain(
           arena.onchainArenaId,
           resolved.map((w) => w.wallet),
         );
-        for (const id of payoutIds) await deps.markSent(id, txSignature);
-        log("payout.sent", { arenaId, txSignature, winners: resolved.length });
       } catch (err) {
-        for (const id of payoutIds) await deps.markFailed(id);
+        for (const payout of payoutRows) {
+          if (payout.status !== "sent") await deps.markFailed(payout.id);
+        }
         log("payout.failed", { arenaId, error: err instanceof Error ? err.message : String(err) });
+        return;
+      }
+
+      if (settlement.status === "already-settled" && createdPayoutRows.length > 0) {
+        for (const payout of createdPayoutRows) await deps.deletePayout(payout.id);
+        log("payout.failed", { arenaId, error: "settled on-chain without a complete persisted payout plan" });
+        return;
+      }
+
+      const txSignature = settlement.status === "submitted" ? settlement.txSignature : undefined;
+      try {
+        for (const payout of payoutRows) await deps.markSent(payout.id, txSignature);
+        log("payout.sent", { arenaId, settlement: settlement.status, txSignature, winners: resolved.length });
+      } catch (err) {
+        log("payout.sync_failed", { arenaId, error: err instanceof Error ? err.message : String(err) });
       }
     },
   };
