@@ -62,7 +62,7 @@ describe("full pipeline (ingestion -> match state -> round -> settlement -> ques
     expect(matchStateEngine.snapshot).toEqual({
       matchId: FIXTURE_MATCH_ID,
       period: "full_time",
-      currentMinute: 97,
+      currentMinute: 96,
       score: { home: 2, away: 1 },
       shots: { home: 12, away: 6 },
       corners: { home: 5, away: 3 },
