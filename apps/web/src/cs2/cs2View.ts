@@ -8,14 +8,8 @@ import type {
 } from "@arena/contracts";
 import type { FeedItem, LeaderRow } from "../arena/arenaView.js";
 
-// FeedItem/LeaderRow are discipline-agnostic value types (see arena/arenaView.ts) — reused as-is,
-// not redefined, so the feed/leaderboard rail components (arena/live/{EliminationFeed,
-// LeaderboardRail}.tsx) work unmodified for CS2 too.
 export type { FeedItem, LeaderRow };
 
-/** The current round as the CS2 arena screen needs it. Unlike soccer's RoundView, there is no
- *  `lockAt` — CS2 rounds have no fixed answer window (spec §6) — and no window minutes, only a
- *  round number (spec §2). */
 export interface Cs2RoundView {
   roundId: string;
   roundNumber: number;
@@ -31,8 +25,6 @@ export type Cs2AnswerSubmission =
   | { status: "accepted"; roundId: string; answer: Answer }
   | { status: "rejected"; roundId: string; answer: Answer; reason: AnswerRejectionReason };
 
-/** View model the CS2 arena screen renders from. No score/clock/period (CS2 has no soccer-style
- *  match state stream — Cs2ArenaRuntime never emits `match.state`). */
 export interface Cs2ArenaView {
   homeTeam?: string;
   awayTeam?: string;
@@ -40,13 +32,11 @@ export interface Cs2ArenaView {
   survivors: number;
   totalPlayers: number;
   round?: Cs2RoundView;
-  /** This player's own status — same semantics as soccer's ArenaView.myStatus. */
+  /** Undefined until personal state is received or restored on reconnect. */
   myStatus?: ArenaPlayerStatus;
-  /** Rounds that have locked but not yet settled, for which this player submitted an answer
-   *  (spec §8: only ever their own). Full-list snapshot from the server — replace, don't merge. */
+  /** Authoritative snapshot of this player's locked, unsettled predictions. */
   pendingPredictions?: PendingPrediction[];
-  /** Set once an `arena.cancelled` message arrives (spec §4 п.4 no-show, or the Arena #k+1
-   *  forfeit-cancellation gap) — the arena never went live and never will. */
+  /** Cancellation is terminal; the arena will not go live. */
   cancelled?: { reason: ArenaCancelledReason };
   feed: FeedItem[];
   leaderboard: LeaderRow[];

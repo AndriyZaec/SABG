@@ -15,11 +15,6 @@ import {
 } from "../../arena/feedFromRounds.js";
 import type { Cs2AnswerSubmission, Cs2ArenaView, LeaderRow } from "../cs2View.js";
 
-// Mirrors arena/live/useArenaSocket.ts's structure (REST snapshot + WS effect + submitAnswer),
-// but connects to the CS2 gateway's own /cs2-ws (see vite.config.ts) and folds CS2's own message
-// shapes — no windowStartMinute/windowEndMinute, no lockAt (CS2 rounds have no fixed answer
-// window, spec §6), plus round.void/arena.cancelled, which soccer's reducer doesn't handle.
-
 function buildCs2WsUrl(token: string | null): string {
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
   const query = token ? `?token=${encodeURIComponent(token)}` : "";
@@ -33,8 +28,7 @@ function initialView(d: ArenaDetailResponse): Cs2ArenaView {
     awayTeam: d.match.awayTeam,
     survivors: d.arena.activePlayersCount,
     totalPlayers: d.arena.activePlayersCount,
-    // Seeded from the reconnect snapshot so a reload doesn't strand the client on "Waiting for
-    // round" until the next live round.* message.
+    // Restore the current round from the authoritative reconnect snapshot.
     ...(round
       ? {
           round: {
@@ -57,7 +51,6 @@ function reduce(view: Cs2ArenaView, msg: ServerMessage, myUserId?: string): Cs2A
         ...view,
         round: {
           roundId: msg.round.id,
-          // CS2 rounds always carry roundNumber (cs2/round-engine.ts); soccer's do not.
           roundNumber: msg.round.roundNumber ?? 0,
           question: msg.round.question,
           status: "open",
@@ -85,7 +78,7 @@ function reduce(view: Cs2ArenaView, msg: ServerMessage, myUserId?: string): Cs2A
         feed: prependFeedItem(view.feed, { id: voidFeedId(msg.roundId), kind: "info", text: VOID_FEED_TEXT }),
       };
     case "player.pending":
-      // Full-list snapshot from the server (re-sent on lock/settle/subscribe) — replace, don't merge.
+      // Replace with the authoritative personal snapshot.
       return { ...view, pendingPredictions: msg.predictions };
     case "answer.accepted":
       return view.round?.roundId === msg.roundId
@@ -119,7 +112,7 @@ function reduce(view: Cs2ArenaView, msg: ServerMessage, myUserId?: string): Cs2A
       };
     }
     case "player.status": {
-      // Same reasoning as soccer's reducer: a declared winner never reverts on a stale resync.
+      // A stale reconnect snapshot must not downgrade a terminal winner state.
       const status = view.myStatus === "winner" ? "winner" : msg.status;
       const next = { ...view, myStatus: status };
       if (msg.roundId === undefined && msg.status !== "winner") return next;
@@ -156,8 +149,6 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
   const myUserId = useRef<string | undefined>(undefined);
   myUserId.current = user?.id;
 
-  // Initial snapshot over REST — leaderboard.update only fires on settle, so without this the
-  // board is empty until the first round settles.
   useEffect(() => {
     let cancelled = false;
     void Promise.all([
@@ -245,7 +236,7 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
           }
           setView((v) => (v ? reduce(v, msg, myUserId.current) : v));
         } catch {
-          /* ignore malformed frames */
+          /* Ignore malformed frames. */
         }
       };
     };

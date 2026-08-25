@@ -1,5 +1,3 @@
-// EntryPass persistence, backing POST /arenas/:id/entry and cancelled-arena reconciliation.
-
 import { and, eq } from "drizzle-orm";
 import type { EntryPass, Uuid, WalletAddress } from "@arena/contracts";
 import { db } from "../client.js";
@@ -7,7 +5,6 @@ import { entryPasses } from "../schema.js";
 import { entryPassRowToEntity } from "../mappers.js";
 
 export const entryPassRepository = {
-  /** For callers that need to check "already entered" before `create` (e.g. an idempotent event bootstrap). */
   async findByArenaAndUser(arenaId: Uuid, userId: Uuid): Promise<EntryPass | undefined> {
     const [row] = await db
       .select()
@@ -39,13 +36,13 @@ export const entryPassRepository = {
     return entryPassRowToEntity(row);
   },
 
-  /** Every entry pass for `arenaId`, including already-refunded rows for reconciliation. */
+  // Include refunded rows so reconciliation sees the complete payment history.
   async listByArenaId(arenaId: Uuid): Promise<EntryPass[]> {
     const rows = await db.select().from(entryPasses).where(eq(entryPasses.arenaId, arenaId));
     return rows.map(entryPassRowToEntity);
   },
 
-  /** Called only after an on-chain refund confirms, reconciles as complete, or for an off-chain arena. */
+  // Mark refunded only after chain finalization or successful reconciliation.
   async markRefunded(id: Uuid): Promise<EntryPass> {
     const [row] = await db.update(entryPasses).set({ status: "refunded" }).where(eq(entryPasses.id, id)).returning();
     if (!row) throw new Error(`entryPassRepository.markRefunded(${id}) returned no row`);

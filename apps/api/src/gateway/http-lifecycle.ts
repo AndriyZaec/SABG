@@ -1,8 +1,3 @@
-// Generic node:http server lifecycle helpers — abort-aware listen/close, plus an error-shaping
-// helper for structured logging. No config coupling, no gateway-specific state: shared between
-// gateway/run.ts (soccer) and cs2/run.ts (CS2's own live entrypoint) so the two don't carry two
-// copies of the same ~35 lines.
-
 import type { Server as HttpServer } from "node:http";
 
 export function safeError(err: unknown): { name: string; message: string; stack?: string } {

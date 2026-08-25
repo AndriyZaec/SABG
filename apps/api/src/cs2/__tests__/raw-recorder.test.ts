@@ -1,7 +1,3 @@
-// Tests Cs2RawRecorder's WAITING_FOR_START/RECORDING state machine against a mocked
-// MongoService.getDb() — no real Mongo involved. Mirrors the state-machine coverage grid/recorder
-// would need, but scoped to this module's own best-effort/self-disable behavior.
-
 import { describe, expect, it, vi, beforeEach, type Mock } from "vitest";
 
 vi.mock("../../grid/mongo/mongo.service.js", () => ({
@@ -11,7 +7,6 @@ vi.mock("../../grid/mongo/mongo.service.js", () => ({
 import { MongoService } from "../../grid/mongo/mongo.service.js";
 import { Cs2RawRecorder, CS2_RAW_POLLS_COLLECTION } from "../raw-recorder.js";
 
-/** Builds the full GraphQL response body (what GridClient.fetchSeriesState's `.data` field is). */
 function rawBody(games: unknown[] | undefined, errors?: unknown[]) {
   return {
     data: games !== undefined ? { seriesState: { games } } : { seriesState: {} },
@@ -107,12 +102,12 @@ describe("Cs2RawRecorder", () => {
     insertOne.mockRejectedValue(new Error("mongo down"));
     const recorder = new Cs2RawRecorder("2991032");
 
-    await recorder.handlePoll({ data: FRESH_LIVE }); // 1: starts session + write attempt 1
-    for (let i = 0; i < 4; i++) await recorder.handlePoll({ data: CONTINUING_LIVE }); // attempts 2-5
+    await recorder.handlePoll({ data: FRESH_LIVE });
+    for (let i = 0; i < 4; i++) await recorder.handlePoll({ data: CONTINUING_LIVE });
 
     expect(insertOne).toHaveBeenCalledTimes(5);
 
-    await recorder.handlePoll({ data: CONTINUING_LIVE }); // would be attempt 6, but now disabled
+    await recorder.handlePoll({ data: CONTINUING_LIVE });
     expect(insertOne).toHaveBeenCalledTimes(5);
   });
 });

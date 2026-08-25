@@ -4,10 +4,6 @@ import { Panel } from "../../ui/Panel.js";
 import { Button } from "../../ui/Button.js";
 import { Badge } from "../../ui/Badge.js";
 
-/** CS2's analog of arena/live/PredictionCard.tsx — no countdown-to-lock (CS2 rounds have no
- *  fixed answer window, spec §6: locking depends on when freezetime ends, unknowable in
- *  advance), and an extra "voided" state (arena/live/PredictionCard.tsx has none — voided rounds
- *  are CS2-only). */
 export function Cs2RoundCard({
   round,
   onAnswer,

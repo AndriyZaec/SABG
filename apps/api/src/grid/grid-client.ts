@@ -1,8 +1,3 @@
-// HTTP caller for the Grid.gg live-data-feed series-state GraphQL endpoint. Owns the
-// request/response cycle for a single poll attempt, including the in-band 429 retry loop
-// (wait exactly GRID_RATE_LIMIT_RETRY_MS, retry the same request, cap at
-// GRID_MAX_RATE_LIMIT_RETRIES consecutive retries).
-
 import axios, { type AxiosInstance, isAxiosError } from "axios";
 import { gridConfig } from "./config/env.js";
 import { loadSeriesStateQuery } from "./query-loader.js";
@@ -27,17 +22,10 @@ export class GridClient {
         "x-api-key": gridConfig.grid.apiKey,
         "Content-Type": "application/json",
       },
-      // Let us inspect non-2xx responses ourselves instead of throwing for every status.
       validateStatus: () => true,
     });
   }
 
-  /**
-   * POSTs the seriesState query. On HTTP 429, waits GRID_RATE_LIMIT_RETRY_MS and retries the
-   * same request, up to GRID_MAX_RATE_LIMIT_RETRIES consecutive times. Throws
-   * RateLimitExhaustedError if the cap is hit, or UpstreamApiError for any other non-2xx /
-   * network failure.
-   */
   async fetchSeriesState(signal?: AbortSignal): Promise<GridFetchResult> {
     const query = loadSeriesStateQuery(gridConfig.grid.queryFile, gridConfig.grid.seriesId);
     const maxRetries = gridConfig.grid.maxRateLimitRetries;
@@ -81,7 +69,6 @@ export class GridClient {
       };
     }
 
-    // Unreachable: the loop always returns or throws.
     throw new RateLimitExhaustedError("Grid.gg rate limit retries exhausted");
   }
 }

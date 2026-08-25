@@ -5,10 +5,6 @@ export interface ArenaOnchainRefs {
   escrowAccount: string;
 }
 
-/**
- * Provision an on-chain arena when enabled, else null (off-chain demo path). The Solana client
- * and authority key are only loaded in the enabled branch, so the default path pulls in nothing.
- */
 export async function maybeProvisionArena(
   entryFeeLamports: number,
   databaseArenaId: string,
@@ -42,19 +38,16 @@ export async function isValidSolanaWalletAddress(walletAddress: string): Promise
   }
 }
 
-/** Build an unsigned `buy_entry` tx for the user to sign. Dynamic import keeps Solana off the default path. */
 export async function buildEntryTx(onchainArenaId: number, playerAddress: string): Promise<string> {
   const { buildBuyEntryTx } = await import("./arena-program.js");
   return buildBuyEntryTx(onchainArenaId, playerAddress);
 }
 
-/** Submit a user-signed `buy_entry` tx + confirm; returns the signature. */
 export async function submitEntryTx(signedTxBase64: string): Promise<string> {
   const { submitSignedEntry } = await import("./arena-program.js");
   return submitSignedEntry(signedTxBase64);
 }
 
-/** Sign + send `settle_payout` for an arena. Dynamic import keeps Solana off the default path. */
 export async function settleArenaPayoutOnchain(
   onchainArenaId: number,
   winnerWallets: string[],
@@ -78,7 +71,7 @@ export async function listOnchainArenaEntryPlayers(onchainArenaId: number): Prom
   return listArenaEntryPlayers(onchainArenaId);
 }
 
-/** Refuse automatic demo recycling while the previous arena still holds player funds. */
+// Never recycle an arena while its escrow holds player funds.
 export async function assertArenaRecyclable(onchainArenaId: number): Promise<void> {
   const { assertArenaRecyclable: assertRecyclable } = await import("./arena-program.js");
   await assertRecyclable(onchainArenaId);

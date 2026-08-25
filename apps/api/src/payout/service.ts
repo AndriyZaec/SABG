@@ -1,11 +1,6 @@
-// Payout service — the bridge from a finalized leaderboard to the on-chain escrow release.
-// On arena finish it resolves winner wallets, records Payout rows, signs `settle_payout` as the
-// payout authority, and marks each row sent/failed. Dependencies are injected so the flow is
-// unit-testable without a chain or a database.
-
 import type { Arena, Payout, Uuid, WalletAddress } from "@arena/contracts";
 
-// Only real on-chain wallets can receive an escrow release. A Solana address is base58 (32–44 chars).
+// Reject non-Solana destinations before releasing escrow.
 const BASE58_PUBKEY = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 function isPayableWallet(wallet: string): boolean {
   return BASE58_PUBKEY.test(wallet);
@@ -46,12 +41,10 @@ export function createPayoutService(deps: PayoutServiceDeps): PayoutService {
 
       const arena = await deps.findArena(arenaId);
       if (!arena || arena.onchainArenaId == null) {
-        // Off-chain arena (never provisioned) — nothing to release on-chain.
         log("payout.skip", { arenaId, reason: "arena not on-chain" });
         return;
       }
 
-      // Resolve each winner's wallet; a winner without a wallet can't be paid on-chain.
       const resolved: { userId: Uuid; wallet: WalletAddress }[] = [];
       for (const userId of winners) {
         const wallet = await deps.findWallet(userId);
@@ -70,7 +63,7 @@ export function createPayoutService(deps: PayoutServiceDeps): PayoutService {
         return;
       }
 
-      // Equal split, matching the program's on-chain division (remainder → first winner).
+      // Match the on-chain split exactly, including assigning the remainder to the first winner.
       const share = Math.floor(arena.prizePoolLamports / resolved.length);
       const remainder = arena.prizePoolLamports - share * resolved.length;
 

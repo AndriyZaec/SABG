@@ -14,7 +14,6 @@ import {
 import { prepareEntry, submitEntry } from "../api/client.js";
 import { useAuth } from "../auth/AuthContext.js";
 
-/** Browser-safe base64 <-> bytes (no Node Buffer) for the wire transaction. */
 function b64ToBytes(b64: string): Uint8Array {
   const bin = atob(b64);
   const bytes = new Uint8Array(bin.length);
@@ -49,7 +48,6 @@ export interface ArenaEntry {
   refresh: () => Promise<void>;
 }
 
-/** When the backend has provisioned the arena, target its on-chain id and register entries with it. */
 export interface ArenaEntryOptions {
   onchainArenaId?: number;
   backendArenaId?: string;
@@ -57,17 +55,13 @@ export interface ArenaEntryOptions {
 
 const toSol = (lamports: { toString(): string }) => Number(lamports.toString()) / LAMPORTS_PER_SOL;
 
-/** Reads the target arena and lets the connected wallet create it (demo) / buy an entry. */
 export function useArenaEntry(options: ArenaEntryOptions = {}): ArenaEntry {
   const program = useArenaProgram();
   const { publicKey, signTransaction } = useWallet();
   const { setSession } = useAuth();
   const { onchainArenaId, backendArenaId } = options;
 
-  // Backend-provisioned id when this arena is on-chain; null when it's a real backend arena that
-  // simply isn't on-chain yet (no pass is possible there — must not fall back to the demo arena's
-  // PDA, or a wallet holding the standalone demo's pass would be reported as "joined" here); the
-  // standalone demo arena only when there's no backend arena at all.
+  // Never use the demo PDA for a backend arena that is not yet provisioned on-chain.
   const targetArenaId = useMemo<BN | null>(() => {
     if (onchainArenaId != null) return new BN(onchainArenaId);
     if (backendArenaId != null) return null;
@@ -86,8 +80,7 @@ export function useArenaEntry(options: ArenaEntryOptions = {}): ArenaEntry {
     if (showLoading) setError(undefined);
     try {
       if (targetArenaId === null) {
-        // Real backend arena, not provisioned on-chain yet — no pass can exist for it, so never
-        // report "joined" here (see the DEMO_ARENA_ID fallback bug this guards against above).
+        // An unprovisioned arena cannot have an entry pass.
         setInfo({ exists: false, entryFeeSol: toSol(DEFAULT_ENTRY_FEE_LAMPORTS), prizePoolSol: 0, playerCount: 0, state: "open" });
         setHasEntry(false);
         setEntryRefunded(false);
@@ -159,8 +152,6 @@ export function useArenaEntry(options: ArenaEntryOptions = {}): ArenaEntry {
     );
   }, [program, publicKey, targetArenaId, run]);
 
-  // One-signature join: backend builds the buy_entry tx, the user signs it, then backend submits,
-  // seats the player, and issues the session token.
   const join = useCallback(async () => {
     if (!publicKey || !signTransaction || !backendArenaId) return;
     await run(async () => {

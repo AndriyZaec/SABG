@@ -8,8 +8,6 @@ import { Badge } from "../../ui/Badge.js";
 
 const clock = (secs: number) => `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
 
-/** The heart of the arena: question + countdown-to-lock + YES/NO. Eliminated players still see
- *  the round play out (spectating) but can't submit — the buttons are replaced by a note. */
 export function PredictionCard({
   round,
   onAnswer,
@@ -19,8 +17,6 @@ export function PredictionCard({
   round: RoundView;
   onAnswer?: (a: Answer) => void;
   eliminated?: boolean;
-  /** Whether the viewer actually joined this arena (owns a pass) — spectators can watch a round
-   *  play out but must not get the answer actions. Defaults true for the demo/legacy callers. */
   participant?: boolean;
 }) {
   const [picked, setPicked] = useState<Answer | undefined>(round.myAnswer);

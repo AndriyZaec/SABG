@@ -52,7 +52,7 @@ describe("processCs2SeriesPoll — Arena #1 opening", () => {
 describe("processCs2SeriesPoll — cascade Arena #k -> #k+1", () => {
   it("opens Arena #2 reactively once Match 1 ends, series not yet decided", () => {
     let state = initialCs2SeriesLifecycleState(START);
-    ({ state } = poll(state, snapshot({}), -10)); // open Arena #1
+    ({ state } = poll(state, snapshot({}), -10));
 
     ({ state } = poll(state, snapshot({ hasLiveGame: true }), 0));
     let actions;
@@ -74,16 +74,14 @@ describe("processCs2SeriesPoll — cascade Arena #k -> #k+1", () => {
 describe("processCs2SeriesPoll — series decided", () => {
   it("Bo2: a 1-1 draw is caught only by k >= format, not by winsNeeded", () => {
     let state = initialCs2SeriesLifecycleState(START);
-    ({ state } = poll(state, snapshot({ format: 2 }), -10)); // Arena #1
+    ({ state } = poll(state, snapshot({ format: 2 }), -10));
 
     ({ state } = poll(state, snapshot({ format: 2, hasLiveGame: true }), 0));
     let actions;
-    // Match 1 ends 1-0 — winsNeeded for Bo2 is 2, score 1 doesn't clinch, k=1 < format=2 — not decided.
     ({ state, actions } = poll(state, snapshot({ format: 2, hasLiveGame: false, teams: [1, 0] }), 20));
     expect(actions).toEqual([{ type: "match_ended", matchIndex: 1 }, { type: "open_arena", matchIndex: 2 }]);
 
     ({ state } = poll(state, snapshot({ format: 2, hasLiveGame: true, teams: [1, 0] }), 30));
-    // Match 2 ends 1-1 (draw) — neither team ever reaches winsNeeded=2, but k=2 >= format=2.
     ({ state, actions } = poll(state, snapshot({ format: 2, hasLiveGame: false, teams: [1, 1] }), 50));
     expect(actions).toEqual([
       { type: "match_ended", matchIndex: 2 },
@@ -109,18 +107,16 @@ describe("processCs2SeriesPoll — series decided", () => {
   });
 });
 
-describe("processCs2SeriesPoll — forfeit cancellation (data-assumptions.md #12)", () => {
+describe("processCs2SeriesPoll — forfeit cancellation", () => {
   it("cancels Arena #k+1 the moment the series-level score shows it decided, without waiting for MLD", () => {
     let state = initialCs2SeriesLifecycleState(START);
-    ({ state } = poll(state, snapshot({ format: 3 }), -10)); // Arena #1
+    ({ state } = poll(state, snapshot({ format: 3 }), -10));
     ({ state } = poll(state, snapshot({ format: 3, hasLiveGame: true }), 0));
-    // Match 1 ends 1-0 -> Arena #2 opens reactively, sits in lobby waiting for Match 2's MLD.
     ({ state } = poll(state, snapshot({ format: 3, hasLiveGame: false, teams: [1, 0] }), 20));
     expect(state.openedThrough).toBe(2);
     expect(state.matchLiveDetected).toBe(false);
 
-    // Match 2 never goes live — instead the series envelope jumps straight to 2-0/finished
-    // (the forfeit signature, ~2min later per the observed data, not 60min).
+    // A forfeit can decide the series without a live-game edge.
     const { state: after, actions } = poll(
       state,
       snapshot({ format: 3, hasLiveGame: false, teams: [2, 0], finished: true }),
@@ -134,10 +130,10 @@ describe("processCs2SeriesPoll — forfeit cancellation (data-assumptions.md #12
   });
 });
 
-describe("processCs2SeriesPoll — no-show (spec §4 п.4, Arena #1 only)", () => {
+describe("processCs2SeriesPoll — Arena #1 no-show", () => {
   it("cancels Arena #1 and marks the series invalid after 60min with no Match Live Detected", () => {
     let state = initialCs2SeriesLifecycleState(START);
-    ({ state } = poll(state, snapshot({}), -10)); // Arena #1 opens
+    ({ state } = poll(state, snapshot({}), -10));
 
     const { state: after, actions } = poll(state, snapshot({ hasLiveGame: false }), 61);
     expect(actions).toEqual([{ type: "cancel_arena", matchIndex: 1, reason: "no_show" }]);

@@ -1,10 +1,3 @@
-// End-to-end integration test for step 5b2's wiring: a real Cs2SeriesOrchestrator, a real
-// GatewayWebSocketServer/http.Server, and a real WS client (the `ws` package) over a loopback
-// port — the same style as gateway/__tests__/ws.test.ts, but proving the full chain
-// (onArenaOpened -> registerRuntime, broadcaster -> real WS push) works for CS2, not just that
-// each piece works in isolation. Gated on DATABASE_URL, same pattern as
-// series-orchestrator.int.test.ts (db/client.ts throws at import time without it).
-
 import { createServer, type Server as HttpServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { randomUUID } from "node:crypto";
@@ -113,8 +106,6 @@ describe.skipIf(!RUN)("CS2 live gateway wiring (integration, requires DATABASE_U
       onArenaOpened: (arenaId, runtime) => gateway.registerRuntime(arenaId, runtime),
     });
 
-    // scheduledStartTime is "now" — polling with now = 10min later is well past "-10min", so
-    // Arena #1 opens on the very first poll.
     const tenMinutesLater = new Date(start.getTime() + 10 * 60_000).toISOString();
     await orchestrator.poll(snapshot(false), tenMinutesLater);
 

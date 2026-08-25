@@ -1,8 +1,3 @@
-// REST handler tests — DB-free: the repository modules are mocked (vi.mock) so this exercises
-// routing, status codes, auth gating, and the mock's documented quirks (bare Match from
-// /matches/:id, uniform ApiError, 404 fallthrough) without touching Postgres. The DB layer itself
-// is covered separately by db/__tests__/repositories.int.test.ts (DATABASE_URL-gated).
-
 import { createServer, type Server as HttpServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import express from "express";
@@ -133,7 +128,6 @@ describe("REST gateway routes", () => {
   });
 
   describe("POST /auth/nonce + /auth/wallet", () => {
-    // Real sign-in flow: fetch a nonce, sign the canonical message, verify server-side.
     const signIn = async (secretKey: Uint8Array, walletAddress: string, message: string) => {
       const signature = bs58.encode(nacl.sign.detached(new TextEncoder().encode(message), secretKey));
       return fetch(`${baseUrl}/auth/wallet`, {
@@ -586,7 +580,6 @@ describe("REST gateway routes", () => {
         { round: openRound, predictions: [] },
         { round: lockedRound, predictions: [] },
       ]);
-      // Never even queried for predictions on a not-yet-settled round.
       expect(predictionRepository.listByRoundId).not.toHaveBeenCalled();
     });
 

@@ -1,8 +1,3 @@
-// Question Generator's side-effecting edge: implements the `QuestionProvider` seam the round
-// engine depends on (round-engine/question-provider.ts), and separately subscribes to the
-// MatchSignalBus purely to track substitutions-per-team — the one triviality-rule input
-// `MatchState` doesn't already carry.
-
 import type { MatchSignal, TargetEventType } from "@arena/contracts";
 import type { MatchSignalBus } from "../ingestion/event-bus.js";
 import type { GeneratedQuestion, QuestionContext, QuestionProvider } from "../round-engine/question-provider.js";
@@ -38,13 +33,10 @@ export class QuestionGenerator implements QuestionProvider {
   apply(signal: MatchSignal): void {
     if (signal.kind !== "event") return;
     if (signal.event.eventType !== "substitution" || !signal.event.confirmed) return;
-    // Unattributed events don't move a per-team counter — same treatment as the Settlement
-    // Engine (apps/api/src/settlement/engine.ts).
     if (signal.event.team === "any") return;
     this.substitutionCounts[signal.event.team] += 1;
   }
 
-  /** Subscribes to `bus`, applying every published signal. Returns an unsubscribe function. */
   subscribeTo(bus: MatchSignalBus): () => void {
     return bus.subscribe((signal) => this.apply(signal));
   }

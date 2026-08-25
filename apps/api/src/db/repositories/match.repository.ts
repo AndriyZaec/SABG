@@ -1,8 +1,3 @@
-// Match persistence. `updateLive` is how MatchState snapshots land in Postgres
-// (arena-runtime.ts's matchState onSnapshot callback); `upsertByTxoddsFixtureId` backs the
-// gateway's self-contained event bootstrap (gateway/run.ts) — independent of db:seed, which seeds a
-// different fixture than the replay uses.
-
 import { and, asc, eq } from "drizzle-orm";
 import type { Match, MatchPeriod, Score, Uuid } from "@arena/contracts";
 import { db } from "../client.js";
@@ -42,7 +37,7 @@ export const matchRepository = {
     return row ? matchRowToEntity(row) : undefined;
   },
 
-  /** Repairs CS2 rows inserted by an older binary after the map-index migration was applied. */
+  // Preserve rows written by binaries that predate persisted map indexes.
   async ensureSeriesMatchIndexes(seriesId: Uuid): Promise<void> {
     const rows = await db
       .select({ id: matches.id, seriesMatchIndex: matches.seriesMatchIndex })
@@ -57,12 +52,6 @@ export const matchRepository = {
     }
   },
 
-  /**
-   * Idempotent event bootstrap (gateway/run.ts, live/run.ts): ensures a match row exists for a
-   * fixture, keyed by `txoddsFixtureId`. The TXODDS feed itself carries only home/away sides, not
-   * team names — callers resolve real names from `db/seeds/fixture-metadata.ts` and pass them in
-   * here; `"Home"`/`"Away"` is only a fallback for a fixture that isn't seeded yet.
-   */
   async upsertByTxoddsFixtureId(
     fixtureId: number,
     placeholder: { homeTeam: string; awayTeam: string; startTime: Date },
@@ -92,7 +81,6 @@ export const matchRepository = {
     return matchRowToEntity(row);
   },
 
-  /** Idempotent CS2 map bootstrap, keyed by the durable 1-based position inside its Series. */
   async upsertForSeriesMap(
     seriesId: Uuid,
     matchIndex: number,
@@ -122,7 +110,6 @@ export const matchRepository = {
     return existing;
   },
 
-  /** Mirrors MatchState snapshots (spec §13 Match.currentMinute/period/score). */
   async updateLive(
     id: Uuid,
     live: { currentMinute: number; period: MatchPeriod; score: Score; status?: Match["status"] },

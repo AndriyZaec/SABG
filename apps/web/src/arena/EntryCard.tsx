@@ -17,7 +17,6 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 const sol = (lamports: number) => Number((lamports / 1_000_000_000).toFixed(3));
 
-/** Entry / join state for the featured match — rendered docked into the lobby hero footer. */
 export function EntryCard() {
   const { connected } = useWallet();
   const { arena } = useBackendArena();
@@ -29,7 +28,6 @@ export function EntryCard() {
   const busy = status === "working";
   const lobbyOpen = arena?.status === "lobby";
 
-  // One action for the current state — joined wins over everything, then settled, then join/closed.
   let action: ReactNode;
   if (!connected) {
     action = <p className="nb-mono" style={{ margin: 0 }}>Connect a wallet in the top bar to join.</p>;

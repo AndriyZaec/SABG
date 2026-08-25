@@ -13,11 +13,6 @@ import {
 import { prepareCs2Entry, submitCs2Entry } from "./api/cs2Client.js";
 import { useAuth } from "../auth/AuthContext.js";
 
-// Mirrors arena/useArenaEntry.ts — same on-chain program (solana/program.ts, reused unchanged),
-// same one-signature backend-orchestrated join. No createArena/DEMO_ARENA_ID fallback: CS2 never
-// has a "no backend arena at all" case (routing always supplies a real arenaId once a Series
-// exists), so the standalone on-chain-demo path soccer's hook has doesn't apply here.
-
 function b64ToBytes(b64: string): Uint8Array {
   const bin = atob(b64);
   const bytes = new Uint8Array(bin.length);
@@ -64,8 +59,7 @@ export function useCs2ArenaEntry(options: Cs2ArenaEntryOptions = {}): Cs2ArenaEn
   const { setSession } = useAuth();
   const { onchainArenaId, backendArenaId } = options;
 
-  // null until the backend has provisioned the arena on-chain (ensureOnchain, lazy on first
-  // prepare) — no pass can exist before that, so never report "joined".
+  // An unprovisioned arena cannot have an entry pass.
   const targetArenaId = useMemo<BN | null>(() => (onchainArenaId != null ? new BN(onchainArenaId) : null), [onchainArenaId]);
 
   const [status, setStatus] = useState<Status>("loading");

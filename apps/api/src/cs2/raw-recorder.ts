@@ -1,16 +1,4 @@
-// Best-effort raw-poll recorder for the live CS2 process (cs2/run.ts). Mirrors
-// grid/recorder.ts's WAITING_FOR_START/RECORDING state machine (0-0 starts a session, the
-// transition frame where games first empties is written before the session closes — that frame
-// carries the map's final score) but, unlike grid/recorder.ts, has no poll loop of its own:
-// Cs2LivePoller already owns polling, this only reacts to each poll's raw response. Writes go to
-// one shared collection (not one collection per map, unlike grid/recording-session.ts) with a
-// `sessionKey` field distinguishing maps, since this runs continuously across a whole live series
-// rather than as a single-purpose recording run.
-//
-// Deliberately best-effort: a write failure only logs a warning and never reaches the caller —
-// raw recording must never take down the live poller. After too many consecutive failures (e.g.
-// Mongo unreachable for the whole process lifetime) recording disables itself so the CS2 process
-// doesn't retry-storm or spam warnings for the rest of the match.
+// Recording is best-effort and disables itself after repeated failures to protect live polling.
 
 import type { Document } from "mongodb";
 import { MongoService } from "../grid/mongo/mongo.service.js";
@@ -62,14 +50,12 @@ export class Cs2RawRecorder {
         this.sessionKey = mintCollectionName(this.seriesId);
         this.state = "RECORDING";
         logger.info({ seriesId: this.seriesId, sessionKey: this.sessionKey }, "cs2: raw recording session started");
-        // Fall through: if this same frame already has a live game, record it immediately.
         if (hasLiveGame(res)) await this.write(res, result);
         return;
       }
       case "RECORDING": {
         if (!hasLiveGame(res)) {
-          // Write the transition frame itself before closing out — the only snapshot carrying
-          // the map's final score/finished state.
+          // Preserve the transition frame carrying the final map state.
           await this.write(res, result);
           logger.info({ seriesId: this.seriesId, sessionKey: this.sessionKey }, "cs2: raw recording session closed");
           this.sessionKey = undefined;

@@ -3,7 +3,7 @@ import { CS2_TOPICS, CS2_WEAPON_WHITELIST } from "@arena/contracts";
 import { CS2_GENERAL_CANDIDATES, buildCs2SettlementCondition, pickCs2Candidate, renderCs2Question } from "../catalog.js";
 
 describe("CS2_GENERAL_CANDIDATES", () => {
-  it("only contains the 6 general-catalog topics — pistol_round/ot_score are excluded (spec §7 п.4-5)", () => {
+  it("excludes fixed-round topics from the general catalog", () => {
     const topics = new Set(CS2_GENERAL_CANDIDATES.map((c) => c.topic));
     expect(topics).toEqual(new Set(["round_winner", "weapon_kill", "team_ace", "multikill", "survivors_team", "survivors_round"]));
   });

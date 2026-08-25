@@ -1,29 +1,3 @@
-// CS2's arena runtime — the CS2 analog of gateway/arena-runtime.ts, reusing that file's ports
-// (RuntimePredictionStore/RuntimeArenaPlayerStore/GatewayBroadcaster/SubmitAnswerOutcome — spec
-// §3 says round-engine *internals* stay discipline-specific, not the join/answer/elimination
-// plumbing around them) rather than redeclaring them. Wired directly into cs2/round-engine.ts's
-// Cs2RoundLifecycleEvent stream instead of soccer's two-stage RoundEngine+SettlementEngine split:
-// CS2 settlement already happened *inside* Cs2RoundEngine by the time its "settle" event fires
-// (a single snapshot-diff, spec §7), so this runtime only has to apply the outcome
-// (settlement/apply-outcome.ts — the same discipline-agnostic elimination step soccer's
-// SettlementEngine uses), not compute it.
-//
-// Round 1's open/lock split (data-assumptions.md #13, TASK.md step-4 design decision):
-// `openRoundOne` opens Q(R1) at Arena creation, not at Match Live Detected — the caller (Series
-// lifecycle, series-lifecycle.ts's `open_arena` action) drives it from the lobby-creation path.
-// `onMatchLiveDetected` therefore does *not* open anything (Cs2RoundEngine.onMatchLiveDetected
-// would be a no-op the second time regardless — handleOpen's idempotency guard — but this runtime
-// never calls it twice to begin with): it exists purely as a marker for the join-gate/reconnect
-// concerns a live gateway can read.
-//
-// `round.open` broadcasts without a `lockAt` (ws.ts's RoundOpenMessage.lockAt is optional
-// specifically for this — spec §6: "мінімальної тривалості answer window немає", CS2 fundamentally
-// doesn't have a fixed lock time to announce up front). `round.void` broadcasts for a voided round
-// (spec §7 п.3) using ws.ts's RoundVoidMessage. `pendingPredictionsFor` mirrors
-// gateway/arena-runtime.ts's, keyed by roundNumber instead of windowStartMinute — surfaces a
-// round that locked (answered, awaiting cs2_round_end) while N+1 is already open, the cascading-
-// generation overlap this engine relies on (see round-engine.ts's header comment).
-
 import type { Answer, ArenaPlayerStatus, IsoDateTime, PendingPrediction, PredictionRound, Uuid } from "@arena/contracts";
 import type { MatchSignalBus } from "../ingestion/event-bus.js";
 import type {
@@ -38,9 +12,6 @@ import { applyRoundOutcome, type PlayerResultEvent } from "../settlement/apply-o
 import { Cs2RoundEngine, type Cs2RoundLifecycleEvent } from "./round-engine.js";
 import type { Cs2QuestionProvider } from "./question-provider.js";
 
-/** CS2 equivalent of gateway/arena-runtime.ts's ArenaPersistence — narrower, since CS2 has no
- *  soccer-style match clock to persist (updateMatchLive) and finishArena lands with 4b's actual
- *  Arena-status/payout wiring. */
 export interface Cs2ArenaPersistence {
   upsertRound(round: PredictionRound): void;
   finishArena(arenaId: Uuid, winners: Uuid[]): void;
@@ -52,17 +23,11 @@ export interface Cs2ArenaRuntimeOptions {
   bus: MatchSignalBus;
   predictionStore: RuntimePredictionStore;
   arenaPlayerStore: RuntimeArenaPlayerStore;
-  /** Initial roster — must describe the same active players as `arenaPlayerStore`'s hydration. */
   roster: LeaderboardRosterEntry[];
-  /** Omitted in tests / until 4b wires a real WS server. */
   broadcaster?: GatewayBroadcaster;
   persistence?: Cs2ArenaPersistence;
   teamNames?: { home: string; away: string };
-  /** Persisted lobby rounds restored after a process restart. */
   initialRounds?: readonly PredictionRound[];
-  /** Forwarded to Cs2RoundEngine — defaults to createCs2QuestionProvider() there. Overridable
-   *  seam for tests that need deterministic questions (the real provider picks randomly, spec
-   *  §7 п.7 / §10). */
   questionProvider?: Cs2QuestionProvider;
 }
 
@@ -77,12 +42,9 @@ export class Cs2ArenaRuntime implements ArenaRuntimeLike {
   private readonly roundEngine: Cs2RoundEngine;
   private readonly leaderboardService: LeaderboardService;
 
-  /** This round's buffered personal statuses — flushed right after its settle + leaderboard.update. */
   private pendingPlayerStatus: PlayerResultEvent[] = [];
   private pendingWinners: Uuid[] | undefined;
   private winners: Uuid[] | undefined;
-  /** Set once by `onMatchLiveDetected` — a marker for 4b's join-gate/reconnect concerns, not
-   *  consulted by this runtime itself (Round 1 is already open by the time this fires). */
   private matchLiveDetectedAt: IsoDateTime | undefined;
 
   constructor(options: Cs2ArenaRuntimeOptions) {
@@ -109,14 +71,7 @@ export class Cs2ArenaRuntime implements ArenaRuntimeLike {
     });
     this.roundEngine.subscribeTo(options.bus);
 
-    // spec §3's tie-break note: if the Match ends (cs2_match_end) while more than one player is
-    // still active, nothing else ever narrows the field to one — soccer's ArenaRuntime has an
-    // equivalent trigger (onMatchState, period === "full_time" -> leaderboardService.finalize()).
-    // Registered after roundEngine.subscribeTo above: MatchSignalBus (EventEmitter) calls
-    // subscribers in registration order, so by the time this listener runs, Cs2RoundEngine has
-    // already synchronously settled/voided every round for this same cs2_match_end — the active
-    // player set is final. finalize() itself is a no-op once the arena already finished via the
-    // ordinary one-survivor path (LeaderboardService.finalize, leaderboard/service.ts).
+    // Subscribe after the round engine so finalization sees the last settlement or void.
     options.bus.subscribe((signal) => {
       if (signal.kind !== "cs2_match_end") return;
       this.leaderboardService.finalize();
@@ -124,20 +79,14 @@ export class Cs2ArenaRuntime implements ArenaRuntimeLike {
     });
   }
 
-  /** Opens Round 1 (spec §7 крок 1) — called from the Arena-creation path (Series lifecycle's
-   *  `open_arena` action, series-lifecycle.ts), not from Match Live Detected (see file header). */
   openRoundOne(timestamp: IsoDateTime): void {
     this.roundEngine.onMatchLiveDetected(timestamp);
   }
 
-  /** Marks Match Live Detected for join-gate/reconnect purposes. Round 1 is already open by now
-   *  (openRoundOne) — this does not touch the round engine. */
   onMatchLiveDetected(timestamp: IsoDateTime): void {
     this.matchLiveDetectedAt ??= timestamp;
   }
 
-  /** The in-progress round (open or locked), if any — mirrors gateway/arena-runtime.ts's
-   *  currentRound, sorted by roundNumber instead of windowStartMinute. */
   get currentRound(): PredictionRound | undefined {
     return [...this.roundEngine.roundsByNumber.values()]
       .filter((r) => r.status === "open" || r.status === "locked")
@@ -157,8 +106,6 @@ export class Cs2ArenaRuntime implements ArenaRuntimeLike {
     this.leaderboardService.addPlayer({ userId, username, joinedAt });
   }
 
-  /** The player's current status — mirrors soccer ArenaRuntime.statusFor, used for reconnect
-   *  resync (a WS server's `subscribe` handler). */
   statusFor(userId: Uuid): ArenaPlayerStatus | undefined {
     return this.arenaPlayerStore.getStatus(userId);
   }
@@ -167,16 +114,8 @@ export class Cs2ArenaRuntime implements ArenaRuntimeLike {
     return this.predictionStore.getAnswers(roundId).get(userId);
   }
 
-  /**
-   * The player's own pending predictions: every round that has locked but not yet settled and
-   * for which this user submitted an answer — mirrors gateway/arena-runtime.ts's
-   * pendingPredictionsFor, keyed by roundNumber instead of windowStartMinute (cascading
-   * generation means there's normally at most one, but the loop makes no assumption of that).
-   * Spec §8: only ever this user's own answer, never others'.
-   */
+  /** Returns only the requesting player's answers. */
   pendingPredictionsFor(userId: Uuid): PendingPrediction[] {
-    // Same reasoning as soccer's: an eliminated player holds no live rounds, even one they
-    // legitimately answered while still active (the round overlap window, data-assumptions.md).
     if (this.arenaPlayerStore.getStatus(userId) === "eliminated") return [];
 
     const pending: PendingPrediction[] = [];
@@ -194,8 +133,6 @@ export class Cs2ArenaRuntime implements ArenaRuntimeLike {
     return pending.sort((a, b) => (a.roundNumber ?? 0) - (b.roundNumber ?? 0));
   }
 
-  /** Re-push the personal pending snapshot to every user who answered `roundId` — call whenever
-   *  that round enters or leaves the locked-unsettled set (lock / settle). */
   private pushPendingForAnswerers(roundId: Uuid): void {
     for (const userId of this.predictionStore.getAnswers(roundId).keys()) {
       this.broadcaster?.sendToUser(this.arenaId, userId, {
@@ -244,7 +181,7 @@ export class Cs2ArenaRuntime implements ArenaRuntimeLike {
     const answers = this.predictionStore.getAnswers(roundId);
     const total = answers.size;
     const yesCount = [...answers.values()].filter((a) => a === "yes").length;
-    // Spectator privacy (spec §8): only ever the aggregate, never individual answers.
+    // Broadcast aggregates only; individual answers remain private.
     const yesPct = total > 0 ? Math.round((yesCount / total) * 100) : 0;
     const noPct = total > 0 ? 100 - yesPct : 0;
     this.broadcaster?.broadcast(this.arenaId, {
@@ -278,14 +215,10 @@ export class Cs2ArenaRuntime implements ArenaRuntimeLike {
       survivorsCount,
     });
 
-    // Applies this round's buffered PlayerResultEvents atomically; may synchronously trigger
-    // onSnapshot (leaderboard.update) and set pendingWinners.
     this.leaderboardService.onRoundSettled({ roundId });
 
     this.flushPendingPlayerStatus(roundId);
     this.flushFinishIfPending();
-    // The round's own status already flipped to "settled" above, so pendingPredictionsFor no
-    // longer includes it — each answerer's refreshed snapshot shows it dropped off.
     this.pushPendingForAnswerers(roundId);
   }
 
@@ -293,8 +226,6 @@ export class Cs2ArenaRuntime implements ArenaRuntimeLike {
     const round = this.roundEngine.roundsByNumber.get(roundNumber);
     if (round === undefined) return;
     this.persistence?.upsertRound(round);
-    // Voided is neutral (spec §7 п.3): no elimination, no leaderboard effect — just persist and
-    // let clients know this round is no longer coming.
     this.broadcaster?.broadcast(this.arenaId, { type: "round.void", roundId: round.id });
   }
 
@@ -321,9 +252,7 @@ export class Cs2ArenaRuntime implements ArenaRuntimeLike {
     this.pendingWinners = undefined;
     this.winners = winners;
 
-    // The winner can be decided (single survivor) well before the map's own cs2_match_end — void
-    // whatever round is still open/locked so it doesn't keep running off subsequent real GRID
-    // signals. No-op on the cs2_match_end path: handleMatchEnd already voided everything.
+    // A winner can be decided before GRID removes the map; stop the in-flight round.
     this.roundEngine.voidRemaining();
 
     this.broadcaster?.broadcast(this.arenaId, { type: "arena.finished", winners });

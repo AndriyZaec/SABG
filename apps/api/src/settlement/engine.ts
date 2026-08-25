@@ -1,8 +1,3 @@
-// Settlement Engine's side-effecting edge: watches locked rounds against the MatchSignalBus,
-// calling the pure resolveSettlement (spec §6: early on a confirmed matching event, window-end
-// otherwise) and marking each active player's Prediction/ArenaPlayer outcome through injected
-// seams (real, persisted implementations are supplied later).
-
 import type {
   Answer,
   LiveEvent,
@@ -20,11 +15,8 @@ import { createInMemoryPredictionStore, type PredictionStore } from "./predictio
 import { createInMemoryArenaPlayerStore, type ArenaPlayerStore } from "./arena-player-store.js";
 import { applyRoundOutcome, type PlayerResultEvent } from "./apply-outcome.js";
 
-// Re-exported for existing consumers (leaderboard/service.ts, gateway/arena-runtime.ts) — the
-// type now lives in apply-outcome.ts alongside the function that produces it.
 export type { PlayerResultEvent };
 
-/** This engine is soccer-only (spec §3: CS2 gets its own settlement, not this window-keyed one). */
 type SoccerPredictionRound = PredictionRound & {
   windowStartMinute: number;
   windowEndMinute: number;
@@ -71,7 +63,7 @@ export class SettlementEngine {
     this.arenaPlayerStore = options.arenaPlayerStore ?? createInMemoryArenaPlayerStore(arenaId, []);
   }
 
-  /** Starts tracking a round that was just locked. Idempotent — a repeat call for the same window is a no-op. */
+  // Repeated lock delivery must not erase already collected settlement evidence.
   onRoundLocked(round: PredictionRound): void {
     const soccerRound = assertSoccerRound(round);
     if (this.tracked.has(soccerRound.windowStartMinute)) return;
@@ -81,22 +73,14 @@ export class SettlementEngine {
   apply(signal: MatchSignal): void {
     if (signal.kind === "event") this.handleEvent(signal.event);
     else if (signal.kind === "clock") this.handleClock({ period: signal.period, minute: signal.matchMinute });
-    // possession signals carry no settlement information (spec §4.1: context-only) — ignored.
   }
 
-  /** Subscribes to `bus`, applying every published signal. Returns an unsubscribe function. */
   subscribeTo(bus: MatchSignalBus): () => void {
     return bus.subscribe((signal) => this.apply(signal));
   }
 
   private handleEvent(rawEvent: LiveEvent): void {
-    // rawEvent.team can be "any" — normalize.ts's participantToSide falls back to it for a raw
-    // message it can't attribute to a specific side. Whether that's real settlement evidence
-    // depends on *which round's* condition it's being checked against, not on this event alone:
-    // resolveSettlement already correctly credits it for a targetTeam:"any" condition (the
-    // question doesn't care which team) while still rejecting it for a specific-team one (we
-    // genuinely can't confirm that side did it) — see SettleableEvent's doc comment. So this
-    // event is always forwarded; the per-condition decision happens downstream.
+    // Ambiguous team attribution is valid only for conditions that accept either team.
     const event: SettleableEvent = {
       eventType: rawEvent.eventType,
       team: rawEvent.team,
@@ -118,14 +102,7 @@ export class SettlementEngine {
     const toSettle: { windowStart: number; answer: Answer }[] = [];
     for (const [windowStart, entry] of this.tracked) {
       const req = requiredPeriod(entry.round.windowStartMinute);
-      // Spec §6: window-end fires once match minute is *strictly greater than* windowEndMinute,
-      // not >=. A message confirming an event AT windowEndMinute can arrive after an earlier,
-      // still-provisional message has already ticked the clock to that same minute — confirmation
-      // is inherently a separate, sometimes-later message (found via the full-pipeline test:
-      // fixture 18179764 Seq 296 ticks minute 30 while provisional; Seq 297 confirms the same
-      // shot one message later). Settling "no" the instant minute==windowEndMinute would still
-      // beat that confirmation to the punch. hasReachedMinute is >=-based (correct for the round
-      // engine's inclusive "lock exactly at T"); express the strict ">" here via `windowEndMinute + 1`.
+      // Settle strictly after the end minute so same-minute confirmations can still arrive.
       if (hasReachedMinute(tick, entry.round.windowEndMinute + 1, req)) {
         toSettle.push({ windowStart, answer: resolveSettlement(entry.round.settlementCondition, entry.events) });
       }
@@ -135,7 +112,7 @@ export class SettlementEngine {
 
   private settle(windowStart: number, correctAnswer: Answer, settledBy: SettledBy): void {
     const entry = this.tracked.get(windowStart);
-    if (entry === undefined) return; // already settled — idempotency guard
+    if (entry === undefined) return; // A settled window must not emit duplicate outcomes.
     this.tracked.delete(windowStart);
 
     const { round } = entry;

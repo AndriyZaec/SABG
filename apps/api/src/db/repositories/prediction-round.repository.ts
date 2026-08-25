@@ -1,7 +1,3 @@
-// PredictionRound persistence. `upsert` is called from arena-runtime.ts on every round/settlement
-// lifecycle transition (open/lock/settle) with the full current round shape, so one write path
-// covers create-on-open and update-on-lock/settle.
-
 import { eq } from "drizzle-orm";
 import type { PredictionRound, Uuid } from "@arena/contracts";
 import { db } from "../client.js";
@@ -48,10 +44,6 @@ export const predictionRoundRepository = {
     return row ? predictionRoundRowToEntity(row) : undefined;
   },
 
-  /** GET /arenas/:id/rounds (history) — every round created for the arena, in creation order.
-   *  Sorts by `windowStartMinute` (soccer) then `roundNumber` (CS2) — CS2 rows always have a
-   *  `null` windowStartMinute, so sorting by that column alone leaves them in insertion order,
-   *  not round order. Discipline-agnostic: only one of the two columns is ever non-null per row. */
   async listByArenaId(arenaId: Uuid): Promise<PredictionRound[]> {
     const rows = await db
       .select()

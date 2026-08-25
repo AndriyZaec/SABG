@@ -1,6 +1,3 @@
-// Default-wired payout service: real repositories + on-chain settle. When on-chain arenas are
-// disabled, settleArena short-circuits (arenas have no onchainArenaId), so nothing is loaded/sent.
-
 import { arenaRepository } from "../db/repositories/arena.repository.js";
 import { userRepository } from "../db/repositories/user.repository.js";
 import { payoutRepository } from "../db/repositories/payout.repository.js";

@@ -1,14 +1,3 @@
-// Poll loop + state machine driving Grid.gg series-state recording.
-//
-//   WAITING_FOR_START --(0-0 detected)--> RECORDING --(games == [])--> WAITING_FOR_START
-//
-// A continuous watcher: after one match's recording ends, the recorder keeps polling and will
-// start a brand-new collection on the next 0-0 it observes, without needing a restart.
-//
-// The transition frame that first observes games == [] is also written (as the session's last
-// doc) before the session closes — otherwise the collection's final score is whatever the
-// previous poll saw mid-game, never the actual finished/final-score snapshot.
-
 import { gridConfig } from "./config/env.js";
 import { GridClient } from "./grid-client.js";
 import { RecordingSession } from "./recording-session.js";
@@ -20,7 +9,6 @@ import { sleep } from "../shared/sleep.js";
 
 type RecorderState = "WAITING_FOR_START" | "RECORDING";
 
-/** Cap on logged response body size to keep log lines readable. */
 const MAX_LOGGED_BODY_BYTES = 20_000;
 
 export class GridRecorder {
@@ -94,7 +82,6 @@ export class GridRecorder {
           { collectionName: this.session.collectionName, seriesId: gridConfig.grid.seriesId },
           "grid: 0-0 detected, recording started",
         );
-        // Fall through: if this same frame already has a live game, record it immediately.
         if (hasLiveGame(parsed)) {
           await this.session.write({
             payload: parsed,
@@ -108,14 +95,11 @@ export class GridRecorder {
       case "RECORDING": {
         const session = this.session;
         if (!session) {
-          // Defensive: state says RECORDING but no session — fall back to waiting.
           this.state = "WAITING_FOR_START";
           return;
         }
         if (!hasLiveGame(parsed)) {
-          // Write the transition frame itself before closing out — this is the only snapshot
-          // that carries the game's final score/finished state, and without it the collection's
-          // last written doc is whatever the previous poll saw (still mid-game).
+          // Preserve the transition frame carrying the final game state.
           await session.write({
             payload: parsed,
             httpStatus: result.status,

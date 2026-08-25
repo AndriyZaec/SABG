@@ -26,7 +26,6 @@ describe("loadSeriesStateQuery", () => {
     writeFileSync(file, 'seriesState(id: "28") { valid }', "utf8");
 
     const first = loadSeriesStateQuery(file, "42");
-    // Even if the id argument passed differs on a second call, the cached value wins.
     const second = loadSeriesStateQuery(file, "different");
 
     expect(second).toBe(first);

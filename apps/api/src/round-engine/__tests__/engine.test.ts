@@ -32,7 +32,6 @@ describe("RoundEngine", () => {
       windowEndMinute: 10,
       resolve: "event_in_window",
     });
-    // lockAt is a display estimate only — just confirm it's a well-formed timestamp.
     expect(new Date(openEvent.lockAt).getTime()).not.toBeNaN();
     expect(engine.roundsByWindow.get(5)?.status).toBe("open");
 
@@ -42,7 +41,7 @@ describe("RoundEngine", () => {
     expect(lockEvent).toEqual({ type: "lock", roundId: openEvent.round.id, windowStartMinute: 5 });
     const stored = engine.roundsByWindow.get(5);
     expect(stored?.status).toBe("locked");
-    expect(stored?.id).toBe(openEvent.round.id); // same round, updated in place — not a new one
+    expect(stored?.id).toBe(openEvent.round.id);
     expect(stored?.lockedAt).toBeDefined();
   });
 
@@ -120,9 +119,8 @@ describe("RoundEngine", () => {
 
     expect(openedSequence).toEqual(TARGET_WINDOW_STARTS);
     expect(lockedSequence).toEqual(TARGET_WINDOW_STARTS);
-    expect(openedSequence.includes(45)).toBe(false); // halftime window never opens
+    expect(openedSequence.includes(45)).toBe(false);
 
-    // At most one open round at a time: every open is followed by its own lock before the next open.
     let currentlyOpen: number | undefined;
     for (const event of events) {
       if (event.type === "open") {
@@ -135,7 +133,6 @@ describe("RoundEngine", () => {
     }
     expect(currentlyOpen).toBeUndefined();
 
-    // All 16 rounds end up locked in the engine's own map.
     expect(engine.roundsByWindow.size).toBe(16);
     for (const round of engine.roundsByWindow.values()) {
       expect(round.status).toBe("locked");
@@ -171,7 +168,6 @@ describe("RoundEngine", () => {
     bus.publish({ kind: "clock", period: "pre", matchMinute: 0, running: false, timestamp: "t0" });
     expect(engine.roundsByWindow.get(5)?.status).toBe("open");
 
-    // Arena finishes (e.g. one-survivor early finish) before the next window would open.
     finished = true;
 
     bus.publish({ kind: "clock", period: "first_half", matchMinute: 5, running: true, timestamp: "t1" });
@@ -181,16 +177,14 @@ describe("RoundEngine", () => {
     const openedSequence = events
       .filter((e): e is Extract<RoundLifecycleEvent, { type: "open" }> => e.type === "open")
       .map((e) => e.round.windowStartMinute);
-    expect(openedSequence).toEqual([5]); // only the pre-finish round ever opened
+    expect(openedSequence).toEqual([5]);
 
-    // The round that was already open before the finish still locks normally — it doesn't dangle.
     const lockedSequence = events
       .filter((e): e is Extract<RoundLifecycleEvent, { type: "lock" }> => e.type === "lock")
       .map((e) => e.windowStartMinute);
     expect(lockedSequence).toEqual([5]);
     expect(engine.roundsByWindow.get(5)?.status).toBe("locked");
 
-    // No phantom rounds materialize for the later windows the planner "thinks" it opened.
     expect(engine.roundsByWindow.size).toBe(1);
   });
 
@@ -202,22 +196,18 @@ describe("RoundEngine", () => {
       isArenaFinished: () => finished,
       onTransition: (e) => {
         events.push(e);
-        // Mirrors arena-runtime.ts: settling a locked round can synchronously declare the finish
-        // (early-settle -> leaderboard finish) before the planner's queued "open" for the next
-        // window is executed in this same apply() call.
         if (e.type === "lock") finished = true;
       },
     });
     engine.subscribeTo(bus);
 
     bus.publish({ kind: "clock", period: "pre", matchMinute: 0, running: false, timestamp: "t0" });
-    // Window 5 locks and window 10 would open in this single tick — the planner queues both.
     bus.publish({ kind: "clock", period: "first_half", matchMinute: 5, running: true, timestamp: "t1" });
 
     const openedSequence = events
       .filter((e): e is Extract<RoundLifecycleEvent, { type: "open" }> => e.type === "open")
       .map((e) => e.round.windowStartMinute);
-    expect(openedSequence).toEqual([5]); // window 10 must not open despite being queued alongside the lock
+    expect(openedSequence).toEqual([5]);
 
     expect(engine.roundsByWindow.size).toBe(1);
     expect(engine.roundsByWindow.get(5)?.status).toBe("locked");

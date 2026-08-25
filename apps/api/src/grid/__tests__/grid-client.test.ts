@@ -50,7 +50,6 @@ describe("GridClient.fetchSeriesState", () => {
 
     const client = new GridClient();
     await expect(client.fetchSeriesState()).rejects.toThrow(RateLimitExhaustedError);
-    // GRID_MAX_RATE_LIMIT_RETRIES defaults to 5 -> 1 initial + 5 retries = 6 calls.
     expect(mocks.post).toHaveBeenCalledTimes(6);
   });
 

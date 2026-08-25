@@ -1,10 +1,3 @@
-// Leaderboard Service's side-effecting edge: consumes Settlement Engine output
-// (`PlayerResultEvent` per active player, `SettlementEvent` once per round) to maintain a
-// per-player score/status accumulator, and decides when the arena is finished (spec §7).
-// Persistence and the WS push (`leaderboard.update` / `arena.finished`) are deferred to the
-// gateway — this module only emits snapshots/winners through injected callbacks, same pattern as
-// the other engines (see settlement/engine.ts).
-
 import type { IsoDateTime, PredictionResult, Uuid, LeaderboardEntry } from "@arena/contracts";
 import type { PlayerResultEvent } from "../settlement/engine.js";
 import { rankLeaderboard, resolveWinners, type LeaderboardAccumulator } from "./rank.js";
@@ -22,7 +15,7 @@ export interface LeaderboardServiceOptions {
 
 export class LeaderboardService {
   private readonly rows = new Map<Uuid, LeaderboardAccumulator>();
-  /** Buffered per-round results, applied atomically once that round's SettlementEvent arrives. */
+  // Apply every player's result atomically at the round boundary.
   private readonly pendingByRound = new Map<Uuid, PlayerResultEvent[]>();
   private finished = false;
 
@@ -43,11 +36,6 @@ export class LeaderboardService {
     }
   }
 
-  /**
-   * Adds a newly-joined player mid-lobby (spec §9 — join only pre-kickoff; enforced by the
-   * caller, e.g. arena-runtime.ts's `join`, not here). No-op once the arena has finished or for a
-   * userId already tracked, so a duplicate/late join call is harmless.
-   */
   addPlayer(player: LeaderboardRosterEntry): void {
     if (this.finished || this.rows.has(player.userId)) return;
     this.rows.set(player.userId, {
@@ -60,7 +48,6 @@ export class LeaderboardService {
     });
   }
 
-  /** Buffers one player's outcome for a round; applied once that round's onRoundSettled fires. */
   onPlayerResult(event: PlayerResultEvent): void {
     let pending = this.pendingByRound.get(event.roundId);
     if (pending === undefined) {
@@ -70,14 +57,6 @@ export class LeaderboardService {
     pending.push(event);
   }
 
-  /**
-   * Applies a round's buffered player results atomically, then runs early-finish detection
-   * (spec §7 one-survivor / this arena's zero-survivor rule) against the active set before vs.
-   * after this round. Only `roundId` is actually read — narrowed to that (rather than the full
-   * soccer-shaped `SettlementEvent`) so CS2's own settle event (cs2/round-engine.ts's
-   * `Cs2RoundLifecycleEvent`, keyed by `roundNumber` not `windowStartMinute`) can drive this same
-   * accumulator without a fabricated soccer-shaped wrapper.
-   */
   onRoundSettled(event: { roundId: Uuid }): void {
     const pending = this.pendingByRound.get(event.roundId);
     this.pendingByRound.delete(event.roundId);
@@ -87,7 +66,7 @@ export class LeaderboardService {
 
     for (const result of pending) {
       const row = this.rows.get(result.userId);
-      if (row === undefined) continue; // not on this arena's roster — ignore defensively
+      if (row === undefined) continue;
       this.applyResult(row, result.result);
     }
 
@@ -101,13 +80,11 @@ export class LeaderboardService {
     }
   }
 
-  /** Called by the orchestrator once the match reaches full time (spec §7 multi-survivor). */
   finalize(): void {
     if (this.finished) return;
     this.finish(this.activeRows());
   }
 
-  /** Ranked, display-ready snapshot of every tracked player. */
   snapshot(): LeaderboardEntry[] {
     return rankLeaderboard([...this.rows.values()]);
   }

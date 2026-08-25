@@ -53,9 +53,7 @@ describe("parseSeriesSnapshot", () => {
     expect(parseSeriesSnapshot(rawSeries({ format: "bo3" }))?.format).toBeUndefined();
   });
 
-  // data-assumptions.md #12: a forfeited map never produces a games[] entry — the only trace is
-  // this discontinuous jump in the series-level envelope (score jumping by more than one increment,
-  // finished flipping true) — modeled here on the observed shape from series 2985953 (ICP vs ENCE).
+  // A forfeited map may surface only as a series-score jump with no live game.
   it("parses the forfeit envelope shape: score jumps by more than one, finished true, no games", () => {
     const raw = rawSeries({
       format: "best-of-3",

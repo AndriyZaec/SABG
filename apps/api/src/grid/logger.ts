@@ -1,6 +1,3 @@
-// Singleton pino logger for the Grid.gg poller — mirrors src/live/logger.ts's redaction
-// approach, scoped to the one secret this service handles: the Grid API key.
-
 import pino from "pino";
 import { gridConfig } from "./config/env.js";
 

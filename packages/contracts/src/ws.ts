@@ -1,7 +1,4 @@
-// S2 — WebSocket message catalog (build plan §S2, B7).
-// Realtime push from Realtime Gateway -> clients, plus a few client->server messages.
-// Spectator privacy (spec §8): live answers are NEVER pushed before lock; after lock
-// only aggregates (yes%/no%); individual answers only after settle.
+// Never expose personal answers to spectators before settlement.
 
 import type { Answer, ArenaCancelledReason, SettledBy } from "./enums.js";
 import type {
@@ -11,39 +8,25 @@ import type {
   Uuid,
 } from "./entities.js";
 
-// ---- Server -> Client -------------------------------------------------------
-
 export interface RoundOpenMessage {
   type: "round.open";
   round: PredictionRound;
-  /**
-   * Absolute lock time (window start T), for soccer's fixed 5-min windows. Absent for CS2 rounds
-   * (cs2-migration-spec/spec_v2.md §6: "мінімальної тривалості answer window немає" — the lock
-   * time depends on when freezetime ends, unknowable in advance). A client should show a
-   * countdown when present and an unbounded "open" indicator when not.
-   */
+  /** Soccer only; CS2 has no fixed lock time. */
   lockAt?: string;
 }
 
 export interface RoundLockMessage {
   type: "round.lock";
   roundId: Uuid;
-  /** Aggregate only — safe to reveal post-lock (spec §8). */
+  /** Aggregate only; never expose personal answers here. */
   aggregate: { yesPct: number; noPct: number; total: number };
 }
 
 export interface RoundSettleMessage {
   type: "round.settle";
   roundId: Uuid;
-  /** The question that was answered, so the feed can show what YES/NO refers to. */
   question: string;
   correctAnswer: Answer;
-  /**
-   * Was `"early" | "window_end"` inline (soccer-only values). Widened to the shared `SettledBy`
-   * enum (which now also has CS2's `"round_end"`) to avoid duplicating the union — this message
-   * type is soccer-only in practice (soccer's SettlementEngine never emits `"round_end"`), the
-   * wider type just tracks the canonical source of truth instead of re-declaring a subset of it.
-   */
   settledBy: SettledBy;
   survivorsCount: number;
 }
@@ -63,38 +46,25 @@ export interface ArenaFinishedMessage {
   winners: Uuid[];
 }
 
-/**
- * CS2 no-show (spec §4 п.4) or Arena #k+1 forfeit-cancellation (data-assumptions.md #12) — the
- * Arena never went live and never will. No `PredictionRound` was ever open, so there's nothing to
- * void; this is the arena-level counterpart to `RoundVoidMessage` below.
- */
+/** Terminal cancellation of an arena that will not go live. */
 export interface ArenaCancelledMessage {
   type: "arena.cancelled";
   reason: ArenaCancelledReason;
 }
 
-/**
- * A `PredictionRound` that was generated (spec §7 п.3, cascading generation) but never opened for
- * play because the Match ended first — CS2-only (`RoundStatus`'s `"voided"`). Neutral: no
- * elimination, no leaderboard effect: this message exists purely so a client that already saw
- * this round via `round.open` learns not to expect a `round.lock`/`round.settle` for it.
- */
 export interface RoundVoidMessage {
   type: "round.void";
   roundId: Uuid;
 }
 
-/** Personal, addressed to a single connection (survived/eliminated). */
+/** Personal state; send only to the addressed connection. */
 export interface PlayerStatusMessage {
   type: "player.status";
   status: "active" | "eliminated" | "winner";
   roundId?: Uuid;
 }
 
-/** One locked-but-unsettled round the player has answered (spec §8: their own answer only).
- *  `windowStartMinute`/`windowEndMinute` are soccer-only, `roundNumber` is CS2-only — same
- *  discipline-tagged-optional-fields pattern `PredictionRound` (entities.ts) already uses, not a
- *  discriminated union. */
+/** Personal answer state. Soccer uses minute windows; CS2 uses round numbers. */
 export interface PendingPrediction {
   roundId: Uuid;
   question: string;
@@ -104,13 +74,12 @@ export interface PendingPrediction {
   answer: Answer;
 }
 
-/** Personal snapshot of the player's own pending (locked, unsettled) predictions. */
+/** Authoritative personal snapshot; replace prior reconnect state. */
 export interface PlayerPendingMessage {
   type: "player.pending";
   predictions: PendingPrediction[];
 }
 
-/** Authoritative acknowledgement for a submitted answer. */
 export interface AnswerAcceptedMessage {
   type: "answer.accepted";
   roundId: Uuid;
@@ -133,7 +102,6 @@ export type AnswerRejectionReason =
   | "eliminated"
   | "not_participant";
 
-/** Authoritative rejection for a submitted answer. */
 export interface AnswerRejectedMessage {
   type: "answer.rejected";
   roundId: Uuid;
@@ -156,14 +124,11 @@ export type ServerMessage =
   | AnswerSnapshotMessage
   | AnswerRejectedMessage;
 
-// ---- Client -> Server -------------------------------------------------------
-
 export interface SubscribeMessage {
   type: "subscribe";
   arenaId: Uuid;
 }
 
-/** Answering over WS (REST /rounds/:id/answer is the equivalent fallback). */
 export interface AnswerMessage {
   type: "answer";
   roundId: Uuid;

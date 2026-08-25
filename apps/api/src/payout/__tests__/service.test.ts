@@ -14,13 +14,11 @@ const arena = (overrides: Partial<Arena> = {}): Arena => ({
   ...overrides,
 });
 
-// Real base58 wallets — the payout service only pays winners whose wallet is a valid on-chain pubkey.
 const WALLET: Record<string, string> = {
   u1: "5FHwkrdxntdK24hgQU8qgBjn35Y1zwhz1GZwCkP2UJnM",
   u2: "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
 };
 
-// Records created payouts and hands back ids so markSent/markFailed can be asserted.
 function makeDeps(over: Partial<PayoutServiceDeps> = {}) {
   const created: { id: Uuid; userId: Uuid; amountLamports: number }[] = [];
   let n = 0;
@@ -47,7 +45,6 @@ describe("payout service — settleArena", () => {
     const { deps, created } = makeDeps();
     await createPayoutService(deps).settleArena("arena-1", ["u1", "u2"]);
 
-    // 300 / 2 → 150 + 150
     expect(created.map((c) => c.amountLamports)).toEqual([150, 150]);
     expect(deps.settleOnchain).toHaveBeenCalledWith(42, [WALLET.u1, WALLET.u2]);
     expect(deps.markSent).toHaveBeenCalledTimes(2);

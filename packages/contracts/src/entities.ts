@@ -1,6 +1,3 @@
-// Entity types — direct mapping of spec v2 §13 Data Models.
-// These are the persisted/domain shapes shared by API, engines and frontend.
-
 import type {
   Answer,
   ArenaCancelledReason,
@@ -20,12 +17,9 @@ import type {
 } from "./enums.js";
 import type { SettlementCondition } from "./settlement.js";
 
-/** ISO-8601 timestamp string. */
 export type IsoDateTime = string;
 export type Uuid = string;
-/** Base-58 Solana address. */
 export type WalletAddress = string;
-/** Base-58 Solana transaction signature. */
 export type TxSignature = string;
 
 export interface Score {
@@ -42,34 +36,24 @@ export interface User {
 
 export interface Match {
   id: Uuid;
-  /** Game type; selects round engine/question-provider/ingestion (cs2-migration-spec/spec_v2.md §2-§3). */
   discipline: Discipline;
   homeTeam: string;
   awayTeam: string;
   startTime: IsoDateTime;
   status: MatchStatus;
-  /** Current minute incl. stoppage (match clock, spec §3.1). Soccer-only — unused for CS2. */
   currentMinute: number;
   period: MatchPeriod;
   score: Score;
-  /**
-   * FK to a `Series` (cs2-migration-spec/spec_v2.md §2). CS2: one entry per map. Disciplines
-   * without series structure (soccer) leave this empty.
-   */
+  /** CS2 only; absent for disciplines without series. */
   seriesId?: Uuid;
-  /** Stable 1-based map position inside a CS2 Series. Absent for soccer. */
+  /** CS2 only; stable 1-based map position within the series. */
   seriesMatchIndex?: number;
 }
 
-/**
- * `best-of-N` grouping of `Match` rows, one per map — mirrors GRID `seriesState`
- * (cs2-migration-spec/spec_v2.md §2). NOT an Arena — Arena is always at the single-Match level.
- */
+/** Groups map-level matches; each arena belongs to one map-level match. */
 export interface Series {
   id: Uuid;
-  /** GRID's own series id, as passed to `seriesState(id: "...")`. */
   gridSeriesId: string;
-  /** Best-of-N, 1-7 (spec §2). GRID reports this as a "best-of-N" string — parsed at ingestion. */
   format: number;
   scheduledStartTime: IsoDateTime;
   status: SeriesStatus;
@@ -82,11 +66,10 @@ export interface Arena {
   activePlayersCount: number;
   entryFeeLamports: number;
   prizePoolLamports: number;
-  /** On-chain escrow PDA address. */
   escrowAccount: WalletAddress;
-  /** Numeric id used as the on-chain program's `arena_id` PDA seed. Absent until provisioned. */
+  /** Absent until the arena is provisioned on-chain. */
   onchainArenaId?: number;
-  /** Set only when `status === "cancelled"` (CS2 no-show / forfeit-cancellation). */
+  /** Present only for terminal cancellation. */
   cancelledReason?: ArenaCancelledReason;
 }
 
@@ -116,24 +99,19 @@ export interface PredictionRound {
   arenaId: Uuid;
   matchId: Uuid;
   discipline: Discipline;
-  /** Soccer only (5-min match-clock windows, spec §5). Absent for CS2. */
+  /** Soccer only. */
   windowStartMinute?: number;
   windowEndMinute?: number;
-  /**
-   * CS2 only: the real Round number this PredictionRound is 1:1 with
-   * (cs2-migration-spec/spec_v2.md §2, §7). Absent for soccer.
-   */
+  /** CS2 only. */
   roundNumber?: number;
   question: string;
-  /** Soccer only — CS2 rounds carry their topic inside `settlementCondition` instead. */
+  /** Soccer only. */
   targetEventType?: TargetEventType;
   targetTeam?: TeamSide;
   settlementCondition: SettlementCondition;
   status: RoundStatus;
   correctAnswer?: Answer;
-  /** T - leadTime (leadTime >= 60s), spec §5. Soccer only — CS2 has no minimum window (spec §6). */
   openedAt?: IsoDateTime;
-  /** Exactly window start T, spec §5. */
   lockedAt?: IsoDateTime;
   settledAt?: IsoDateTime;
   settledBy?: SettledBy;
@@ -145,7 +123,7 @@ export interface Prediction {
   userId: Uuid;
   answer: Answer;
   answeredAt: IsoDateTime;
-  /** When backend received it — source of truth for reconnect tie-break (spec §9). */
+  /** Authoritative receive time for reconnect conflict resolution. */
   receivedAt: IsoDateTime;
   result?: PredictionResult;
 }
@@ -155,10 +133,8 @@ export interface LiveEvent {
   matchId: Uuid;
   eventType: TargetEventType;
   team: TeamSide;
-  /** Match minute incl. stoppage. */
   matchMinute: number;
   timestamp: IsoDateTime;
-  /** provisional (false) vs confirmed (true) — spec §5.1. */
   confirmed: boolean;
   rawPayload?: unknown;
 }
@@ -172,7 +148,6 @@ export interface Payout {
   status: PayoutStatus;
 }
 
-/** Aggregated match state maintained by the Match State Engine (B2). */
 export interface MatchState {
   matchId: Uuid;
   period: MatchPeriod;
@@ -185,13 +160,11 @@ export interface MatchState {
   activeWindowStartMinute?: number;
 }
 
-/** A single ranked entry in the leaderboard (spec §7). */
 export interface LeaderboardEntry {
   userId: Uuid;
   username: string;
   status: ArenaPlayerStatus;
   score: number;
-  /** Avg (answeredAt - openedAt) ms — tie-breaker 1. */
   avgAnswerMs?: number;
   missedCount: number;
   joinedAt: IsoDateTime;

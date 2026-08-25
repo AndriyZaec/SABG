@@ -9,7 +9,6 @@ import { Footer } from "./ui/Footer.js";
 import { Loading } from "./ui/Loading.js";
 import { EventAccessGate } from "./access/EventAccessGate.js";
 
-// Landing (Lobby) loads eagerly; heavier in-arena screens are split out.
 const ArenaScreen = lazy(() =>
   import("./screens/ArenaScreen.js").then((m) => ({ default: m.ArenaScreen })),
 );

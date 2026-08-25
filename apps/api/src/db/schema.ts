@@ -1,8 +1,3 @@
-// Postgres schema for spec v2 §13 Data Models.
-// Persisted entities only — MatchState / LeaderboardEntry are in-memory engine
-// aggregates, not tables. Enum values are derived from @arena/contracts
-// so the DB stays in lockstep with that shared-type source of truth.
-
 import {
   ANSWERS,
   ARENA_PLAYER_STATUSES,
@@ -48,10 +43,6 @@ export const teamSideEnum = pgEnum("team_side", TEAM_SIDES);
 export const disciplineEnum = pgEnum("discipline", DISCIPLINES);
 export const seriesStatusEnum = pgEnum("series_status", SERIES_STATUSES);
 
-/**
- * Audit columns for every table. `updatedAt` is kept current by the
- * `set_updated_at` trigger (see migrations), not by application code.
- */
 const timestamps = {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -67,13 +58,8 @@ export const users = pgTable("user", {
   uniqueIndex("user_wallet_address_idx").on(t.walletAddress),
 ]);
 
-/**
- * `best-of-N` grouping of Match rows (one per map), mirrors GRID `seriesState`
- * (cs2-migration-spec/spec_v2.md §2). NOT an Arena — Arena is always at the single-Match level.
- */
 export const series = pgTable("series", {
   id: uuid("id").primaryKey().defaultRandom(),
-  /** GRID's own series id, as passed to `seriesState(id: "...")`. */
   gridSeriesId: text("grid_series_id").notNull().unique(),
   format: integer("format").notNull(),
   scheduledStartTime: timestamp("scheduled_start_time", { withTimezone: true }).notNull(),
@@ -84,11 +70,8 @@ export const series = pgTable("series", {
 export const matches = pgTable("match", {
   id: uuid("id").primaryKey().defaultRandom(),
   discipline: disciplineEnum("discipline").notNull().default("soccer"),
-  /** TXODDS numeric fixture id — the join key to the /scores/stream feed. Soccer only. */
   txoddsFixtureId: integer("txodds_fixture_id").unique(),
-  /** FK to `series` — CS2: one entry per map. Disciplines without series structure leave this null. */
   seriesId: uuid("series_id").references(() => series.id),
-  /** Stable 1-based map position inside a CS2 Series. Null for soccer. */
   seriesMatchIndex: integer("series_match_index"),
   homeTeam: text("home_team").notNull(),
   awayTeam: text("away_team").notNull(),
@@ -115,10 +98,7 @@ export const arenas = pgTable("arena", {
   entryFeeLamports: bigint("entry_fee_lamports", { mode: "number" }).notNull(),
   prizePoolLamports: bigint("prize_pool_lamports", { mode: "number" }).notNull(),
   escrowAccount: text("escrow_account").notNull(),
-  /** On-chain program `arena_id` PDA seed. Null until the arena is provisioned on-chain. */
   onchainArenaId: bigint("onchain_arena_id", { mode: "number" }),
-  /** Set only when `status === "cancelled"` — CS2's `ArenaCancelledReason`. Plain text, not a
-   *  pg-enum: a narrow debug/display field, never filtered on in bulk. */
   cancelledReason: text("cancelled_reason"),
   ...timestamps,
 }, (t) => [
@@ -153,16 +133,12 @@ export const predictionRounds = pgTable("prediction_round", {
     .notNull()
     .references(() => matches.id),
   discipline: disciplineEnum("discipline").notNull().default("soccer"),
-  /** Soccer only (5-min match-clock windows, spec §5). Null for CS2. */
   windowStartMinute: integer("window_start_minute"),
   windowEndMinute: integer("window_end_minute"),
-  /** CS2 only: the real Round number this is 1:1 with (spec §2, §7). Null for soccer. */
   roundNumber: integer("round_number"),
   question: text("question").notNull(),
-  /** Soccer only — CS2 rounds carry their topic inside `settlementCondition` instead. */
   targetEventType: targetEventTypeEnum("target_event_type"),
   targetTeam: teamSideEnum("target_team"),
-  /** Machine-readable settlement condition (SettlementCondition from @arena/contracts). */
   settlementCondition: jsonb("settlement_condition").notNull(),
   status: roundStatusEnum("status").notNull(),
   correctAnswer: answerEnum("correct_answer"),
@@ -203,7 +179,7 @@ export const predictions = pgTable("prediction", {
     .references(() => users.id),
   answer: answerEnum("answer").notNull(),
   answeredAt: timestamp("answered_at", { withTimezone: true }).notNull(),
-  /** When backend received it — source of truth for reconnect tie-break (spec §9). */
+  // Persist receipt time as the reconnect tie-break authority.
   receivedAt: timestamp("received_at", { withTimezone: true }).notNull(),
   result: predictionResultEnum("result"),
   ...timestamps,
@@ -221,7 +197,6 @@ export const liveEvents = pgTable("live_event", {
   team: teamSideEnum("team").notNull(),
   matchMinute: integer("match_minute").notNull(),
   timestamp: timestamp("timestamp", { withTimezone: true }).notNull(),
-  /** provisional (false) vs confirmed (true) — spec §5.1. */
   confirmed: boolean("confirmed").notNull(),
   rawPayload: jsonb("raw_payload"),
   ...timestamps,
@@ -245,7 +220,7 @@ export const payouts = pgTable("payout", {
   index("payout_arena_id_idx").on(t.arenaId),
 ]);
 
-/** Immutable record committed atomically with each destructive replay reset. */
+// Commit an immutable audit record with each destructive reset.
 export const replayResetAudits = pgTable("demo_reset_audit", {
   id: uuid("id").primaryKey().defaultRandom(),
   recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull(),

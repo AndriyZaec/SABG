@@ -1,13 +1,3 @@
-// Owns one recording session's MongoDB collection lifecycle. A session is created once a fresh
-// 0-0 series start is detected and writes every subsequent non-empty-games response, plus the
-// final transition response where games first disappears (games == []) — that frame carries the
-// game's actual finished/final-score state. After that write the caller discards the session.
-//
-// Collection naming convention: `cs2_series_<seriesId>_<UTC ISO timestamp, punctuation
-// stripped>`, e.g. `cs2_series_28_20260729T104332739Z`. The timestamp is taken at session
-// construction (i.e. when the 0-0 frame is observed), guaranteeing a unique collection per
-// match even if the same series id is revisited later the same day.
-
 import type { Document } from "mongodb";
 import { MongoService } from "./mongo/mongo.service.js";
 import { withRetry } from "../live/retry.js";
@@ -21,7 +11,6 @@ export interface GridSeriesStateDoc extends Document {
   updatedAt?: string;
   httpStatus: number;
   rateLimitRemaining?: string;
-  /** Full raw GraphQL response body, verbatim. */
   payload: unknown;
 }
 

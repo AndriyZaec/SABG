@@ -9,8 +9,6 @@ function team(overrides: Partial<Cs2GameSnapshot["teams"][0]> = {}) {
   return { name: "T", score: 0, deaths: 0, weaponKills: [], players: [], ...overrides };
 }
 
-// Settlement is a pure diff of `teams` — the clock is irrelevant here (round-tracker.ts is what
-// reads it), so every synthetic snapshot below shares this placeholder.
 const DEFAULT_CLOCK: Cs2GameSnapshot["clock"] = { ticking: true, currentSeconds: 60 };
 
 describe("resolveCs2Settlement — synthetic cases", () => {
@@ -60,21 +58,21 @@ describe("resolveCs2Settlement — synthetic cases", () => {
 
   it("survivors_team: yes iff 5 - deaths_diff > y", () => {
     const before: Cs2GameSnapshot = { clock: DEFAULT_CLOCK, teams: [team({ deaths: 0 }), team()] };
-    const after: Cs2GameSnapshot = { clock: DEFAULT_CLOCK, teams: [team({ deaths: 2 }), team()] }; // 3 survivors
+    const after: Cs2GameSnapshot = { clock: DEFAULT_CLOCK, teams: [team({ deaths: 2 }), team()] };
     expect(resolveCs2Settlement(buildCs2SettlementCondition("survivors_team", { targetTeam: "home", y: 2 }, 1), before, after)).toBe("yes");
     expect(resolveCs2Settlement(buildCs2SettlementCondition("survivors_team", { targetTeam: "home", y: 3 }, 1), before, after)).toBe("no");
   });
 
   it("survivors_round: yes iff 10 - total_deaths_diff > y", () => {
     const before: Cs2GameSnapshot = { clock: DEFAULT_CLOCK, teams: [team({ deaths: 0 }), team({ deaths: 0 })] };
-    const after: Cs2GameSnapshot = { clock: DEFAULT_CLOCK, teams: [team({ deaths: 2 }), team({ deaths: 5 })] }; // 3 survivors total
-    expect(resolveCs2Settlement(buildCs2SettlementCondition("survivors_round", {}, 1), before, after)).toBe("no"); // y undefined -> defensive "no"
+    const after: Cs2GameSnapshot = { clock: DEFAULT_CLOCK, teams: [team({ deaths: 2 }), team({ deaths: 5 })] };
+    expect(resolveCs2Settlement(buildCs2SettlementCondition("survivors_round", {}, 1), before, after)).toBe("no");
     expect(resolveCs2Settlement(buildCs2SettlementCondition("survivors_round", { y: 2 }, 1), before, after)).toBe("yes");
     expect(resolveCs2Settlement(buildCs2SettlementCondition("survivors_round", { y: 3 }, 1), before, after)).toBe("no");
   });
 
   it("ot_score: yes only for an exact 12-12 after-snapshot, no otherwise — reads `after` directly, not a diff", () => {
-    const before: Cs2GameSnapshot = { clock: DEFAULT_CLOCK, teams: [team({ score: 99 }), team({ score: 99 })] }; // irrelevant — not diffed
+    const before: Cs2GameSnapshot = { clock: DEFAULT_CLOCK, teams: [team({ score: 99 }), team({ score: 99 })] };
     const tied: Cs2GameSnapshot = { clock: DEFAULT_CLOCK, teams: [team({ score: 12 }), team({ score: 12 })] };
     const clinched: Cs2GameSnapshot = { clock: DEFAULT_CLOCK, teams: [team({ score: 12 }), team({ score: 13 })] };
     expect(resolveCs2Settlement(buildCs2SettlementCondition("ot_score", {}, 24), before, tied)).toBe("yes");
@@ -83,11 +81,7 @@ describe("resolveCs2Settlement — synthetic cases", () => {
 });
 
 describe("resolveCs2Settlement — Round 1 of the recorded fixture (cs2_series_28)", () => {
-  // Round 1 boundary: snapshot 0 (0-0, the round's "at lock" baseline) -> snapshot 18 (first
-  // snapshot showing 1-0 — home wiped away 5-0 on kills, took 2 deaths itself). Verified by hand
-  // against the raw fixture (see plan's step-2 exploration notes) — this cross-checks
-  // parseSnapshot + resolveCs2Settlement together against real GRID data, not just synthetic
-  // constructions.
+  // Fixture boundary: round 1 lock baseline to the first 1-0 snapshot.
   const entries = loadCs2Fixture(defaultCs2FixturePath());
   const before = parseSnapshot(entries[0]!.raw)!;
   const after = parseSnapshot(entries[18]!.raw)!;
@@ -128,15 +122,15 @@ describe("resolveCs2Settlement — Round 1 of the recorded fixture (cs2_series_2
 
 describe("resolveCs2Settlement — Round 24 boundary (12-12 vs one side clinched) from the recorded fixture", () => {
   const entries = loadCs2Fixture(defaultCs2FixturePath());
-  const before = parseSnapshot(entries[0]!.raw)!; // unused by ot_score, kept for signature symmetry
+  const before = parseSnapshot(entries[0]!.raw)!;
 
   it("reads 12-12 as yes", () => {
-    const tied = parseSnapshot(entries[246]!.raw)!; // observed score 12-12
+    const tied = parseSnapshot(entries[246]!.raw)!;
     expect(resolveCs2Settlement(buildCs2SettlementCondition("ot_score", {}, 24), before, tied)).toBe("yes");
   });
 
   it("reads 12-13 as no", () => {
-    const clinched = parseSnapshot(entries[269]!.raw)!; // observed score 12-13
+    const clinched = parseSnapshot(entries[269]!.raw)!;
     expect(resolveCs2Settlement(buildCs2SettlementCondition("ot_score", {}, 24), before, clinched)).toBe("no");
   });
 });

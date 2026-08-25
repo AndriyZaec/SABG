@@ -1,8 +1,3 @@
-// Tests handleCs2LivePoll's fan-out (the ordering guarantee is the whole point of this module,
-// see live-poller.ts's file header) and Cs2LivePoller's error-backoff loop, both against a fake
-// Cs2LivePollerTarget — no Postgres involved. Cs2SeriesOrchestrator's own behavior is covered by
-// series-orchestrator.int.test.ts.
-
 import { describe, expect, it, vi } from "vitest";
 import type { IsoDateTime, MatchSignal } from "@arena/contracts";
 import { MatchSignalBus } from "../../ingestion/event-bus.js";
@@ -42,8 +37,6 @@ class FakeTarget implements Cs2LivePollerTarget {
   readonly pollCalls: { snapshot: Cs2SeriesSnapshot | undefined; now: IsoDateTime }[] = [];
   readonly currentBusCallOrder: string[] = [];
 
-  /** Simulates orchestrator.poll() reactively opening the next Arena — flips which bus is
-   *  "current" from the next currentBus() call onward. */
   switchToArenaBAfterNextPoll = false;
 
   currentBus(): MatchSignalBus | undefined {
@@ -68,13 +61,12 @@ describe("handleCs2LivePoll — ordering", () => {
     target.busA.subscribe((s) => receivedOnA.push(s));
     target.busB.subscribe((s) => receivedOnB.push(s));
 
-    // A live map snapshot — trackCs2Poll emits at least a cs2_snapshot signal for it.
     const raw = rawWithGame(liveTeams(0, 0));
     await handleCs2LivePoll(target, raw, initialCs2TrackerState(), NOW);
 
     expect(target.currentBusCallOrder).toEqual(["currentBus", "poll"]);
     expect(receivedOnA.some((s) => s.kind === "cs2_snapshot")).toBe(true);
-    expect(receivedOnB).toEqual([]); // arena B only became "current" after this poll's own actions
+    expect(receivedOnB).toEqual([]);
   });
 
   it("calls target.poll with the parsed series-level snapshot", async () => {
@@ -114,15 +106,14 @@ describe("handleCs2LivePoll — ordering", () => {
             { name: "A", score: 0, won: false },
             { name: "B", score: 0, won: false },
           ],
-          // `games` is omitted: valid enough for the old series parser to report no live game,
-          // but not explicit evidence that the active map ended.
+          // Omitted games are malformed, not explicit evidence that the map ended.
         },
       },
     }, liveState, NOW);
 
     expect(stateAfterMalformed).toEqual(liveState);
     expect(received).toEqual([]);
-    expect(target.pollCalls).toHaveLength(1); // only the initial valid live poll
+    expect(target.pollCalls).toHaveLength(1);
   });
 
   it("preserves both lifecycles when only the map-level payload is valid", async () => {
@@ -155,7 +146,6 @@ describe("handleCs2LivePoll — ordering", () => {
       poll: vi.fn().mockResolvedValue(undefined),
     };
     const raw = rawWithGame(liveTeams(0, 0));
-    // Should not throw even though there's nowhere to publish per-map signals.
     await expect(handleCs2LivePoll(target, raw, initialCs2TrackerState(), NOW)).resolves.toBeDefined();
   });
 
@@ -187,8 +177,8 @@ describe("Cs2LivePoller — error backoff", () => {
       const poller = new Cs2LivePoller({ target, fetchSeriesState, pollIntervalMs: 10_000 });
       poller.start();
 
-      await vi.advanceTimersByTimeAsync(1_000); // first backoff tier
-      await vi.advanceTimersByTimeAsync(10_000); // normal poll interval after the retry succeeds
+      await vi.advanceTimersByTimeAsync(1_000);
+      await vi.advanceTimersByTimeAsync(10_000);
 
       expect(calls).toBeGreaterThanOrEqual(2);
       expect(target.pollCalls.length).toBeGreaterThanOrEqual(1);
@@ -205,7 +195,7 @@ describe("Cs2LivePoller — error backoff", () => {
     const poller = new Cs2LivePoller({ target, fetchSeriesState, pollIntervalMs: 100_000 });
 
     poller.start();
-    await Promise.resolve(); // let the first iteration run
+    await Promise.resolve();
     await poller.shutdown();
 
     const callsAtShutdown = (fetchSeriesState as ReturnType<typeof vi.fn>).mock.calls.length;

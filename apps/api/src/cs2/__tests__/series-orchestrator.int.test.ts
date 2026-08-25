@@ -1,9 +1,3 @@
-// DB integration test for the CS2 persistence "glue" (series-orchestrator.ts). Same pattern as
-// db/__tests__/repositories.int.test.ts: gated on DATABASE_URL, dynamic imports (db/client.ts
-// throws synchronously at import time when DATABASE_URL is unset), unique-per-run identifiers,
-// FK-ordered cleanup. Drives the orchestrator with a synthetic Cs2SeriesSnapshot sequence — no
-// live GRID connection — so this is honestly exercised end-to-end against Postgres without one.
-
 import { randomUUID } from "node:crypto";
 import dotenv from "dotenv";
 import { eq } from "drizzle-orm";
@@ -16,11 +10,6 @@ dotenv.config();
 const RUN = Boolean(process.env["DATABASE_URL"]);
 
 const MIN = 60_000;
-/** Each test picks its own anchor (offset from `Date.now()`) so their Arena-creation timestamps
- *  never collide on `matches`' (homeTeam, awayTeam, startTime) unique index — real Series only
- *  collide there if two *different* series share both team names and the exact same millisecond
- *  Arena-open timestamp, negligible for a live poller but trivially real for two `it` blocks that
- *  reuse a literal constant (caught by this test the first time it was written). */
 function clockFrom(anchorIso: string): (offsetMinutes: number) => string {
   return (offsetMinutes: number) => new Date(Date.parse(anchorIso) + offsetMinutes * MIN).toISOString();
 }
@@ -102,7 +91,6 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
       onArenaOpened: (arenaId) => openedArenas.push({ arenaId }),
     });
 
-    // Arena #1 opens at scheduledStartTime - 10min.
     await orchestrator.poll(snapshot({}), at(-10));
     const matchesForSeries = (await matchRepository.list()).filter((m) => m.seriesId === series.id);
     expect(matchesForSeries).toHaveLength(1);
@@ -120,12 +108,10 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     expect(roundsForArena1).toHaveLength(1);
     expect(roundsForArena1[0]).toMatchObject({ roundNumber: 1, status: "open" });
 
-    // Match 1 goes live -> Arena #1 flips to live.
     await orchestrator.poll(snapshot({ hasLiveGame: true }), at(0));
     const arena1AfterMld = await arenaRepository.findById(arena1Id);
     expect(arena1AfterMld?.status).toBe("live");
 
-    // Match 1 ends 1-0 -> Arena #2 opens reactively, sits in lobby.
     await orchestrator.poll(snapshot({ hasLiveGame: false, teams: [1, 0] }), at(20));
     const matchesAfterM1 = (await matchRepository.list()).filter((m) => m.seriesId === series.id);
     expect(matchesAfterM1).toHaveLength(2);
@@ -136,7 +122,6 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     arenaIds.push(arena2!.id);
     expect(openedArenas).toEqual([{ arenaId: arena1Id }, { arenaId: arena2!.id }]);
 
-    // Someone bought into Arena #2 before the forfeit — should get refunded.
     const walletAddress = `int-test-wallet-${randomUUID()}`;
     const user = await userRepository.upsertByWallet(walletAddress, "int-test-user");
     userIds.push(user.id);
@@ -148,8 +133,7 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
       txSignature: `sig-${randomUUID()}`,
     });
 
-    // Match 2 never goes live — the series envelope jumps straight to 2-0/finished (forfeit,
-    // data-assumptions.md #12), well within the 60min no-show window.
+    // The series-score jump resolves a map that never appeared live.
     await orchestrator.poll(snapshot({ hasLiveGame: false, teams: [2, 0], finished: true }), at(22));
 
     const cancelledArena2 = await arenaRepository.findById(arena2!.id);
@@ -159,12 +143,10 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     expect(refundedPass.find((p) => p.id === entryPass.id)?.status).toBe("refunded");
 
     const decidedSeries = await seriesRepository.findById(series.id);
-    expect(decidedSeries?.status).toBe("decided"); // forfeit ≠ no-show — never "invalid"
+    expect(decidedSeries?.status).toBe("decided");
   });
 
   it("cancels Arena #1 with reason no_show and marks the Series invalid when Match Live Detected never arrives within 60min", async () => {
-    // A different anchor from the test above (+3h) so this test's Arena #1 never collides on
-    // (homeTeam, awayTeam, startTime) with the other test's, even though both use "Team A"/"Team B".
     const at = clockFrom(new Date(Date.now() + 3 * 60 * MIN).toISOString());
     const gridSeriesId = `int-test-${randomUUID()}`;
     const series = await seriesRepository.upsertByGridSeriesId(gridSeriesId, { format: 3, scheduledStartTime: new Date(at(0)) });
@@ -173,13 +155,13 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     const writeQueue = new WriteQueue();
     const orchestrator = await Cs2SeriesOrchestrator.create(series, { writeQueue, entryFeeLamports: 1000 });
 
-    await orchestrator.poll(snapshot({}), at(-10)); // Arena #1 opens
+    await orchestrator.poll(snapshot({}), at(-10));
     const match1 = (await matchRepository.list()).find((m) => m.seriesId === series.id)!;
     matchIds.push(match1.id);
     const arena1 = await arenaRepository.findByMatchId(match1.id);
     arenaIds.push(arena1!.id);
 
-    await orchestrator.poll(snapshot({ hasLiveGame: false }), at(61)); // 61min, still no MLD
+    await orchestrator.poll(snapshot({ hasLiveGame: false }), at(61));
 
     const cancelled = await arenaRepository.findById(arena1!.id);
     expect(cancelled).toMatchObject({ status: "cancelled", cancelledReason: "no_show" });

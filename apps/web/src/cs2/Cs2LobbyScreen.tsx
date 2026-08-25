@@ -4,10 +4,6 @@ import { Cs2EntryCard } from "./Cs2EntryCard.js";
 import { Loading } from "../ui/Loading.js";
 import { Panel } from "../ui/Panel.js";
 
-// CS2's analog of screens/LobbyScreen.tsx. No score/clock ticker (CS2 has no such stream), no
-// mocked "upcoming matches" list (no CS2 equivalent exists to mock) — just the primary arena's
-// teams, a real on-chain join card (5c2 — same backend-orchestrated buy_entry flow soccer uses,
-// gateway/rest.ts's /entry/prepare+/entry/submit are already discipline-agnostic), and a link in.
 export function Cs2LobbyScreen() {
   const { arena, match, loading } = useCs2BackendArena();
 

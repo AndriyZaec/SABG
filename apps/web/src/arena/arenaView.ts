@@ -8,16 +8,13 @@ import type {
   Uuid,
 } from "@arena/contracts";
 
-/** The current prediction round as the arena screen needs it. */
 export interface RoundView {
   roundId: string;
   question: string;
   windowStartMinute: number;
   windowEndMinute: number;
   status: RoundStatus;
-  /** Epoch ms when answers lock. Undefined right after a reload seeds this from the REST
-   *  snapshot (`PredictionRound` carries no lockAt) — replaced by a real value on the next live
-   *  `round.open`/`round.lock` message. */
+  /** Undefined until the authoritative live state provides a lock time. */
   lockAt?: number;
   myAnswer?: Answer;
   correctAnswer?: Answer;
@@ -38,7 +35,6 @@ export interface LeaderRow {
   you?: boolean;
 }
 
-/** View model the Live Arena renders from. Fed by seeded demo data now, by the WS hook in 5d. */
 export interface ArenaView {
   home: string;
   away: string;
@@ -48,28 +44,18 @@ export interface ArenaView {
   survivors: number;
   totalPlayers: number;
   round?: RoundView;
-  /** This player's own status, from personal player.status pushes (live, on elimination/winning
-   *  a round; and on subscribe/reconnect, since it otherwise wouldn't resync). Undefined until
-   *  the first such push arrives. */
+  /** Undefined until personal state is received or restored on reconnect. */
   myStatus?: ArenaPlayerStatus;
-  /** Rounds that have locked but not yet settled, for which this player submitted an answer
-   *  (spec §8: only ever their own). Full-list snapshot from the server — replace, don't merge. */
+  /** Authoritative snapshot of this player's locked, unsettled predictions. */
   pendingPredictions?: PendingPrediction[];
   feed: FeedItem[];
   leaderboard: LeaderRow[];
 }
 
-/** Keeps feed entries readable — a long question shouldn't blow out the feed item's width. */
 export function truncate(text: string, max = 64): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
-/**
- * Rebuilds the match feed from persisted round history (`GET /arenas/:id/rounds`) — the same
- * items the live WS stream would have produced via `round.settle`/`player.status`, so a reload
- * or a mid-match joiner isn't stuck with an empty feed. Ids match the live-reduce ones
- * (`settle-${roundId}` / `me-${roundId}`) so the two sources dedup cleanly.
- */
 export function feedFromRounds(rounds: ArenaRoundsResponse["rounds"], myUserId?: Uuid): FeedItem[] {
   const settled = rounds
     .filter((r) => r.round.status === "settled" && r.round.correctAnswer !== undefined)
@@ -96,7 +82,6 @@ export function feedFromRounds(rounds: ArenaRoundsResponse["rounds"], myUserId?:
   return items.slice(0, 20);
 }
 
-/** Base match state. */
 export const DEMO_VIEW: ArenaView = {
   home: "England",
   away: "Argentina",
@@ -120,7 +105,6 @@ export const DEMO_VIEW: ArenaView = {
   ],
 };
 
-/** Illustrative state so /arena/demo looks alive without a backend — fresh countdown each load. */
 export function makeDemoView(): ArenaView {
   return {
     ...DEMO_VIEW,

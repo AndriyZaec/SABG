@@ -1,6 +1,3 @@
-// Payout persistence — one row per winner per arena. Created `pending`, then marked
-// `sent` (with the settle tx signature) or `failed` by the payout service.
-
 import { eq } from "drizzle-orm";
 import type { Payout, Uuid } from "@arena/contracts";
 import { db } from "../client.js";

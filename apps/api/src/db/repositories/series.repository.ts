@@ -1,6 +1,3 @@
-// Series persistence (cs2-migration-spec/spec_v2.md §2). Backs cs2/series-orchestrator.ts —
-// the first and, for now, only writer.
-
 import { eq } from "drizzle-orm";
 import type { Series, SeriesStatus, Uuid } from "@arena/contracts";
 import { db } from "../client.js";
@@ -18,8 +15,6 @@ export const seriesRepository = {
     return row ? seriesRowToEntity(row) : undefined;
   },
 
-  /** Idempotent bootstrap, mirrors arena.repository.ts's upsertForMatch: find-then-insert, keyed
-   *  by GRID's own series id (unique in schema.ts). */
   async upsertByGridSeriesId(
     gridSeriesId: string,
     defaults: { format: number; scheduledStartTime: Date },

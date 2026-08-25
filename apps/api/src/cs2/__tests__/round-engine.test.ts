@@ -10,9 +10,6 @@ import type { Cs2QuestionProvider } from "../question-provider.js";
 const MATCH_ID = "00000000-0000-0000-0000-0000000000c2";
 const ARENA_ID = "00000000-0000-0000-0000-0000000000a2";
 
-/** Replays the recorded fixture through the real round-tracker onto a fresh bus, with the engine
- *  subscribed — the same "known-good pure reducer feeds the engine under test" shape as
- *  round-tracker.test.ts's own fixture replay, just one layer up. */
 function driveEngineWithFixture(engine: Cs2RoundEngine, bus: MatchSignalBus): void {
   const entries = loadCs2Fixture(defaultCs2FixturePath());
   let trackerState = initialCs2TrackerState();
@@ -39,10 +36,7 @@ describe("Cs2RoundEngine — full fixture replay (cs2_series_28, one Bo3 map)", 
     const settles = events.filter((e) => e.type === "settle");
     const voids = events.filter((e) => e.type === "void");
 
-    // Round 30 also gets its own lock in this fixture (its freezetime finishes at the very last
-    // recorded poll), which cascades open Round 31 — same 30 locks as round-tracker.test.ts,
-    // plus the one extra open that lock triggers. The fixture then cuts off: Round 30 never
-    // settles (no round_end) and Round 31 never locks.
+    // The fixture ends after round 30 locks, leaving rounds 30 and 31 unresolved.
     expect(opens).toHaveLength(31);
     expect(locks).toHaveLength(30);
     expect(settles).toHaveLength(29);
@@ -59,12 +53,12 @@ describe("Cs2RoundEngine — full fixture replay (cs2_series_28, one Bo3 map)", 
     expect(round1?.status).toBe("settled");
     expect(round1?.correctAnswer).toBeDefined();
     const round30 = engine.roundsByNumber.get(30);
-    expect(round30?.status).toBe("locked"); // opened, locked, never settled — fixture ends mid-round
+    expect(round30?.status).toBe("locked");
     const round31 = engine.roundsByNumber.get(31);
-    expect(round31?.status).toBe("open"); // opened by round 30's lock, never itself locked
+    expect(round31?.status).toBe("open");
   });
 
-  it("never has more than one round open at a time (spec §6 invariant)", () => {
+  it("never has more than one round open at a time", () => {
     const bus = new MatchSignalBus();
     const events: Cs2RoundLifecycleEvent[] = [];
     const engine = new Cs2RoundEngine(MATCH_ID, ARENA_ID, { onTransition: (e) => events.push(e) });
@@ -76,8 +70,6 @@ describe("Cs2RoundEngine — full fixture replay (cs2_series_28, one Bo3 map)", 
     for (const event of events) {
       if (event.type === "open") openCount++;
       if (event.type === "lock" || event.type === "settle" || event.type === "void") {
-        // lock transitions the just-opened round out of "open" (into locked); settle/void only
-        // ever apply to already-locked/open rounds, not double-counted here.
       }
       if (event.type === "lock") openCount--;
       maxOpen = Math.max(maxOpen, openCount);
@@ -124,13 +116,11 @@ describe("Cs2RoundEngine — synthetic match-end voiding", () => {
     engine.subscribeTo(bus);
 
     engine.onMatchLiveDetected("t0");
-    // Round 1 locks (warmup -> live): opens Round 2.
     bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(0, 0, 18), timestamp: "t0" });
     bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(0, 0, 105), timestamp: "t1" });
     bus.publish({ kind: "cs2_round_lock", roundNumber: 1, timestamp: "t1" });
 
-    // The match ends mid-Round-1 (score never advanced) — no cs2_round_end ever arrives, just
-    // one more snapshot (best-available "after") followed by match_end.
+    // No score transition proves a result before match end.
     bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(0, 0, 60), timestamp: "t2" });
     bus.publish({ kind: "cs2_match_end", timestamp: "t3" });
 
@@ -171,7 +161,7 @@ describe("Cs2RoundEngine — synthetic match-end voiding", () => {
     const engine = new Cs2RoundEngine(MATCH_ID, ARENA_ID, { questionProvider: fakeProvider(), onTransition: (e) => events.push(e) });
     engine.subscribeTo(bus);
 
-    engine.onMatchLiveDetected("t0"); // Round 1 opens, never locks
+    engine.onMatchLiveDetected("t0");
     bus.publish({ kind: "cs2_match_end", timestamp: "t1" });
 
     expect(events.filter((e) => e.type === "settle")).toHaveLength(0);
@@ -192,8 +182,7 @@ describe("Cs2RoundEngine — resync at the next reliable lock", () => {
     engine.subscribeTo(bus);
 
     engine.onMatchLiveDetected("t0");
-    // The process joined during Round 1 and missed its lock. The first reliable boundary is
-    // Round 2's lock, after the score has already advanced to 1-0.
+    // Polling began after round 1's lock; round 2 is the first reliable boundary.
     bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(1, 0, 105), timestamp: "t1" });
     bus.publish({ kind: "cs2_round_lock", roundNumber: 2, timestamp: "t1" });
 
@@ -222,7 +211,7 @@ describe("Cs2RoundEngine — isArenaFinished gate", () => {
     bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(0, 0, 18), timestamp: "t0" });
     bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(0, 0, 105), timestamp: "t1" });
     finished = true;
-    bus.publish({ kind: "cs2_round_lock", roundNumber: 1, timestamp: "t1" }); // locks Round 1, but no Round 2 opened
+    bus.publish({ kind: "cs2_round_lock", roundNumber: 1, timestamp: "t1" });
 
     expect(engine.roundsByNumber.get(1)?.status).toBe("locked");
     expect(engine.roundsByNumber.has(2)).toBe(false);

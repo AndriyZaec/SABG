@@ -6,8 +6,6 @@ import { Button } from "../ui/Button.js";
 import { Badge } from "../ui/Badge.js";
 import { Loading } from "../ui/Loading.js";
 
-// Mirrors arena/EntryCard.tsx.
-
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="nb-hero__stat">
@@ -19,7 +17,6 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 const sol = (lamports: number) => Number((lamports / 1_000_000_000).toFixed(3));
 
-/** Entry / join state for the primary CS2 arena — rendered docked into the lobby panel. */
 export function Cs2EntryCard() {
   const { connected } = useWallet();
   const { arena } = useCs2BackendArena();

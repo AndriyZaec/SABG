@@ -26,7 +26,6 @@ export interface PayoutState {
   refresh: () => Promise<void>;
 }
 
-/** Reads the demo arena's payout state and lets the payout authority settle it. */
 export function useArenaPayout(options: ArenaPayoutOptions = {}): PayoutState {
   const program = useArenaProgram();
   const { publicKey } = useWallet();

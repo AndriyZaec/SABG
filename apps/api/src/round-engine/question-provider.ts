@@ -1,9 +1,3 @@
-// Seam (spec §4.2): the round engine needs a question + settlement condition for every round it
-// opens, but the real Question Generator (context-aware, rule/template-based) isn't built yet.
-// This is the injected interface the real generator implements — the round engine only ever
-// depends on `QuestionProvider`, never on how questions are produced, so the real generator drops
-// in later without the round engine changing.
-
 import type { MatchState, SettlementCondition, TargetEventType, TeamSide } from "@arena/contracts";
 
 export interface QuestionContext {
@@ -11,10 +5,7 @@ export interface QuestionContext {
   arenaId: string;
   windowStartMinute: number;
   windowEndMinute: number;
-  /** Recent match state, when available — context for a real generator (spec §4.2). Unused by the stub. */
   matchState?: MatchState;
-  /** Real home/away team names for rendering questions (e.g. "England" instead of "home").
-   *  Falls back to "Home"/"Away" labels when not supplied (see templates.ts's renderQuestion). */
   teamNames?: { home: string; away: string };
 }
 
@@ -29,11 +20,6 @@ export interface QuestionProvider {
   generate(ctx: QuestionContext): GeneratedQuestion;
 }
 
-/**
- * Deterministic placeholder: always asks about a shot by either team in the window. Good enough
- * to exercise the round engine's lifecycle end-to-end; not a stand-in for the real generator's
- * context-aware generation policy (natural questions, avoid trivially-resolved — spec §4.2).
- */
 export function createStubQuestionProvider(): QuestionProvider {
   return {
     generate(ctx: QuestionContext): GeneratedQuestion {

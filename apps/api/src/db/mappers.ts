@@ -1,8 +1,3 @@
-// Pure row <-> @arena/contracts entity mappers. No I/O; unit-testable in isolation
-// (db/__tests__/mappers.test.ts). Keeps the Drizzle row shape (snake_case columns, split
-// scoreHome/scoreAway, Date objects) from leaking into the engines/gateway, which only ever see
-// @arena/contracts entity shapes.
-
 import type {
   Arena,
   ArenaCancelledReason,
@@ -73,8 +68,7 @@ export function arenaRowToEntity(row: ArenaRow): Arena {
     prizePoolLamports: row.prizePoolLamports,
     escrowAccount: row.escrowAccount,
     ...(row.onchainArenaId != null ? { onchainArenaId: row.onchainArenaId } : {}),
-    // Plain text column (not a pg-enum, see schema.ts) — the DAL is the only writer
-    // (arena.repository.ts's cancelIfLobby), so the value is trusted rather than re-validated.
+    // Only the DAL writes this non-enum value.
     ...(row.cancelledReason !== null ? { cancelledReason: row.cancelledReason as ArenaCancelledReason } : {}),
   };
 }
@@ -120,8 +114,7 @@ export function predictionRoundRowToEntity(row: PredictionRoundRow): PredictionR
     matchId: row.matchId,
     discipline: row.discipline,
     question: row.question,
-    // jsonb column — the DAL is the only writer (prediction-round.repository.ts), so the shape
-    // is trusted rather than re-validated on every read.
+    // Only the DAL writes this unvalidated JSON shape.
     settlementCondition: row.settlementCondition as SettlementCondition,
     status: row.status,
     ...(row.windowStartMinute !== null ? { windowStartMinute: row.windowStartMinute } : {}),

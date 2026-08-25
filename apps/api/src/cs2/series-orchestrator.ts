@@ -1,17 +1,3 @@
-// The persistence "glue" for cs2/series-lifecycle.ts (cs2-migration-spec/spec_v2.md §4): turns
-// the pure reducer's `Cs2LifecycleAction[]` into real Match/Arena/EntryPass rows and running
-// `Cs2ArenaRuntime` instances. No live GRID driver yet — `poll()` is called by whatever produces
-// a `Cs2SeriesSnapshot` (a live poller later, step 5; a synthetic sequence in tests today), so
-// this class is honestly exercised end-to-end against Postgres without one.
-//
-// Deliberately does nothing for the reducer's `match_ended` action: that's the series-level view
-// of a map ending, detected independently from the per-map view `round-tracker.ts`'s
-// `trackCs2Poll` already drives Cs2RoundEngine with (`cs2_match_end` on its own bus). Both watch
-// the same raw GRID poll through two different parsers (`parseSnapshot` vs `parseSeriesSnapshot`)
-// — a production driver feeds one raw response into both pipelines every poll. Acting on
-// `match_ended` here too would just be a redundant, potentially out-of-order second trigger for
-// something Cs2RoundEngine already owns.
-
 import type { GatewayBroadcaster } from "../gateway/arena-runtime.js";
 import { closeEntrySubmissions } from "../gateway/entry-prepare-store.js";
 import { createPgArenaPlayerStore } from "../gateway/stores/pg-arena-player-store.js";
@@ -46,7 +32,6 @@ export interface Cs2SeriesOrchestratorOptions {
   writeQueue: WriteQueue;
   entryFeeLamports: number;
   broadcaster?: GatewayBroadcaster;
-  /** Called once an Arena runtime is ready in this process, including a restored lobby. */
   onArenaOpened?: (arenaId: Uuid, runtime: Cs2ArenaRuntime) => void;
 }
 
@@ -142,14 +127,7 @@ export class Cs2SeriesOrchestrator {
     opened.runtime.openRoundOne(latestMatch.startTime);
   }
 
-  /**
-   * The bus for the most recently opened Arena (highest matchIndex) — cs2/live-poller.ts routes
-   * round-tracker.ts's per-map signals here. Since Arenas within a Series are strictly
-   * sequential, "most recently opened" is always "the one whose map is currently live or about
-   * to be" — the map that just ended (a poll's per-map cs2_match_end) is still the highest
-   * matchIndex *until* this same poll's series-level action opens the next one, which is why
-   * live-poller.ts reads this before calling `poll()`, not after.
-   */
+  /** Must be read before a poll can open the next arena. */
   currentBus(): MatchSignalBus | undefined {
     const indices = [...this.arenasByMatchIndex.keys()];
     if (indices.length === 0) return undefined;
@@ -166,8 +144,7 @@ export class Cs2SeriesOrchestrator {
     }
     const { state, actions } = processCs2SeriesPoll(this.lifecycleState, snapshot, now);
     this.lifecycleState = state;
-    // Sequential, in action order — matters for the rare same-poll "open Arena #1 then
-    // immediately no-show-cancel it" case (series-lifecycle.ts's own doc comment).
+    // Preserve reducer action order when one poll emits multiple transitions.
     for (const action of actions) await this.apply(action, snapshot, now);
     if (snapshot !== undefined) this.reconcilingFinishedMatch = false;
   }
@@ -181,7 +158,7 @@ export class Cs2SeriesOrchestrator {
         await this.matchLiveDetected(action.matchIndex, now);
         return;
       case "match_ended":
-        return; // see file header — Cs2RoundEngine owns this via its own bus signal
+        return;
       case "series_decided":
         await seriesRepository.setStatus(this.series.id, "decided");
         return;
@@ -239,9 +216,6 @@ export class Cs2SeriesOrchestrator {
       finishArena: (arenaId, winners) => {
         void this.options.writeQueue.enqueue(arenaId, async () => {
           await arenaRepository.setStatus(arenaId, "finished");
-          // Off-chain arenas (never provisioned on-chain — every CS2 arena today) make this a
-          // safe no-op; kept for parity with soccer's gateway/run.ts and to start working the
-          // moment CS2 arenas do get provisioned.
           await payoutService.settleArena(arenaId, winners);
         });
       },

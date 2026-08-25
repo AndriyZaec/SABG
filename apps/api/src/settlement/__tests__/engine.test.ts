@@ -54,8 +54,8 @@ describe("SettlementEngine", () => {
   it("settles early on a confirmed matching event, before window end", () => {
     const { engine, predictionStore, settled, playerResults } = setup();
     const round = makeRound();
-    predictionStore.recordAnswer(round.id, USER_1, "yes"); // will be correct
-    predictionStore.recordAnswer(round.id, USER_2, "no"); // will be incorrect
+    predictionStore.recordAnswer(round.id, USER_1, "yes");
+    predictionStore.recordAnswer(round.id, USER_2, "no");
 
     engine.onRoundLocked(round);
     engine.apply({
@@ -73,24 +73,21 @@ describe("SettlementEngine", () => {
   it("does not settle early on a non-matching or unconfirmed event, and settles no at window end", () => {
     const { engine, predictionStore, settled, playerResults } = setup();
     const round = makeRound();
-    predictionStore.recordAnswer(round.id, USER_1, "no"); // will be correct
-    predictionStore.recordAnswer(round.id, USER_2, "yes"); // will be incorrect
+    predictionStore.recordAnswer(round.id, USER_1, "no");
+    predictionStore.recordAnswer(round.id, USER_2, "yes");
 
     engine.onRoundLocked(round);
-    // wrong event type — no early settle
     engine.apply({
       kind: "event",
       event: { id: "e1", matchId: MATCH_ID, eventType: "corner", team: "home", matchMinute: 22, timestamp: "t", confirmed: true },
     });
-    // unconfirmed matching event — no early settle
     engine.apply({
       kind: "event",
       event: { id: "e2", matchId: MATCH_ID, eventType: "shot", team: "home", matchMinute: 23, timestamp: "t", confirmed: false },
     });
     expect(settled).toHaveLength(0);
 
-    // windowEndMinute is 25 — spec §6 requires minute *strictly greater* than that to end the
-    // window, so a tick at exactly 25 must not settle yet (see the dedicated boundary test below).
+    // Settlement is strictly after the end minute.
     engine.apply({ kind: "clock", period: "first_half", matchMinute: 25, running: true, timestamp: "t" });
     expect(settled).toHaveLength(0);
 
@@ -106,7 +103,6 @@ describe("SettlementEngine", () => {
   it("marks a player who never answered as missed and eliminated", () => {
     const { engine, playerResults } = setup();
     const round = makeRound();
-    // USER_1 and USER_2 both never answer.
     engine.onRoundLocked(round);
     engine.apply({ kind: "clock", period: "first_half", matchMinute: 26, running: true, timestamp: "t" });
 
@@ -115,19 +111,14 @@ describe("SettlementEngine", () => {
   });
 
   it("still settles yes on a confirmed event at exactly windowEndMinute, even after the clock already ticked to that minute", () => {
-    // Regression test for a real bug found by the full-pipeline fixture test: the raw feed's
-    // clock can tick to a window's end minute via a provisional (unconfirmed) message, with the
-    // matching event's *confirmation* arriving in a later message stamped with that same minute.
-    // Settling "no" the instant minute==windowEndMinute would beat that confirmation to the punch.
+    // A provisional clock tick can precede a same-minute event confirmation.
     const { engine, settled } = setup();
-    const round = makeRound(); // windowEndMinute: 25
+    const round = makeRound();
 
     engine.onRoundLocked(round);
-    // Clock ticks to exactly windowEndMinute (e.g. from a provisional message) — must not settle.
     engine.apply({ kind: "clock", period: "first_half", matchMinute: 25, running: true, timestamp: "t" });
     expect(settled).toHaveLength(0);
 
-    // The confirming event arrives afterward, still stamped with minute 25 — must settle "yes".
     engine.apply({
       kind: "event",
       event: { id: "e1", matchId: MATCH_ID, eventType: "shot", team: "home", matchMinute: 25, timestamp: "t", confirmed: true },
@@ -149,26 +140,17 @@ describe("SettlementEngine", () => {
     expect(settled).toHaveLength(1);
     const resultsAfterFirstSettle = playerResults.length;
 
-    // A second confirmed matching event for the same (already-settled) round.
     engine.apply({
       kind: "event",
       event: { id: "e2", matchId: MATCH_ID, eventType: "shot", team: "home", matchMinute: 23, timestamp: "t", confirmed: true },
     });
-    // A clock tick past the window end.
     engine.apply({ kind: "clock", period: "first_half", matchMinute: 30, running: true, timestamp: "t" });
 
-    expect(settled).toHaveLength(1); // no additional settle events
-    expect(playerResults).toHaveLength(resultsAfterFirstSettle); // no additional player results
+    expect(settled).toHaveLength(1);
+    expect(playerResults).toHaveLength(resultsAfterFirstSettle);
   });
 
   it("settles yes for an any-team round when the only matching event has ambiguous team attribution (team: 'any')", () => {
-    // Regression test: found via full-pipeline.test.ts intermittently failing once question
-    // generation stopped being deterministic (see candidates.ts) and finally exercised a
-    // targetTeam:"any" round against a real ambiguous-team event in fixture 18179764 (window
-    // 75-80, a substitution normalize.ts couldn't attribute to a side). handleEvent used to drop
-    // every team:"any" LiveEvent outright, so an any-team question could never be credited by an
-    // event whose team attribution was merely ambiguous — even though the question doesn't care
-    // which team, only that the event happened.
     const { engine, settled } = setup();
     const round = makeRound({
       targetTeam: "any",
@@ -195,14 +177,14 @@ describe("SettlementEngine", () => {
 
   it("does not settle a specific-team round early on an ambiguous-team event — still settles no at window end", () => {
     const { engine, settled } = setup();
-    const round = makeRound(); // targetTeam: "home"
+    const round = makeRound();
 
     engine.onRoundLocked(round);
     engine.apply({
       kind: "event",
       event: { id: "e1", matchId: MATCH_ID, eventType: "shot", team: "any", matchMinute: 22, timestamp: "t", confirmed: true },
     });
-    expect(settled).toHaveLength(0); // not credited — can't confirm "home" did it
+    expect(settled).toHaveLength(0);
 
     engine.apply({ kind: "clock", period: "first_half", matchMinute: 26, running: true, timestamp: "t" });
     expect(settled).toEqual([
@@ -213,8 +195,6 @@ describe("SettlementEngine", () => {
   it("replaying fixture 18179764 through Ingestion -> RoundEngine -> SettlementEngine settles all 16 rounds", () => {
     const bus = new MatchSignalBus();
 
-    // Bridge round engine <-> settlement engine exactly as live/run.ts wires it: forward-declare
-    // so each engine's callback can reference the other.
     let settlementEngine: SettlementEngine;
     const roundEngine = new RoundEngine(FIXTURE_MATCH_ID, ARENA_ID, {
       onTransition: (event) => {

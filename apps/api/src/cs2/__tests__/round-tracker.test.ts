@@ -58,7 +58,6 @@ describe("trackCs2Poll — synthetic sequences", () => {
       { kind: "cs2_snapshot", snapshot: scoreChanged, timestamp: "t2" },
       { kind: "cs2_round_end", roundNumber: 1, winner: "home", snapshot: scoreChanged, timestamp: "t2" },
     ]);
-    // roundInProgress advances to 2 immediately, but round 2 isn't locked until its own clock reset.
     expect(state.roundInProgress).toBe(2);
     expect(state.lockedRound).toBe(1);
 
@@ -92,17 +91,14 @@ describe("trackCs2Poll — synthetic sequences", () => {
   });
 
   it("does not synthesize a lock for a round it joined mid-way through (missed the clock reset)", () => {
-    // First-ever poll already mid-round, ticking — no prior snapshot to detect a reset against.
     const joined = trackCs2Poll(initialCs2TrackerState(), snapshot(0, 0, { ticking: true, currentSeconds: 60 }), "t0");
     expect(joined.signals).toEqual([{ kind: "cs2_snapshot", snapshot: snapshot(0, 0, { ticking: true, currentSeconds: 60 }), timestamp: "t0" }]);
     expect(joined.state.lockedRound).toBeUndefined();
 
-    // Round 1 ends without ever having been locked — no round_end (no lockSnapshot baseline).
     const ended = trackCs2Poll(joined.state, snapshot(1, 0, { ticking: true, currentSeconds: 15 }), "t1");
     expect(ended.signals.some((s) => s.kind === "cs2_round_end")).toBe(false);
     expect(ended.state.roundInProgress).toBe(2);
 
-    // Round 2's own clock reset locks it normally.
     const locked = trackCs2Poll(ended.state, snapshot(1, 0, { ticking: true, currentSeconds: 106 }), "t2");
     expect(locked.signals.some((s) => s.kind === "cs2_round_lock" && s.roundNumber === 2)).toBe(true);
   });
@@ -130,8 +126,7 @@ describe("trackCs2Poll — recorded fixture (cs2_series_28, one Bo3 map)", () =>
     const ends = signals.filter((s) => s.kind === "cs2_round_end");
     const matchEnds = signals.filter((s) => s.kind === "cs2_match_end");
 
-    // Recorded score progression tops out at 14-15 (sum 29) — round 30 is still open when the
-    // recording cuts off (recorder never observed the map finish, see plan's finding #4).
+    // The fixture ends at 14-15 before the map-finish transition.
     expect(locks).toHaveLength(30);
     expect(ends).toHaveLength(29);
     expect(matchEnds).toHaveLength(0);

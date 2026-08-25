@@ -1,7 +1,3 @@
-// Singleton MongoDB connection for the Grid.gg poller. A thin copy of
-// src/live/mongo/mongo.service.ts bound to gridConfig instead of liveConfig, so this module has
-// no dependency on the TXODDS/live worker's env (which requires SOLANA_WALLET_PRIVATE_KEY).
-
 import { MongoClient, type Db } from "mongodb";
 import { gridConfig } from "../config/env.js";
 import { logger } from "../logger.js";
@@ -36,7 +32,6 @@ export class MongoService {
     return MongoService.db;
   }
 
-  /** Closes the MongoDB connection cleanly (used during graceful shutdown). */
   public static async quit(): Promise<void> {
     if (MongoService.client) {
       await MongoService.client.close();

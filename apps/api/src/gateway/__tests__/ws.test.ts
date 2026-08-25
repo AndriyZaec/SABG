@@ -1,7 +1,3 @@
-// Real WS integration test (actual `ws` server + client over a loopback port) — unlike
-// arena-runtime.test.ts's broadcaster spy, this exercises the transport itself: auth-gated
-// upgrade, subscribe-triggered resync, per-arena broadcast isolation, and answer forwarding.
-
 import { createServer, type Server as HttpServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -27,7 +23,6 @@ function waitForClose(socket: WebSocket): Promise<{ code: number }> {
   });
 }
 
-/** Collects every parsed ServerMessage a client receives, in order. */
 function collectMessages(socket: WebSocket): ServerMessage[] {
   const messages: ServerMessage[] = [];
   socket.on("message", (data) => {
@@ -80,7 +75,6 @@ describe("GatewayWebSocketServer", () => {
     await waitForOpen(socket);
     const messages = collectMessages(socket);
 
-    // Broadcast before any subscribe — should be cached, not delivered yet (no subscriber).
     gateway.broadcast(ARENA_ID, {
       type: "match.state",
       state: {
@@ -173,7 +167,6 @@ describe("GatewayWebSocketServer", () => {
     const statusMsg = messagesEliminated.find((m) => m.type === "player.status");
     expect(statusMsg).toEqual({ type: "player.status", status: "eliminated" });
 
-    // A different, unknown-to-the-runtime user gets no player.status push on subscribe.
     const tokenUnknown = issueToken("user-unknown");
     const socketUnknown = connect(tokenUnknown);
     await waitForOpen(socketUnknown);
@@ -192,8 +185,6 @@ describe("GatewayWebSocketServer", () => {
     await waitForOpen(socket);
     const messages = collectMessages(socket);
 
-    // No statusFor/pendingPredictionsFor at all — the shape Cs2ArenaRuntime satisfies today
-    // (ArenaRuntimeLike, arena-runtime.ts), both being optional.
     const cs2LikeRuntime: ArenaRuntimeLike = {
       currentRound: undefined,
       join: vi.fn(),
@@ -288,7 +279,6 @@ describe("GatewayWebSocketServer", () => {
       entries: [],
     });
 
-    // Give the (would-be) delivery a tick to happen if it were going to.
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(messages).toHaveLength(0);
 

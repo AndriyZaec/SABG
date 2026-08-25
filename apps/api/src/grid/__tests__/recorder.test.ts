@@ -37,7 +37,7 @@ vi.mock("../../shared/sleep.js", () => ({ sleep: mocks.sleep }));
 
 import { GridRecorder } from "../recorder.js";
 
-/** `roundScore` is the in-game round score of the (single) live game; `null` means no live game. */
+/** `null` marks the fixture's explicit empty-games boundary. */
 function frame(roundScore: [number, number] | null) {
   return {
     status: 200,
@@ -45,7 +45,7 @@ function frame(roundScore: [number, number] | null) {
     data: {
       data: {
         seriesState: {
-          teams: [{ score: 0 }, { score: 0 }], // series-level maps-won score; irrelevant here
+          teams: [{ score: 0 }, { score: 0 }],
           games: roundScore === null ? [] : [{ teams: [{ score: roundScore[0] }, { score: roundScore[1] }] }],
         },
       },
@@ -63,19 +63,18 @@ describe("GridRecorder state machine", () => {
 
   it("creates exactly two collections and writes live frames plus the closing transition frame across two back-to-back matches", async () => {
     const feed = [
-      frame([0, 0]), // fresh 0-0 round score + live game -> session created and written in one frame
-      frame([5, 3]), // still live -> write
-      frame([8, 6]), // still live -> write
-      frame(null), // games empty -> write final transition frame, then stop
-      frame([0, 0]), // second match starts fresh -> new session, write
+      frame([0, 0]),
+      frame([5, 3]),
+      frame([8, 6]),
+      frame(null),
+      frame([0, 0]),
     ];
     let call = 0;
     mocks.fetchSeriesState.mockImplementation((signal?: AbortSignal) => {
       const next = feed[call];
       call += 1;
       if (next) return Promise.resolve(next);
-      // Feed exhausted: park on an unresolved promise instead of polling further so the test
-      // can assert on the exact 5-poll outcome; shutdown()'s abort settles it deterministically.
+      // Park after the fixture boundary until shutdown aborts the poll.
       return new Promise((_resolve, reject) => {
         if (signal?.aborted) {
           reject(new Error("aborted"));
@@ -92,7 +91,6 @@ describe("GridRecorder state machine", () => {
     await recorder.shutdown();
 
     expect(capturedSessions).toHaveLength(2);
-    // Writes: frame1, frame2, frame3, frame4-transition (first match) + frame5 (second match) = 5 writes.
     expect(mocks.write).toHaveBeenCalledTimes(5);
   });
 });

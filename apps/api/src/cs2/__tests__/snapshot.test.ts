@@ -61,8 +61,6 @@ describe("parseSnapshot", () => {
       const snapshot = parseSnapshot(entry.raw);
       if (snapshot !== undefined) parsedCount++;
     }
-    // Every recorded poll in this fixture has a live game (the recorder only writes while
-    // games is non-empty — recording-session.ts).
     expect(parsedCount).toBe(entries.length);
   });
 });
@@ -136,7 +134,6 @@ describe("isRoundLive", () => {
     for (let i = 1; i < snapshots.length; i++) {
       if (isRoundLive(snapshots[i - 1]!, snapshots[i]!)) liveTransitions++;
     }
-    // Round 1's warmup->live transition plus 29 further round-to-round transitions.
     expect(liveTransitions).toBe(30);
   });
 });

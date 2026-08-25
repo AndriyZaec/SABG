@@ -1,8 +1,3 @@
-// Replays a recorded GRID series-state fixture through parseSnapshot + trackCs2Poll. CS2's
-// analog of ingestion/replay.ts — used by tests and any one-off eyeballing script, not by
-// production code (a later step wires a live GameSource directly to parseSnapshot/trackCs2Poll
-// instead of this file).
-
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -14,7 +9,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export interface Cs2FixtureEntry {
   receivedAt: IsoDateTime;
-  /** Raw GRID response envelope, exactly `GridClient.fetchSeriesState().data`'s shape. */
   raw: unknown;
 }
 
@@ -28,8 +22,6 @@ export function defaultCs2FixturePath(): string {
   return path.join(__dirname, "__fixtures__", "cs2-series-28-map1.json");
 }
 
-/** Feeds every recorded poll through parseSnapshot + trackCs2Poll in order, returning every
- *  signal emitted and the tracker's final state. */
 export function replayCs2Fixture(
   entries: Cs2FixtureEntry[],
 ): { signals: Cs2MatchSignal[]; finalState: Cs2TrackerState } {

@@ -1,6 +1,3 @@
-// Bootstrap for the Grid.gg CS2 series-state poller/recorder. Mirrors src/live/preflight.ts's
-// startup shape: connect Mongo, start the recorder, and shut down cleanly on signal.
-
 import { MongoService } from "./mongo/mongo.service.js";
 import { GridRecorder } from "./recorder.js";
 import { logger } from "./logger.js";

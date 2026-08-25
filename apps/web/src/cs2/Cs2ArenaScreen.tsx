@@ -9,8 +9,6 @@ import { WinnerBanner } from "../arena/live/WinnerBanner.js";
 import { Loading } from "../ui/Loading.js";
 import { Panel } from "../ui/Panel.js";
 
-// CS2's analog of screens/ArenaScreen.tsx. No "demo" arenaId fallback — there is no seeded CS2
-// demo fixture.
 export function Cs2ArenaScreen() {
   const { arenaId } = useParams();
   const { view, connected, answerSubmission, submitAnswer } = useCs2ArenaSocket(arenaId ?? "");
@@ -39,13 +37,8 @@ export function Cs2ArenaScreen() {
     );
   }
 
-  // Same spectator concept as soccer's ArenaScreen: a viewer without a personal player.status
-  // push (never joined) is a spectator — no answer buttons. CS2 has no join flow wired up yet
-  // (deliberately out of scope, see the plan), so this is effectively always true for now.
   const isParticipant = view.myStatus !== undefined;
 
-  // The current round is already shown in full by Cs2RoundCard — this list is only the other
-  // rounds still awaiting settlement (the cascading-generation overlap: N locked, N+1 open).
   const pending = (view.pendingPredictions ?? []).filter((p) => p.roundId !== view.round?.roundId);
 
   return (

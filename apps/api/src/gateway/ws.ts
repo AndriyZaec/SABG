@@ -1,12 +1,3 @@
-// Realtime Gateway's WS server. Implements `GatewayBroadcaster` (arena-runtime.ts) so it can
-// be constructed *before* any ArenaRuntime (the runtime is handed `this` as its broadcaster);
-// looks runtimes up by arenaId to route inbound `ClientMessage`s (subscribe/answer).
-//
-// Reconnect resync (spec §9): the mock explicitly ignores `subscribe` (single-arena fixture, no
-// real resync need). Here `subscribe` actually matters — a client (re)joining mid-arena needs the
-// current match/round/leaderboard state, not just future pushes. This gateway caches the latest
-// resyncable message per arena as it broadcasts, and replays that cache to a socket on subscribe.
-
 import type { IncomingMessage } from "node:http";
 import type { Server as HttpServer } from "node:http";
 import type { Duplex } from "node:stream";
@@ -36,17 +27,13 @@ interface Connection {
   arenaId: Uuid | undefined;
 }
 
-/** Last-known state per arena, replayed to a socket on `subscribe` (spec §9 resync). */
+// Public state is cached per arena for reconnect reconciliation.
 interface ArenaCache {
   matchState?: MatchStateMessage;
-  /** Whichever of open/lock/settle/void was broadcast most recently — lets a reconnecting
-   *  client's own state machine pick up wherever the round currently is, rather than replaying a
-   *  stale open. */
+  // Cache only the latest round transition so reconnects never replay stale state.
   round?: RoundOpenMessage | RoundLockMessage | RoundSettleMessage | RoundVoidMessage;
   leaderboard?: LeaderboardMessage;
   finished?: ArenaFinishedMessage;
-  /** CS2 no-show/forfeit-cancellation (spec §4 п.4, data-assumptions.md #12) — an arena that
-   *  never went live and never will. */
   cancelled?: ArenaCancelledMessage;
 }
 
@@ -62,12 +49,10 @@ export class GatewayWebSocketServer implements GatewayBroadcaster, ArenaRuntimeL
     private readonly authorizeAccess: (request: IncomingMessage) => EventAccessAuthorization = () => ({ authorized: true }),
   ) {}
 
-  /** Called once per arena as its ArenaRuntime is constructed (this gateway is its broadcaster). */
   registerRuntime(arenaId: Uuid, runtime: ArenaRuntimeLike): void {
     this.runtimes.set(arenaId, runtime);
   }
 
-  /** ArenaRuntimeLookup — shared with rest.ts so both sit on the one registry (see arena-runtime.ts). */
   getRuntime(arenaId: Uuid): ArenaRuntimeLike | undefined {
     return this.runtimes.get(arenaId);
   }
@@ -147,7 +132,6 @@ export class GatewayWebSocketServer implements GatewayBroadcaster, ArenaRuntimeL
     }
   }
 
-  /** Answering over WS and REST both funnel into `ArenaRuntime.submitAnswer`; WS replies here. */
   private handleAnswer(conn: Connection, roundId: Uuid, answer: Answer): void {
     if (conn.arenaId === undefined) {
       this.send(conn, { type: "answer.rejected", roundId, answer, reason: "not_subscribed" });
@@ -186,10 +170,7 @@ export class GatewayWebSocketServer implements GatewayBroadcaster, ArenaRuntimeL
       if (cache.cancelled !== undefined) this.send(conn, cache.cancelled);
     }
 
-    // Personal resync (spec §9): the player's own locked-but-unsettled answers, never cached
-    // generically (same reasoning as player.status) — read fresh from the runtime per subscriber.
-    // Both are optional on ArenaRuntimeLike only for test doubles that don't need them — both real
-    // runtimes (soccer's and CS2's, arena-runtime.ts in each) implement them.
+    // Read personal state fresh per subscriber; never place it in the shared arena cache.
     const runtime = this.runtimes.get(arenaId);
     let answerRoundId = runtime?.currentRound?.id;
     if (cache?.round?.type === "round.open") answerRoundId = cache.round.round.id;
@@ -202,9 +183,7 @@ export class GatewayWebSocketServer implements GatewayBroadcaster, ArenaRuntimeL
       this.send(conn, { type: "player.pending", predictions: runtime.pendingPredictionsFor(conn.userId) });
     }
     if (runtime?.statusFor !== undefined) {
-      // Personal resync of the player's own status. Without this, a reconnecting eliminated
-      // player would see the answer buttons again until (never, since they're eliminated) a
-      // round they were part of settles again — status is otherwise only ever pushed live.
+      // Restore status on reconnect so eliminated players cannot answer again.
       const status = runtime.statusFor(conn.userId);
       if (status !== undefined) this.send(conn, { type: "player.status", status });
     }
@@ -263,7 +242,7 @@ export class GatewayWebSocketServer implements GatewayBroadcaster, ArenaRuntimeL
         break;
       case "player.status":
       case "player.pending":
-        break; // personal — never cached/replayed generically.
+        break; // Personal messages must never enter the shared cache.
     }
   }
 }
