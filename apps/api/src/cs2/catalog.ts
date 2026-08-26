@@ -7,6 +7,15 @@ import type {
   Cs2TopicParams,
   Cs2Weapon,
 } from "@arena/contracts";
+import {
+  cs2Difficulty,
+  cs2TierForRound,
+  cs2TierMatches,
+  isCs2PistolRound,
+  isEconomyBanned,
+  isPistolConditionalWeapon,
+  type Cs2TeamSlot,
+} from "./weights.js";
 
 export interface Cs2Candidate {
   topic: Cs2Topic;
@@ -33,10 +42,56 @@ export function buildCs2GeneralCandidates(teams: readonly [Cs2TeamIdentity, Cs2T
   ];
 }
 
-export function pickCs2Candidate(teams: readonly [Cs2TeamIdentity, Cs2TeamIdentity]): Cs2Candidate {
-  const candidates = buildCs2GeneralCandidates(teams);
-  const index = Math.floor(Math.random() * candidates.length);
-  return candidates[index]!;
+export interface Cs2CandidatePickInput {
+  teams: readonly [Cs2TeamIdentity, Cs2TeamIdentity];
+  roundNumber: number;
+  previousCandidate: Cs2Candidate | undefined;
+}
+
+function sameCandidate(a: Cs2Candidate, b: Cs2Candidate): boolean {
+  return (
+    a.topic === b.topic &&
+    a.params.targetTeamId === b.params.targetTeamId &&
+    a.params.weapon === b.params.weapon &&
+    a.params.y === b.params.y
+  );
+}
+
+function teamSlotOf(
+  teams: readonly [Cs2TeamIdentity, Cs2TeamIdentity],
+  targetTeamId: Cs2TeamId | undefined,
+): Cs2TeamSlot | undefined {
+  if (targetTeamId === undefined) return undefined;
+  return teams[0].teamId === targetTeamId ? 0 : teams[1].teamId === targetTeamId ? 1 : undefined;
+}
+
+export function eligibleCs2Candidates(input: Cs2CandidatePickInput): Cs2Candidate[] {
+  const { teams, roundNumber, previousCandidate } = input;
+  const isPistolRound = isCs2PistolRound(roundNumber);
+  const tier = cs2TierForRound(roundNumber);
+  const generalCandidates = buildCs2GeneralCandidates(teams);
+
+  const nonBanned = generalCandidates.filter((c) => !isEconomyBanned(c, roundNumber));
+  const tierPool = nonBanned.filter((c) => {
+    // Pistol economy makes glock/usp_silencer kills near-certain on R1/13 regardless of that round's usual tier.
+    if (isPistolRound && c.topic === "weapon_kill" && c.params.weapon !== undefined && isPistolConditionalWeapon(c.params.weapon)) {
+      return true;
+    }
+    const difficulty = cs2Difficulty(c, isPistolRound, teamSlotOf(teams, c.params.targetTeamId));
+    if (difficulty === undefined) return tier !== "easy";
+    return cs2TierMatches(tier, difficulty);
+  });
+
+  const varied = previousCandidate === undefined ? tierPool : tierPool.filter((c) => !sameCandidate(c, previousCandidate));
+  if (varied.length > 0) return varied;
+  if (tierPool.length > 0) return tierPool;
+  return nonBanned.length > 0 ? nonBanned : generalCandidates;
+}
+
+export function pickCs2Candidate(input: Cs2CandidatePickInput): Cs2Candidate {
+  const pool = eligibleCs2Candidates(input);
+  const index = Math.floor(Math.random() * pool.length);
+  return pool[index]!;
 }
 
 function requireTeamId(params: Cs2TopicParams, topic: Cs2Topic): Cs2TeamId {

@@ -94,11 +94,16 @@ export class Cs2RoundEngine {
     if (this.rounds.has(roundNumber)) return;
     if (this.teams === undefined) throw new Error(`Cannot open CS2 round ${roundNumber} without team identities`);
 
+    const previousCondition = this.rounds.get(roundNumber - 1)?.settlementCondition;
+
     const generated = this.questionProvider.generate({
       matchId: this.matchId,
       arenaId: this.arenaId,
       roundNumber,
       teams: this.teams,
+      // Passed through the input rather than kept as provider state: the injected-provider path
+      // (tests, Cs2ArenaRuntime) can share one provider instance across arenas.
+      previousCandidate: previousCondition?.discipline === "cs2" ? previousCondition : undefined,
     });
 
     const round: PredictionRound = {
