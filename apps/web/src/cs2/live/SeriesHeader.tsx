@@ -2,7 +2,7 @@ import type { Cs2ArenaView } from "../cs2View.js";
 import { Badge } from "../../ui/Badge.js";
 
 export function SeriesHeader({ view }: { view: Cs2ArenaView }) {
-  const teams = view.homeTeam && view.awayTeam ? `${view.homeTeam} vs ${view.awayTeam}` : "Waiting for teams…";
+  const teams = view.teams ? `${view.teams[0]} vs ${view.teams[1]}` : "Waiting for teams…";
 
   return (
     <div className="nb-rise">

@@ -14,15 +14,18 @@ function clockFrom(anchorIso: string): (offsetMinutes: number) => string {
   return (offsetMinutes: number) => new Date(Date.parse(anchorIso) + offsetMinutes * MIN).toISOString();
 }
 
-function snapshot(opts: { teams?: [number, number]; hasLiveGame?: boolean; finished?: boolean }): Cs2SeriesSnapshot {
+function snapshot(
+  teamIds: readonly [string, string],
+  opts: { teams?: [number, number]; hasLiveGame?: boolean; finished?: boolean },
+): Cs2SeriesSnapshot {
   const [a, b] = opts.teams ?? [0, 0];
   return {
     format: 3,
     finished: opts.finished ?? false,
     hasLiveGame: opts.hasLiveGame ?? false,
     teams: [
-      { teamId: "team-a", name: "Team A", score: a, won: false },
-      { teamId: "team-b", name: "Team B", score: b, won: false },
+      { teamId: teamIds[0], name: "Team A", score: a, won: false },
+      { teamId: teamIds[1], name: "Team B", score: b, won: false },
     ],
   };
 }
@@ -33,6 +36,7 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
   let seriesRepository: typeof import("../../db/repositories/series.repository.js")["seriesRepository"];
   let arenaRepository: typeof import("../../db/repositories/arena.repository.js")["arenaRepository"];
   let matchRepository: typeof import("../../db/repositories/match.repository.js")["matchRepository"];
+  let cs2IdentityRepository: typeof import("../../db/repositories/cs2-identity.repository.js")["cs2IdentityRepository"];
   let entryPassRepository: typeof import("../../db/repositories/entry-pass.repository.js")["entryPassRepository"];
   let predictionRoundRepository: typeof import("../../db/repositories/prediction-round.repository.js")["predictionRoundRepository"];
   let WriteQueue: typeof import("../../gateway/stores/write-queue.js")["WriteQueue"];
@@ -43,6 +47,7 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
   const matchIds: string[] = [];
   const seriesIds: string[] = [];
   const userIds: string[] = [];
+  const teamIds: string[] = [];
 
   beforeAll(async () => {
     ({ db } = await import("../../db/client.js"));
@@ -50,6 +55,7 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     ({ seriesRepository } = await import("../../db/repositories/series.repository.js"));
     ({ arenaRepository } = await import("../../db/repositories/arena.repository.js"));
     ({ matchRepository } = await import("../../db/repositories/match.repository.js"));
+    ({ cs2IdentityRepository } = await import("../../db/repositories/cs2-identity.repository.js"));
     ({ entryPassRepository } = await import("../../db/repositories/entry-pass.repository.js"));
     ({ predictionRoundRepository } = await import("../../db/repositories/prediction-round.repository.js"));
     ({ WriteQueue } = await import("../../gateway/stores/write-queue.js"));
@@ -74,14 +80,27 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     }
     for (const matchId of matchIds) await db.delete(schema.matches).where(eq(schema.matches.id, matchId));
     for (const seriesId of seriesIds) await db.delete(schema.series).where(eq(schema.series.id, seriesId));
+    for (const teamId of teamIds) await db.delete(schema.cs2Teams).where(eq(schema.cs2Teams.id, teamId));
     for (const userId of userIds) await db.delete(schema.users).where(eq(schema.users.id, userId));
   });
+
+  async function synchronizeTestTeams(seriesId: string): Promise<readonly [string, string]> {
+    const suffix = randomUUID();
+    const identities = await cs2IdentityRepository.synchronizeSeriesTeams(seriesId, [
+      { gridTeamId: `grid-a-${suffix}`, name: "Team A", score: 0 },
+      { gridTeamId: `grid-b-${suffix}`, name: "Team B", score: 0 },
+    ]);
+    const ids = [identities[0].teamId, identities[1].teamId] as const;
+    teamIds.push(...ids);
+    return ids;
+  }
 
   it("opens Arena #1 in lobby, persists Round 1, flips to live on Match Live Detected, then cancels the reactively-opened Arena #2 on a forfeit — Series ends up decided, not invalid", async () => {
     const at = clockFrom(new Date(Date.now()).toISOString());
     const gridSeriesId = `int-test-${randomUUID()}`;
     const series = await seriesRepository.upsertByGridSeriesId(gridSeriesId, { format: 3, scheduledStartTime: new Date(at(0)) });
     seriesIds.push(series.id);
+    const matchTeamIds = await synchronizeTestTeams(series.id);
 
     const writeQueue = new WriteQueue();
     const openedArenas: { arenaId: string }[] = [];
@@ -91,8 +110,8 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
       onArenaOpened: (arenaId) => openedArenas.push({ arenaId }),
     });
 
-    await orchestrator.poll(snapshot({}), at(-10));
-    const matchesForSeries = (await matchRepository.list()).filter((m) => m.seriesId === series.id);
+    await orchestrator.poll(snapshot(matchTeamIds, {}), at(-10));
+    const matchesForSeries = (await matchRepository.list()).filter((m) => m.discipline === "cs2" && m.seriesId === series.id);
     expect(matchesForSeries).toHaveLength(1);
     const match1Id = matchesForSeries[0]!.id;
     matchIds.push(match1Id);
@@ -108,12 +127,12 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     expect(roundsForArena1).toHaveLength(1);
     expect(roundsForArena1[0]).toMatchObject({ roundNumber: 1, status: "open" });
 
-    await orchestrator.poll(snapshot({ hasLiveGame: true }), at(0));
+    await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: true }), at(0));
     const arena1AfterMld = await arenaRepository.findById(arena1Id);
     expect(arena1AfterMld?.status).toBe("live");
 
-    await orchestrator.poll(snapshot({ hasLiveGame: false, teams: [1, 0] }), at(20));
-    const matchesAfterM1 = (await matchRepository.list()).filter((m) => m.seriesId === series.id);
+    await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: false, teams: [1, 0] }), at(20));
+    const matchesAfterM1 = (await matchRepository.list()).filter((m) => m.discipline === "cs2" && m.seriesId === series.id);
     expect(matchesAfterM1).toHaveLength(2);
     const match2Id = matchesAfterM1.find((m) => m.id !== match1Id)!.id;
     matchIds.push(match2Id);
@@ -134,7 +153,7 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     });
 
     // The series-score jump resolves a map that never appeared live.
-    await orchestrator.poll(snapshot({ hasLiveGame: false, teams: [2, 0], finished: true }), at(22));
+    await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: false, teams: [2, 0], finished: true }), at(22));
 
     const cancelledArena2 = await arenaRepository.findById(arena2!.id);
     expect(cancelledArena2).toMatchObject({ status: "cancelled", cancelledReason: "series_decided" });
@@ -151,17 +170,18 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     const gridSeriesId = `int-test-${randomUUID()}`;
     const series = await seriesRepository.upsertByGridSeriesId(gridSeriesId, { format: 3, scheduledStartTime: new Date(at(0)) });
     seriesIds.push(series.id);
+    const matchTeamIds = await synchronizeTestTeams(series.id);
 
     const writeQueue = new WriteQueue();
     const orchestrator = await Cs2SeriesOrchestrator.create(series, { writeQueue, entryFeeLamports: 1000 });
 
-    await orchestrator.poll(snapshot({}), at(-10));
-    const match1 = (await matchRepository.list()).find((m) => m.seriesId === series.id)!;
+    await orchestrator.poll(snapshot(matchTeamIds, {}), at(-10));
+    const match1 = (await matchRepository.list()).find((m) => m.discipline === "cs2" && m.seriesId === series.id)!;
     matchIds.push(match1.id);
     const arena1 = await arenaRepository.findByMatchId(match1.id);
     arenaIds.push(arena1!.id);
 
-    await orchestrator.poll(snapshot({ hasLiveGame: false }), at(61));
+    await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: false }), at(61));
 
     const cancelled = await arenaRepository.findById(arena1!.id);
     expect(cancelled).toMatchObject({ status: "cancelled", cancelledReason: "no_show" });
@@ -177,6 +197,7 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
       scheduledStartTime: new Date(at(0)),
     });
     seriesIds.push(series.id);
+    const matchTeamIds = await synchronizeTestTeams(series.id);
 
     const writeQueue = new WriteQueue();
     let firstRuntime: Cs2ArenaRuntime | undefined;
@@ -187,7 +208,7 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
         firstRuntime = runtime;
       },
     });
-    await first.poll(snapshot({}), at(-10));
+    await first.poll(snapshot(matchTeamIds, {}), at(-10));
 
     const match = (await matchRepository.listBySeriesId(series.id))[0]!;
     const arena = (await arenaRepository.findByMatchId(match.id))!;

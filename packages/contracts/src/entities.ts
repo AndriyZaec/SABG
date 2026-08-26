@@ -15,7 +15,7 @@ import type {
   TargetEventType,
   TeamSide,
 } from "./enums.js";
-import type { SettlementCondition } from "./settlement.js";
+import type { Cs2TeamIdentity, SettlementCondition } from "./settlement.js";
 
 export type IsoDateTime = string;
 export type Uuid = string;
@@ -34,21 +34,34 @@ export interface User {
   avatar?: string;
 }
 
-export interface Match {
+interface BaseMatch {
   id: Uuid;
-  discipline: Discipline;
-  homeTeam: string;
-  awayTeam: string;
   startTime: IsoDateTime;
   status: MatchStatus;
+}
+
+export interface SoccerMatch extends BaseMatch {
+  discipline: "soccer";
+  homeTeam: string;
+  awayTeam: string;
   currentMinute: number;
   period: MatchPeriod;
   score: Score;
-  /** CS2 only; absent for disciplines without series. */
-  seriesId?: Uuid;
-  /** CS2 only; stable 1-based map position within the series. */
-  seriesMatchIndex?: number;
 }
+
+export interface Cs2MatchTeamScore extends Cs2TeamIdentity {
+  score: number;
+}
+
+export interface Cs2Match extends BaseMatch {
+  discipline: "cs2";
+  seriesId: Uuid;
+  /** Stable 1-based map position within the series. */
+  seriesMatchIndex: number;
+  teamScores: [Cs2MatchTeamScore, Cs2MatchTeamScore];
+}
+
+export type Match = SoccerMatch | Cs2Match;
 
 /** Groups map-level matches; each arena belongs to one map-level match. */
 export interface Series {

@@ -5,7 +5,7 @@ import nacl from "tweetnacl";
 import bs58 from "bs58";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildSignInMessage } from "@arena/auth";
-import type { Arena, ArenaPlayer, EntryPass, Match, Prediction, PredictionRound, User } from "@arena/contracts";
+import type { Arena, ArenaPlayer, EntryPass, Match, Prediction, PredictionRound, SoccerMatch, User } from "@arena/contracts";
 
 vi.mock("../../db/repositories/user.repository.js", () => ({
   userRepository: { upsertByWallet: vi.fn(), findById: vi.fn() },
@@ -50,7 +50,7 @@ const { issueToken } = await import("../auth.js");
 const ARENA_ID = "arena-1";
 const MATCH_ID = "match-1";
 
-function fakeMatch(overrides: Partial<Match> = {}): Match {
+function fakeMatch(overrides: Partial<SoccerMatch> = {}): SoccerMatch {
   return {
     id: MATCH_ID,
     discipline: "soccer",

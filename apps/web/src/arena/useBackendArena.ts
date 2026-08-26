@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react";
-import type { Arena, Match } from "@arena/contracts";
+import type { Arena, SoccerMatch } from "@arena/contracts";
 import { fetchPrimaryArena } from "../api/client.js";
 
 /**
  * The backend-provisioned arena to target (with its match), if any. Null in mock mode / no backend
  * arena — callers then fall back to the standalone on-chain demo (client-created arena).
  */
-export function useBackendArena(): { arena: Arena | null; match: Match | null; loading: boolean } {
+export function useBackendArena(): { arena: Arena | null; match: SoccerMatch | null; loading: boolean } {
   const [arena, setArena] = useState<Arena | null>(null);
-  const [match, setMatch] = useState<Match | null>(null);
+  const [match, setMatch] = useState<SoccerMatch | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {

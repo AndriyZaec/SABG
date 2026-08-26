@@ -42,19 +42,55 @@ export function userRowToEntity(row: UserRow): User {
   };
 }
 
-export function matchRowToEntity(row: MatchRow): Match {
-  return {
+export interface Cs2MatchTeamScoreRow {
+  teamId: string;
+  name: string;
+  score: number;
+  displayOrder: number;
+}
+
+export function matchRowToEntity(row: MatchRow, cs2TeamScores?: Cs2MatchTeamScoreRow[]): Match {
+  const base = {
     id: row.id,
-    discipline: row.discipline,
-    homeTeam: row.homeTeam,
-    awayTeam: row.awayTeam,
     startTime: row.startTime.toISOString(),
     status: row.status,
-    currentMinute: row.currentMinute,
-    period: row.period,
-    score: { home: row.scoreHome, away: row.scoreAway },
-    ...(row.seriesId !== null ? { seriesId: row.seriesId } : {}),
-    ...(row.seriesMatchIndex !== null ? { seriesMatchIndex: row.seriesMatchIndex } : {}),
+  };
+
+  if (row.discipline === "soccer") {
+    if (row.homeTeam === null || row.awayTeam === null || row.scoreHome === null || row.scoreAway === null) {
+      throw new Error(`Soccer match ${row.id} is missing positional fields`);
+    }
+    return {
+      ...base,
+      discipline: "soccer",
+      homeTeam: row.homeTeam,
+      awayTeam: row.awayTeam,
+      currentMinute: row.currentMinute,
+      period: row.period,
+      score: { home: row.scoreHome, away: row.scoreAway },
+    };
+  }
+
+  if (row.seriesId === null || row.seriesMatchIndex === null) {
+    throw new Error(`CS2 match ${row.id} is missing series identity`);
+  }
+  if (
+    cs2TeamScores?.length !== 2 ||
+    cs2TeamScores[0]?.displayOrder !== 1 ||
+    cs2TeamScores[1]?.displayOrder !== 2 ||
+    cs2TeamScores[0].teamId === cs2TeamScores[1].teamId
+  ) {
+    throw new Error(`CS2 match ${row.id} does not have a complete team score pair`);
+  }
+  return {
+    ...base,
+    discipline: "cs2",
+    seriesId: row.seriesId,
+    seriesMatchIndex: row.seriesMatchIndex,
+    teamScores: cs2TeamScores.map(({ teamId, name, score }) => ({ teamId, name, score })) as [
+      { teamId: string; name: string; score: number },
+      { teamId: string; name: string; score: number },
+    ],
   };
 }
 

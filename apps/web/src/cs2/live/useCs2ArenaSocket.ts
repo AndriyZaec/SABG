@@ -22,10 +22,10 @@ function buildCs2WsUrl(token: string | null): string {
 }
 
 function initialView(d: ArenaDetailResponse): Cs2ArenaView {
+  if (d.match.discipline !== "cs2") throw new Error(`Arena ${d.arena.id} is not a CS2 arena`);
   const round = d.currentRound;
   return {
-    homeTeam: d.match.homeTeam,
-    awayTeam: d.match.awayTeam,
+    teams: [d.match.teamScores[0].name, d.match.teamScores[1].name],
     survivors: d.arena.activePlayersCount,
     totalPlayers: d.arena.activePlayersCount,
     // Restore the current round from the authoritative reconnect snapshot.

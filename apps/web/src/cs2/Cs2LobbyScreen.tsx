@@ -21,7 +21,7 @@ export function Cs2LobbyScreen() {
         {arena && match ? (
           <>
             <p style={{ marginBottom: 14 }}>
-              {match.homeTeam} vs {match.awayTeam}
+              {match.teamScores[0].name} vs {match.teamScores[1].name}
             </p>
             <Cs2EntryCard />
             <Link

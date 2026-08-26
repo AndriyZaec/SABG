@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import type { Arena, Match } from "@arena/contracts";
+import type { Arena, Cs2Match } from "@arena/contracts";
 import { fetchPrimaryCs2Arena } from "./api/cs2Client.js";
 
-export function useCs2BackendArena(): { arena: Arena | null; match: Match | null; loading: boolean } {
+export function useCs2BackendArena(): { arena: Arena | null; match: Cs2Match | null; loading: boolean } {
   const [arena, setArena] = useState<Arena | null>(null);
-  const [match, setMatch] = useState<Match | null>(null);
+  const [match, setMatch] = useState<Cs2Match | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {

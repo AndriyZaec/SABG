@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { IsoDateTime, MatchSignal } from "@arena/contracts";
+import type { Cs2GameSnapshot, IsoDateTime, MatchSignal } from "@arena/contracts";
 import { MatchSignalBus } from "../../ingestion/event-bus.js";
 import { initialCs2TrackerState, type Cs2TrackerState } from "../round-tracker.js";
 import {
@@ -62,6 +62,10 @@ class FakeTarget implements Cs2LivePollerTarget {
     return this.useB ? this.busB : this.busA;
   }
 
+  async updateLiveScore(_snapshot: Cs2GameSnapshot): Promise<void> {
+    this.currentBusCallOrder.push("updateLiveScore");
+  }
+
   async poll(snapshot: Cs2SeriesSnapshot | undefined, now: IsoDateTime): Promise<void> {
     this.currentBusCallOrder.push("poll");
     this.pollCalls.push({ snapshot, now });
@@ -82,7 +86,7 @@ describe("handleCs2LivePoll — ordering", () => {
     const raw = rawWithGame(liveTeams(0, 0));
     await handleCs2LivePoll(target, raw, initialCs2TrackerState(), NOW);
 
-    expect(target.currentBusCallOrder).toEqual(["currentBus", "poll"]);
+    expect(target.currentBusCallOrder).toEqual(["currentBus", "updateLiveScore", "poll"]);
     expect(receivedOnA.some((s) => s.kind === "cs2_snapshot")).toBe(true);
     expect(receivedOnB).toEqual([]);
   });
@@ -161,6 +165,7 @@ describe("handleCs2LivePoll — ordering", () => {
   it("publishes nothing when no arena is currently open (currentBus() returns undefined)", async () => {
     const target: Cs2LivePollerTarget = {
       currentBus: () => undefined,
+      updateLiveScore: vi.fn().mockResolvedValue(undefined),
       poll: vi.fn().mockResolvedValue(undefined),
     };
     const raw = rawWithGame(liveTeams(0, 0));

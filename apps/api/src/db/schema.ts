@@ -107,19 +107,27 @@ export const matches = pgTable("match", {
   txoddsFixtureId: integer("txodds_fixture_id").unique(),
   seriesId: uuid("series_id").references(() => series.id),
   seriesMatchIndex: integer("series_match_index"),
-  homeTeam: text("home_team").notNull(),
-  awayTeam: text("away_team").notNull(),
+  homeTeam: text("home_team"),
+  awayTeam: text("away_team"),
   startTime: timestamp("start_time", { withTimezone: true }).notNull(),
   status: matchStatusEnum("status").notNull(),
   currentMinute: integer("current_minute").notNull(),
   period: matchPeriodEnum("period").notNull(),
-  scoreHome: integer("score_home").notNull(),
-  scoreAway: integer("score_away").notNull(),
+  scoreHome: integer("score_home"),
+  scoreAway: integer("score_away"),
   ...timestamps,
 }, (t) => [
   uniqueIndex("match_teams_start_time_idx").on(t.homeTeam, t.awayTeam, t.startTime),
   index("match_series_id_idx").on(t.seriesId),
   uniqueIndex("match_series_match_index_idx").on(t.seriesId, t.seriesMatchIndex),
+  check(
+    "match_soccer_fields_check",
+    sql`${t.discipline} <> 'soccer' OR (${t.homeTeam} IS NOT NULL AND ${t.awayTeam} IS NOT NULL AND ${t.scoreHome} IS NOT NULL AND ${t.scoreAway} IS NOT NULL)`,
+  ),
+  check(
+    "match_cs2_fields_check",
+    sql`${t.discipline} <> 'cs2' OR (${t.seriesId} IS NOT NULL AND ${t.seriesMatchIndex} IS NOT NULL AND ${t.homeTeam} IS NULL AND ${t.awayTeam} IS NULL AND ${t.scoreHome} IS NULL AND ${t.scoreAway} IS NULL)`,
+  ),
 ]);
 
 export const cs2MatchTeamScores = pgTable("cs2_match_team_score", {

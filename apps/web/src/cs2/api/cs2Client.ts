@@ -2,9 +2,9 @@ import type {
   Arena,
   ArenaDetailResponse,
   ArenaListResponse,
+  Cs2Match,
   ArenaRoundsResponse,
   LeaderboardResponse,
-  Match,
   MatchListResponse,
   PrepareEntryRequest,
   PrepareEntryResponse,
@@ -41,7 +41,7 @@ async function reportEventAccessFailure(response: Response): Promise<void> {
 
 export interface PrimaryCs2Arena {
   arena: Arena;
-  match: Match;
+  match: Cs2Match;
 }
 
 export async function fetchPrimaryCs2Arena(): Promise<PrimaryCs2Arena | null> {

@@ -1,6 +1,6 @@
 // Per-map signals must reach the current arena before series polling can open the next arena.
 
-import type { IsoDateTime } from "@arena/contracts";
+import type { Cs2GameSnapshot, IsoDateTime } from "@arena/contracts";
 import type { MatchSignalBus } from "../ingestion/event-bus.js";
 import { sleep } from "../shared/sleep.js";
 import { nextBackoffMs } from "../grid/backoff.js";
@@ -14,6 +14,7 @@ import type { Cs2TeamIdentityMap } from "./team-identity.js";
 export interface Cs2LivePollerTarget {
   poll(snapshot: Cs2SeriesSnapshot | undefined, now: IsoDateTime): Promise<void>;
   currentBus(): MatchSignalBus | undefined;
+  updateLiveScore(snapshot: Cs2GameSnapshot): Promise<void>;
 }
 
 export interface Cs2RawRecorderTarget {
@@ -44,6 +45,7 @@ export async function handleCs2LivePoll(
   if (bus !== undefined) {
     for (const signal of tracked.signals) bus.publish(signal);
   }
+  if (observation.kind === "live") await target.updateLiveScore(observation.snapshot);
 
   await target.poll(seriesSnapshot, now);
 

@@ -67,6 +67,71 @@ describe("matchRowToEntity", () => {
       score: { home: 1, away: 2 },
     });
   });
+
+  it("hydrates a CS2 match from identity-keyed team scores", () => {
+    const startTime = new Date("2024-01-01T00:00:00.000Z");
+    const entity = matchRowToEntity(
+      {
+        id: "m1",
+        discipline: "cs2",
+        txoddsFixtureId: null,
+        seriesId: "series-1",
+        seriesMatchIndex: 2,
+        homeTeam: null,
+        awayTeam: null,
+        startTime,
+        status: "live",
+        currentMinute: 0,
+        period: "pre",
+        scoreHome: null,
+        scoreAway: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+      [
+        { teamId: "team-a", name: "A", score: 7, displayOrder: 1 },
+        { teamId: "team-b", name: "B", score: 5, displayOrder: 2 },
+      ],
+    );
+
+    expect(entity).toEqual({
+      id: "m1",
+      discipline: "cs2",
+      seriesId: "series-1",
+      seriesMatchIndex: 2,
+      startTime: startTime.toISOString(),
+      status: "live",
+      teamScores: [
+        { teamId: "team-a", name: "A", score: 7 },
+        { teamId: "team-b", name: "B", score: 5 },
+      ],
+    });
+  });
+
+  it("rejects a CS2 match without exactly two ordered team scores", () => {
+    expect(() =>
+      matchRowToEntity(
+        {
+          id: "m1",
+          discipline: "cs2",
+          txoddsFixtureId: null,
+          seriesId: "series-1",
+          seriesMatchIndex: 1,
+          homeTeam: null,
+          awayTeam: null,
+          startTime: new Date(),
+          status: "scheduled",
+          currentMinute: 0,
+          period: "pre",
+          scoreHome: null,
+          scoreAway: null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        [{ teamId: "team-a", name: "A", score: 0, displayOrder: 1 }],
+      ),
+    ).toThrow("does not have a complete team score pair");
+  });
 });
 
 describe("arenaRowToEntity", () => {
