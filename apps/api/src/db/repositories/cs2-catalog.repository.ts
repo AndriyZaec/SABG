@@ -1,8 +1,16 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
-import type { Cs2SeriesLifecycle, Cs2SeriesParticipant, Cs2SeriesSummary, Uuid } from "@arena/contracts";
+import type {
+  Cs2SeriesDetail,
+  Cs2SeriesLifecycle,
+  Cs2SeriesMapSummary,
+  Cs2SeriesParticipant,
+  Cs2SeriesSummary,
+  Uuid,
+} from "@arena/contracts";
 import { cs2CatalogConfig } from "../../cs2/catalog-config.js";
 import { db } from "../client.js";
-import { cs2Competitions, cs2SeriesParticipants, cs2Teams, series } from "../schema.js";
+import { arenas, cs2Competitions, cs2SeriesParticipants, cs2Teams, series } from "../schema.js";
+import { matchRepository } from "./match.repository.js";
 
 export interface Cs2CatalogCompetitionInput {
   gridTournamentId: string;
@@ -132,6 +140,71 @@ export const cs2CatalogRepository = {
   ): Promise<Cs2SeriesSummary | undefined> {
     const [catalogSeries] = await readSupportedSeries(tournamentIds, id);
     return catalogSeries;
+  },
+
+  async findSupportedDetailById(
+    id: Uuid,
+    tournamentIds: readonly string[] = cs2CatalogConfig.tournamentIds,
+  ): Promise<Cs2SeriesDetail | undefined> {
+    const [catalogSeries] = await readSupportedSeries(tournamentIds, id);
+    if (catalogSeries === undefined) return undefined;
+
+    const seriesMatches = await matchRepository.listBySeriesId(id);
+    if (seriesMatches.some((match) => match.discipline !== "cs2")) {
+      throw new Error(`CS2 series ${id} contains a non-CS2 match`);
+    }
+    const cs2Matches = seriesMatches.filter((match) => match.discipline === "cs2");
+    const arenaRows = cs2Matches.length === 0
+      ? []
+      : await db
+          .select({
+            id: arenas.id,
+            matchId: arenas.matchId,
+            status: arenas.status,
+            activePlayersCount: arenas.activePlayersCount,
+            entryFeeLamports: arenas.entryFeeLamports,
+            prizePoolLamports: arenas.prizePoolLamports,
+          })
+          .from(arenas)
+          .where(inArray(arenas.matchId, cs2Matches.map((match) => match.id)));
+
+    const arenasByMatchId = new Map<Uuid, (typeof arenaRows)[number]>();
+    for (const arena of arenaRows) {
+      if (arenasByMatchId.has(arena.matchId)) {
+        throw new Error(`CS2 match ${arena.matchId} has multiple Arenas`);
+      }
+      arenasByMatchId.set(arena.matchId, arena);
+    }
+
+    const maps: Cs2SeriesMapSummary[] = Array.from(
+      { length: catalogSeries.format },
+      (_, index) => ({ state: "pending", seriesMatchIndex: index + 1 }),
+    );
+    for (const match of cs2Matches) {
+      if (match.seriesMatchIndex < 1 || match.seriesMatchIndex > catalogSeries.format) {
+        throw new Error(`CS2 match ${match.id} has invalid Series map index ${match.seriesMatchIndex}`);
+      }
+      const arena = arenasByMatchId.get(match.id);
+      if (arena === undefined) continue;
+      const [firstTeamScore, secondTeamScore] = match.teamScores;
+      maps[match.seriesMatchIndex - 1] = {
+        state: arena.status,
+        seriesMatchIndex: match.seriesMatchIndex,
+        matchId: match.id,
+        teams: [
+          { teamId: firstTeamScore.teamId, score: firstTeamScore.score },
+          { teamId: secondTeamScore.teamId, score: secondTeamScore.score },
+        ],
+        arena: {
+          id: arena.id,
+          activePlayersCount: arena.activePlayersCount,
+          entryFeeLamports: arena.entryFeeLamports,
+          prizePoolLamports: arena.prizePoolLamports,
+        },
+      };
+    }
+
+    return { ...catalogSeries, maps };
   },
 
   async synchronizeSeries(input: Cs2CatalogSeriesInput): Promise<{ seriesId: Uuid; participantCount: number }> {

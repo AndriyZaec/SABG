@@ -11,6 +11,9 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
   let db: typeof import("../client.js")["db"];
   let schema: typeof import("../schema.js");
   let repository: typeof import("../repositories/cs2-catalog.repository.js")["cs2CatalogRepository"];
+  let matchRepository: typeof import("../repositories/match.repository.js")["matchRepository"];
+  let arenaRepository: typeof import("../repositories/arena.repository.js")["arenaRepository"];
+  let firstMapMatchId: string | undefined;
 
   const runId = randomUUID();
   const gridSeriesId = `catalog-series-${runId}`;
@@ -23,10 +26,15 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
     ({ db } = await import("../client.js"));
     schema = await import("../schema.js");
     ({ cs2CatalogRepository: repository } = await import("../repositories/cs2-catalog.repository.js"));
+    ({ matchRepository } = await import("../repositories/match.repository.js"));
+    ({ arenaRepository } = await import("../repositories/arena.repository.js"));
   });
 
   afterAll(async () => {
     if (db === undefined) return;
+    if (firstMapMatchId !== undefined) {
+      await db.delete(schema.arenas).where(eq(schema.arenas.matchId, firstMapMatchId));
+    }
     await db.delete(schema.series).where(inArray(schema.series.gridSeriesId, [gridSeriesId, unsupportedGridSeriesId]));
     await db.delete(schema.cs2Teams).where(inArray(schema.cs2Teams.gridTeamId, [firstGridTeamId, secondGridTeamId]));
     await db.delete(schema.cs2Competitions).where(eq(schema.cs2Competitions.gridTournamentId, gridTournamentId));
@@ -78,6 +86,7 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
 
     const participants = await db
       .select({
+        teamId: schema.cs2Teams.id,
         gridTeamId: schema.cs2Teams.gridTeamId,
         name: schema.cs2Teams.name,
         displayOrder: schema.cs2SeriesParticipants.displayOrder,
@@ -88,8 +97,8 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
       .where(eq(schema.cs2SeriesParticipants.seriesId, first.seriesId))
       .orderBy(asc(schema.cs2SeriesParticipants.displayOrder));
     expect(participants).toEqual([
-      { gridTeamId: firstGridTeamId, name: "Team A Renamed", displayOrder: 1, score: 2 },
-      { gridTeamId: secondGridTeamId, name: "Team B", displayOrder: 2, score: 0 },
+      { teamId: expect.any(String), gridTeamId: firstGridTeamId, name: "Team A Renamed", displayOrder: 1, score: 2 },
+      { teamId: expect.any(String), gridTeamId: secondGridTeamId, name: "Team B", displayOrder: 2, score: 0 },
     ]);
 
     const [competition] = await db
@@ -103,6 +112,46 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
       .from(schema.series)
       .where(eq(schema.series.id, first.seriesId));
     expect(persistedSeries?.lifecycle).toBe("live");
+
+    const teams = [
+      { teamId: participants[0]!.teamId, name: participants[0]!.name },
+      { teamId: participants[1]!.teamId, name: participants[1]!.name },
+    ] as const;
+    const firstMap = await matchRepository.upsertForSeriesMap(first.seriesId, 1, {
+      teams,
+      startTime: new Date("2026-09-01T12:00:00.000Z"),
+    });
+    firstMapMatchId = firstMap.id;
+    const firstMapArena = await arenaRepository.upsertForMatch(firstMap.id, {
+      entryFeeLamports: 100_000_000,
+      prizePoolLamports: 0,
+    });
+    await matchRepository.upsertForSeriesMap(first.seriesId, 2, {
+      teams,
+      startTime: new Date("2026-09-01T13:00:00.000Z"),
+    });
+
+    const detail = await repository.findSupportedDetailById(first.seriesId, [gridTournamentId]);
+    expect(detail?.maps).toEqual([
+      {
+        state: "lobby",
+        seriesMatchIndex: 1,
+        matchId: firstMap.id,
+        teams: [
+          { teamId: participants[0]!.teamId, score: 0 },
+          { teamId: participants[1]!.teamId, score: 0 },
+        ],
+        arena: {
+          id: firstMapArena.id,
+          activePlayersCount: 0,
+          entryFeeLamports: 100_000_000,
+          prizePoolLamports: 0,
+        },
+      },
+      { state: "pending", seriesMatchIndex: 2 },
+      { state: "pending", seriesMatchIndex: 3 },
+    ]);
+    await expect(repository.findSupportedDetailById(first.seriesId, ["other-tournament"])).resolves.toBeUndefined();
 
     const unsupported = await repository.synchronizeSeries({
       ...base,
