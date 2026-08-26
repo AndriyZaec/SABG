@@ -13,7 +13,7 @@ import { handleClientMessage, startMockTimeline } from "./timeline.js";
 import { isMockArenaReadyForTimeline, mockRouter } from "./routes.js";
 import type { EventAccessSessionResponse } from "@arena/contracts";
 
-const PORT = Number(process.env["MOCK_PORT"] ?? 4000);
+const PORT = Number(process.env["MOCK_PORT"] ?? 4100);
 
 const app = express();
 app.use(cors());

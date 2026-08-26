@@ -1,14 +1,54 @@
+import type { Arena, Cs2Match, Cs2SeriesDetail } from "@arena/contracts";
 import { Link, useParams } from "react-router-dom";
 import { useCs2ArenaSocket } from "./live/useCs2ArenaSocket.js";
 import { SeriesHeader } from "./live/SeriesHeader.js";
 import { Cs2RoundCard } from "./live/Cs2RoundCard.js";
 import { Cs2EntryCard } from "./Cs2EntryCard.js";
+import { TeamLogo } from "./TeamLogo.js";
+import { useCs2Series } from "./useCs2Catalog.js";
 import { EliminationFeed } from "../arena/live/EliminationFeed.js";
 import { LeaderboardRail } from "../arena/live/LeaderboardRail.js";
 import { PendingPredictionsList } from "../arena/live/PendingPredictionsList.js";
 import { WinnerBanner } from "../arena/live/WinnerBanner.js";
 import { Loading } from "../ui/Loading.js";
 import { Panel } from "../ui/Panel.js";
+
+function teamPresentation(team: Cs2Match["teamScores"][number], series?: Cs2SeriesDetail) {
+  const participant = series?.participants.find(
+    (candidate) => candidate.state === "known" && candidate.team.id === team.teamId,
+  );
+  if (participant?.state === "known") {
+    return {
+      name: participant.team.shortName ?? participant.team.name.replace(/^Team\s+/i, ""),
+      logoUrl: participant.team.logoUrl,
+    };
+  }
+  return { name: team.name.replace(/^Team\s+/i, ""), logoUrl: undefined };
+}
+
+function Cs2ArenaLobby({ arena, match }: { arena: Arena; match: Cs2Match }) {
+  const [seriesResult] = useCs2Series(match.seriesId);
+  const series = seriesResult.state === "ready" ? seriesResult.value : undefined;
+  const teams = match.teamScores.map((team) => teamPresentation(team, series));
+
+  return (
+    <div className="nb-container" style={{ display: "grid", gap: 22 }}>
+      <Link className="cs2-back" to={`/cs2/series/${match.seriesId}`}>← Back to series</Link>
+      <Panel title={`Map ${match.seriesMatchIndex} lobby`} accent="blue">
+        <div className="cs2-arena-lobby__matchup">
+          {teams.map((team, index) => (
+            <div className={`cs2-arena-lobby__team${index === 1 ? " cs2-arena-lobby__team--right" : ""}`} key={team.name}>
+              <TeamLogo name={team.name} {...(team.logoUrl ? { src: team.logoUrl } : {})} />
+              <strong>{team.name}</strong>
+            </div>
+          ))}
+          <span className="cs2-arena-lobby__versus cs2-versus-badge">VS</span>
+        </div>
+        <Cs2EntryCard arena={arena} />
+      </Panel>
+    </div>
+  );
+}
 
 export function Cs2ArenaScreen() {
   const { arenaId = "" } = useParams();
@@ -53,16 +93,7 @@ export function Cs2ArenaScreen() {
   }
 
   if (arena.status === "lobby") {
-    const [first, second] = match.teamScores;
-    return (
-      <div className="nb-container" style={{ display: "grid", gap: 22 }}>
-        <Link className="cs2-back" to={`/cs2/series/${match.seriesId}`}>← Back to series</Link>
-        <Panel title={`Map ${match.seriesMatchIndex} lobby`} accent="blue">
-          <p className="nb-teamname" style={{ marginBottom: 14 }}>{first.name} vs {second.name}</p>
-          <Cs2EntryCard arena={arena} />
-        </Panel>
-      </div>
-    );
+    return <Cs2ArenaLobby arena={arena} match={match} />;
   }
 
   if (!view) {

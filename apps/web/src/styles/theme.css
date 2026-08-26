@@ -507,6 +507,35 @@ a { color: var(--ink); text-decoration: none; }
 }
 .nb-hero__stats { display: flex; gap: 24px; flex-wrap: wrap; }
 .nb-hero__stat { display: grid; gap: 2px; }
+.cs2-entry-card { display: grid; gap: 18px; }
+.cs2-arena-lobby__matchup {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 18px;
+  padding-bottom: 18px;
+  border-bottom: var(--bw) solid var(--ink);
+}
+.cs2-arena-lobby__team { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.cs2-arena-lobby__team--right { grid-column: 3; justify-content: flex-end; text-align: right; }
+.cs2-arena-lobby__team .cs2-logo { width: 52px; height: 52px; flex: 0 0 auto; }
+.cs2-arena-lobby__team strong {
+  overflow-wrap: anywhere;
+  font: 1.55rem/1 var(--font-display);
+  text-transform: uppercase;
+}
+.cs2-versus-badge {
+  background: var(--yellow);
+  color: var(--ink);
+  padding: 3px 9px;
+  font: 1.2rem var(--font-display);
+  transform: rotate(-7deg);
+}
+.cs2-arena-lobby__versus {
+  grid-column: 2;
+  grid-row: 1;
+}
 .nb-hero__joined {
   font-family: var(--font-display);
   text-transform: uppercase;
@@ -615,7 +644,7 @@ a { color: var(--ink); text-decoration: none; }
 .cs2-broadcast__live-teams .cs2-logo { width: 64px; height: 64px; border-color: var(--white); }
 .cs2-broadcast__live-teams strong { overflow-wrap: anywhere; font: clamp(1.65rem, 3.4vw, 2.8rem) var(--font-display); line-height: 0.9; text-transform: uppercase; }
 .cs2-broadcast__live-teams b { color: var(--yellow); font: 2.8rem var(--font-display); }
-.cs2-broadcast__live-vs { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-7deg); background: var(--yellow); color: var(--ink); padding: 3px 9px; font: 1.2rem var(--font-display); }
+.cs2-broadcast__live-vs { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-7deg); }
 .cs2-broadcast__live-card > .nb-btn { border-right: 0; border-bottom: 0; border-left: 0; box-shadow: none; }
 .cs2-broadcast__no-live { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; max-width: 520px; padding: 24px; text-align: center; }
 .cs2-broadcast__no-live > span { margin-bottom: 14px; background: var(--paper); color: var(--ink); padding: 3px 9px; font-size: 0.62rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
@@ -885,6 +914,11 @@ a { color: var(--ink); text-decoration: none; }
   .nb-scoreboard__team { padding: 12px 10px; }
   .nb-scoreboard__score { padding: 0 12px; gap: 6px; }
   .nb-panel__body { padding: 14px 12px; }
+  .cs2-entry-card { gap: 14px; }
+  .cs2-arena-lobby__matchup { gap: 8px; margin-bottom: 14px; padding-bottom: 14px; }
+  .cs2-arena-lobby__team { gap: 8px; }
+  .cs2-arena-lobby__team .cs2-logo { width: 40px; height: 40px; }
+  .cs2-arena-lobby__team strong { font-size: 1.1rem; }
   .nb-section { margin-top: 28px; }
   .cs2-series { gap: 28px; }
   .cs2-section-heading { align-items: flex-start; flex-direction: column; gap: 4px; }
@@ -909,7 +943,8 @@ a { color: var(--ink); text-decoration: none; }
   .cs2-broadcast__live-teams .cs2-logo { width: 38px; height: 38px; }
   .cs2-broadcast__live-teams strong { font-size: clamp(1.15rem, 6vw, 1.75rem); }
   .cs2-broadcast__live-teams b { font-size: 1.8rem; }
-  .cs2-broadcast__live-vs { padding: 2px 6px; font-size: 0.85rem; }
+  .cs2-broadcast__live-vs,
+  .cs2-arena-lobby__versus { padding: 2px 6px; font-size: 0.85rem; }
   .cs2-broadcast__queue-item { grid-template-columns: 52px minmax(0, 1fr) 42px; gap: 9px; }
   .cs2-match-hero__event { align-items: flex-start; flex-wrap: wrap; }
   .cs2-match-hero__event .nb-badge { margin-left: auto; }

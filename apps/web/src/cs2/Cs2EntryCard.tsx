@@ -50,7 +50,7 @@ export function Cs2EntryCard({ arena }: { arena: Arena }) {
   }
 
   return (
-    <>
+    <div className="cs2-entry-card">
       <div className="nb-hero__stats">
         <Stat label="Entry" value={`${sol(arena.entryFeeLamports)} SOL`} />
         <Stat label="Prize pool" value={`${sol(arena.prizePoolLamports)} SOL`} />
@@ -58,6 +58,6 @@ export function Cs2EntryCard({ arena }: { arena: Arena }) {
       </div>
       {action}
       {error && <Badge tone="eliminated">{error}</Badge>}
-    </>
+    </div>
   );
 }

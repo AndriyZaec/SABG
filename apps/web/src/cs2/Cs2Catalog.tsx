@@ -95,7 +95,7 @@ export function Cs2Catalog({ series }: { series: Cs2SeriesSummary[] }) {
                       <b>{participant.seriesScore ?? 0}</b>
                     </div>
                   ))}
-                  <span className="cs2-broadcast__live-vs">VS</span>
+                  <span className="cs2-broadcast__live-vs cs2-versus-badge">VS</span>
                 </div>
                 <Link className="nb-btn nb-btn--survive nb-btn--block" to={`/cs2/series/${item.id}`}>Open live series →</Link>
               </article>
