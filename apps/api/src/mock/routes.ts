@@ -19,12 +19,11 @@ import { createCs2CatalogRouter, type Cs2CatalogReadStore } from "../cs2/catalog
 
 import {
   MOCK_ENTRY_PASS_ID,
-  MOCK_CS2_SERIES_ID,
   mockArena,
   mockArenaPlayer,
   mockCurrentRound,
-  mockCs2SeriesDetail,
-  mockCs2SeriesSummary,
+  mockCs2Series,
+  mockCs2SeriesDetails,
   mockLeaderboard,
   mockMatch,
   mockMatches,
@@ -36,10 +35,10 @@ export const mockRouter: RouterType = Router();
 
 const mockCs2CatalogStore: Cs2CatalogReadStore = {
   async listSupported() {
-    return [mockCs2SeriesSummary];
+    return mockCs2Series;
   },
   async findSupportedDetailById(id) {
-    return id === MOCK_CS2_SERIES_ID ? mockCs2SeriesDetail : undefined;
+    return mockCs2SeriesDetails.find((series) => series.id === id);
   },
 };
 

@@ -2,7 +2,6 @@ import { lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { SolanaProviders } from "./solana/WalletProvider.js";
 import { AuthProvider } from "./auth/AuthContext.js";
-import { LobbyScreen } from "./screens/LobbyScreen.js";
 import { StyleScreen } from "./screens/StyleScreen.js";
 import { Masthead } from "./ui/Masthead.js";
 import { Footer } from "./ui/Footer.js";
@@ -30,6 +29,9 @@ const Cs2LobbyScreen = lazy(() =>
 const Cs2ArenaScreen = lazy(() =>
   import("./cs2/Cs2ArenaScreen.js").then((m) => ({ default: m.Cs2ArenaScreen })),
 );
+const Cs2SeriesScreen = lazy(() =>
+  import("./cs2/Cs2SeriesScreen.js").then((m) => ({ default: m.Cs2SeriesScreen })),
+);
 
 export function App() {
   return (
@@ -42,7 +44,7 @@ export function App() {
           <main className="nb-main">
             <Suspense fallback={<Loading />}>
               <Routes>
-                <Route path="/" element={<LobbyScreen />} />
+                <Route path="/" element={<Cs2LobbyScreen />} />
                 <Route path="/style" element={<StyleScreen />} />
                 <Route path="/arena/:arenaId" element={<ArenaScreen />} />
                 <Route path="/arena/:arenaId/leaderboard" element={<LeaderboardScreen />} />
@@ -50,6 +52,7 @@ export function App() {
                 <Route path="/arena/:arenaId/summary" element={<SummaryScreen />} />
                 <Route path="/arena/:arenaId/payout" element={<PayoutScreen />} />
                 <Route path="/cs2" element={<Cs2LobbyScreen />} />
+                <Route path="/cs2/series/:seriesId" element={<Cs2SeriesScreen />} />
                 <Route path="/cs2/arena/:arenaId" element={<Cs2ArenaScreen />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>

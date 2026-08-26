@@ -2,7 +2,7 @@ import { createServer, type Server as HttpServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import express from "express";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { mockCs2SeriesDetail, mockCs2SeriesSummary } from "../fixtures.js";
+import { mockCs2Series, mockCs2SeriesDetail, mockCs2SeriesSummary } from "../fixtures.js";
 import { mockRouter } from "../routes.js";
 
 describe("mock CS2 catalog routes", () => {
@@ -24,7 +24,7 @@ describe("mock CS2 catalog routes", () => {
   it("serves the same Series list and detail DTOs as the production router", async () => {
     const list = await fetch(`${baseUrl}/series`);
     expect(list.status).toBe(200);
-    await expect(list.json()).resolves.toEqual({ series: [mockCs2SeriesSummary] });
+    await expect(list.json()).resolves.toEqual({ series: mockCs2Series });
 
     const detail = await fetch(`${baseUrl}/series/${mockCs2SeriesSummary.id}`);
     expect(detail.status).toBe(200);

@@ -25,6 +25,16 @@ export const MOCK_CS2_TEAM_A_ID = "10000000-0000-4000-8000-000000000002";
 export const MOCK_CS2_TEAM_B_ID = "10000000-0000-4000-8000-000000000003";
 export const MOCK_CS2_MATCH_ID = "10000000-0000-4000-8000-000000000004";
 export const MOCK_CS2_ARENA_ID = "10000000-0000-4000-8000-000000000005";
+export const MOCK_CS2_UPCOMING_SERIES_ID = "10000000-0000-4000-8000-000000000006";
+export const MOCK_CS2_UPCOMING_TEAM_ID = "10000000-0000-4000-8000-000000000007";
+export const MOCK_CS2_MOUZ_SERIES_ID = "10000000-0000-4000-8000-00000000000a";
+export const MOCK_CS2_MOUZ_TEAM_ID = "10000000-0000-4000-8000-00000000000b";
+
+const mockCompetition = {
+  name: "BLAST Premier Fall Final",
+  shortName: "BLAST Fall Final",
+  logoUrl: "/cs2-api/mock-assets/blast.svg",
+} as const;
 
 export const mockCs2SeriesSummary: Cs2SeriesSummary = {
   id: MOCK_CS2_SERIES_ID,
@@ -32,32 +42,43 @@ export const mockCs2SeriesSummary: Cs2SeriesSummary = {
     {
       state: "known",
       displayOrder: 1,
-      team: { id: MOCK_CS2_TEAM_A_ID, name: "Team Spirit", shortName: "Spirit" },
-      seriesScore: 0,
+      team: {
+        id: MOCK_CS2_TEAM_A_ID,
+        name: "Team Spirit",
+        shortName: "Spirit",
+        logoUrl: "/cs2-api/mock-assets/spirit.svg",
+      },
+      seriesScore: 1,
     },
     {
       state: "known",
       displayOrder: 2,
-      team: { id: MOCK_CS2_TEAM_B_ID, name: "Team Vitality", shortName: "Vitality" },
+      team: {
+        id: MOCK_CS2_TEAM_B_ID,
+        name: "Team Vitality",
+        shortName: "Vitality",
+        logoUrl: "/cs2-api/mock-assets/vitality.svg",
+      },
       seriesScore: 0,
     },
   ],
-  competition: { name: "BLAST Premier", shortName: "BLAST" },
+  competition: mockCompetition,
   format: 3,
-  scheduledStartTime: "2026-09-01T18:00:00.000Z",
-  lifecycle: "upcoming",
+  scheduledStartTime: "2026-08-26T18:00:00.000Z",
+  lifecycle: "live",
 };
 
 export const mockCs2SeriesDetail: Cs2SeriesDetail = {
   ...mockCs2SeriesSummary,
   maps: [
     {
-      state: "lobby",
+      state: "finished",
       seriesMatchIndex: 1,
+      mapName: "Mirage",
       matchId: MOCK_CS2_MATCH_ID,
       teams: [
-        { teamId: MOCK_CS2_TEAM_A_ID, score: 0 },
-        { teamId: MOCK_CS2_TEAM_B_ID, score: 0 },
+        { teamId: MOCK_CS2_TEAM_A_ID, score: 13 },
+        { teamId: MOCK_CS2_TEAM_B_ID, score: 9 },
       ],
       arena: {
         id: MOCK_CS2_ARENA_ID,
@@ -66,10 +87,148 @@ export const mockCs2SeriesDetail: Cs2SeriesDetail = {
         prizePoolLamports: 12_800_000_000,
       },
     },
+    {
+      state: "lobby",
+      seriesMatchIndex: 2,
+      mapName: "Nuke",
+      matchId: "10000000-0000-4000-8000-000000000008",
+      teams: [
+        { teamId: MOCK_CS2_TEAM_A_ID, score: 0 },
+        { teamId: MOCK_CS2_TEAM_B_ID, score: 0 },
+      ],
+      arena: {
+        id: "10000000-0000-4000-8000-000000000009",
+        activePlayersCount: 84,
+        entryFeeLamports: 100_000_000,
+        prizePoolLamports: 8_400_000_000,
+      },
+    },
+    { state: "pending", seriesMatchIndex: 3, mapName: "Anubis" },
+  ],
+};
+
+export const mockCs2UpcomingSeriesSummary: Cs2SeriesSummary = {
+  id: MOCK_CS2_UPCOMING_SERIES_ID,
+  participants: [
+    {
+      state: "known",
+      displayOrder: 1,
+      team: {
+        id: MOCK_CS2_UPCOMING_TEAM_ID,
+        name: "Natus Vincere",
+        shortName: "NAVI",
+        logoUrl: "/cs2-api/mock-assets/navi.svg",
+      },
+      seriesScore: 0,
+    },
+    { state: "tbd", displayOrder: 2, seriesScore: null },
+  ],
+  competition: mockCompetition,
+  format: 3,
+  scheduledStartTime: "2026-08-27T16:00:00.000Z",
+  lifecycle: "upcoming",
+};
+
+export const mockCs2UpcomingSeriesDetail: Cs2SeriesDetail = {
+  ...mockCs2UpcomingSeriesSummary,
+  maps: [
+    { state: "pending", seriesMatchIndex: 1 },
     { state: "pending", seriesMatchIndex: 2 },
     { state: "pending", seriesMatchIndex: 3 },
   ],
 };
+
+export const mockCs2MouzSeriesSummary: Cs2SeriesSummary = {
+  id: MOCK_CS2_MOUZ_SERIES_ID,
+  participants: [
+    mockCs2UpcomingSeriesSummary.participants[0],
+    {
+      state: "known",
+      displayOrder: 2,
+      team: {
+        id: MOCK_CS2_MOUZ_TEAM_ID,
+        name: "MOUZ",
+        shortName: "MOUZ",
+        logoUrl: "/cs2-api/mock-assets/mouz.svg",
+      },
+      seriesScore: 1,
+    },
+  ],
+  competition: mockCompetition,
+  format: 3,
+  scheduledStartTime: "2026-08-27T18:30:00.000Z",
+  lifecycle: "upcoming",
+};
+
+export const mockCs2MouzSeriesDetail: Cs2SeriesDetail = {
+  ...mockCs2MouzSeriesSummary,
+  maps: [
+    { state: "pending", seriesMatchIndex: 1 },
+    { state: "pending", seriesMatchIndex: 2 },
+    { state: "pending", seriesMatchIndex: 3 },
+  ],
+};
+
+export const mockCs2LaterSeriesSummary: Cs2SeriesSummary = {
+  id: "10000000-0000-4000-8000-000000000011",
+  participants: [
+    mockCs2SeriesSummary.participants[0],
+    mockCs2MouzSeriesSummary.participants[1],
+  ],
+  competition: mockCompetition,
+  format: 3,
+  scheduledStartTime: "2026-08-27T20:00:00.000Z",
+  lifecycle: "upcoming",
+};
+
+export const mockCs2TomorrowSeriesSummary: Cs2SeriesSummary = {
+  id: "10000000-0000-4000-8000-000000000012",
+  participants: [
+    {
+      ...mockCs2SeriesSummary.participants[1],
+      displayOrder: 1,
+    },
+    {
+      ...mockCs2UpcomingSeriesSummary.participants[0],
+      displayOrder: 2,
+    },
+  ],
+  competition: mockCompetition,
+  format: 3,
+  scheduledStartTime: "2026-08-28T15:00:00.000Z",
+  lifecycle: "upcoming",
+};
+
+const pendingMaps: Cs2SeriesDetail["maps"] = [
+  { state: "pending", seriesMatchIndex: 1 },
+  { state: "pending", seriesMatchIndex: 2 },
+  { state: "pending", seriesMatchIndex: 3 },
+];
+
+export const mockCs2LaterSeriesDetail: Cs2SeriesDetail = {
+  ...mockCs2LaterSeriesSummary,
+  maps: pendingMaps,
+};
+
+export const mockCs2TomorrowSeriesDetail: Cs2SeriesDetail = {
+  ...mockCs2TomorrowSeriesSummary,
+  maps: pendingMaps,
+};
+
+export const mockCs2Series = [
+  mockCs2SeriesSummary,
+  mockCs2UpcomingSeriesSummary,
+  mockCs2MouzSeriesSummary,
+  mockCs2LaterSeriesSummary,
+  mockCs2TomorrowSeriesSummary,
+];
+export const mockCs2SeriesDetails = [
+  mockCs2SeriesDetail,
+  mockCs2UpcomingSeriesDetail,
+  mockCs2MouzSeriesDetail,
+  mockCs2LaterSeriesDetail,
+  mockCs2TomorrowSeriesDetail,
+];
 
 export const mockUser: User = {
   id: MOCK_USER_ID,

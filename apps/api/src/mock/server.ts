@@ -3,6 +3,7 @@
 // `pnpm --filter @arena/api dev`. Stand-in for the real Realtime Gateway + REST API.
 
 import { createServer } from "node:http";
+import { fileURLToPath } from "node:url";
 
 import cors from "cors";
 import express from "express";
@@ -17,6 +18,7 @@ const PORT = Number(process.env["MOCK_PORT"] ?? 4000);
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.use("/api/mock-assets", express.static(fileURLToPath(new URL("./assets", import.meta.url))));
 app.get("/api/access/session", (_req, res) => {
   const response: EventAccessSessionResponse = { status: "not_required" };
   res.json(response);

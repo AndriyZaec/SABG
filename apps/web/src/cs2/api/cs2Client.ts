@@ -4,6 +4,8 @@ import type {
   ArenaListResponse,
   Cs2Match,
   ArenaRoundsResponse,
+  Cs2SeriesDetailResponse,
+  Cs2SeriesListResponse,
   LeaderboardResponse,
   MatchListResponse,
   PrepareEntryRequest,
@@ -53,6 +55,14 @@ export async function fetchPrimaryCs2Arena(): Promise<PrimaryCs2Arena | null> {
     for (const arena of arenas) found.push({ arena, match });
   }
   return found.find((p) => p.arena.status === "lobby" || p.arena.status === "live") ?? found[0] ?? null;
+}
+
+export async function fetchCs2Series(): Promise<Cs2SeriesListResponse> {
+  return get<Cs2SeriesListResponse>("/series");
+}
+
+export async function fetchCs2SeriesDetail(seriesId: string): Promise<Cs2SeriesDetailResponse> {
+  return get<Cs2SeriesDetailResponse>(`/series/${seriesId}`);
 }
 
 export async function fetchCs2ArenaDetail(arenaId: string): Promise<ArenaDetailResponse> {
