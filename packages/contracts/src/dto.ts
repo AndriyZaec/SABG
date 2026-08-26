@@ -1,12 +1,7 @@
 // S2 — REST request/response DTOs (build plan §S2, P0.4).
 // The mock server and the real API both implement these shapes.
 
-import type {
-  Answer,
-  ArenaStatus,
-  Cs2SeriesLifecycle,
-  MatchStatus,
-} from "./enums.js";
+import type { Answer, ArenaStatus, Cs2SeriesLifecycle } from "./enums.js";
 import type {
   Arena,
   ArenaPlayer,
@@ -66,13 +61,25 @@ export interface MatchListResponse {
   matches: Match[];
 }
 
-export interface Cs2SeriesTeam {
+export interface Cs2TeamSummary {
   id: Uuid;
   name: string;
   shortName?: string;
   logoUrl?: string;
-  score: number;
 }
+
+export type Cs2SeriesParticipant =
+  | {
+      state: "known";
+      displayOrder: 1 | 2;
+      team: Cs2TeamSummary;
+      seriesScore: number;
+    }
+  | {
+      state: "tbd";
+      displayOrder: 1 | 2;
+      seriesScore: null;
+    };
 
 export interface Cs2CompetitionSummary {
   name: string;
@@ -82,7 +89,7 @@ export interface Cs2CompetitionSummary {
 
 export interface Cs2SeriesSummary {
   id: Uuid;
-  teams: [Cs2SeriesTeam, Cs2SeriesTeam];
+  participants: [Cs2SeriesParticipant, Cs2SeriesParticipant];
   competition: Cs2CompetitionSummary;
   format: number;
   scheduledStartTime: IsoDateTime;
@@ -91,7 +98,6 @@ export interface Cs2SeriesSummary {
 
 export interface Cs2ArenaSummary {
   id: Uuid;
-  status: ArenaStatus;
   activePlayersCount: number;
   entryFeeLamports: number;
   prizePoolLamports: number;
@@ -109,11 +115,10 @@ export type Cs2SeriesMapSummary =
       mapName?: string;
     }
   | {
-      state: "arena";
+      state: ArenaStatus;
       seriesMatchIndex: number;
       mapName?: string;
       matchId: Uuid;
-      matchStatus: MatchStatus;
       teams: [Cs2TeamScore, Cs2TeamScore];
       arena: Cs2ArenaSummary;
     };
