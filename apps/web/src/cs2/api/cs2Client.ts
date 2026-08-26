@@ -1,13 +1,9 @@
 import type {
-  Arena,
   ArenaDetailResponse,
-  ArenaListResponse,
-  Cs2Match,
   ArenaRoundsResponse,
   Cs2SeriesDetailResponse,
   Cs2SeriesListResponse,
   LeaderboardResponse,
-  MatchListResponse,
   PrepareEntryRequest,
   PrepareEntryResponse,
   SubmitEntryRequest,
@@ -39,22 +35,6 @@ async function reportEventAccessFailure(response: Response): Promise<void> {
     if (body.error === "event_access_required") notifyEventAccessRequired();
   } catch {
   }
-}
-
-export interface PrimaryCs2Arena {
-  arena: Arena;
-  match: Cs2Match;
-}
-
-export async function fetchPrimaryCs2Arena(): Promise<PrimaryCs2Arena | null> {
-  const { matches } = await get<MatchListResponse>("/matches");
-  const found: PrimaryCs2Arena[] = [];
-  for (const match of matches) {
-    if (match.discipline !== "cs2") continue;
-    const { arenas } = await get<ArenaListResponse>(`/arenas?matchId=${match.id}`);
-    for (const arena of arenas) found.push({ arena, match });
-  }
-  return found.find((p) => p.arena.status === "lobby" || p.arena.status === "live") ?? found[0] ?? null;
 }
 
 export async function fetchCs2Series(): Promise<Cs2SeriesListResponse> {

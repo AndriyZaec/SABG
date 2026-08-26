@@ -6,6 +6,7 @@ import { MATCH_WINDOWS } from "@arena/contracts";
 import type {
   Arena,
   ArenaPlayer,
+  Cs2Match,
   Cs2SeriesDetail,
   Cs2SeriesSummary,
   LeaderboardEntry,
@@ -27,6 +28,8 @@ export const MOCK_CS2_MATCH_ID = "10000000-0000-4000-8000-000000000004";
 export const MOCK_CS2_ARENA_ID = "10000000-0000-4000-8000-000000000005";
 export const MOCK_CS2_UPCOMING_SERIES_ID = "10000000-0000-4000-8000-000000000006";
 export const MOCK_CS2_UPCOMING_TEAM_ID = "10000000-0000-4000-8000-000000000007";
+export const MOCK_CS2_LOBBY_MATCH_ID = "10000000-0000-4000-8000-000000000008";
+export const MOCK_CS2_LOBBY_ARENA_ID = "10000000-0000-4000-8000-000000000009";
 export const MOCK_CS2_MOUZ_SERIES_ID = "10000000-0000-4000-8000-00000000000a";
 export const MOCK_CS2_MOUZ_TEAM_ID = "10000000-0000-4000-8000-00000000000b";
 
@@ -91,13 +94,13 @@ export const mockCs2SeriesDetail: Cs2SeriesDetail = {
       state: "lobby",
       seriesMatchIndex: 2,
       mapName: "Nuke",
-      matchId: "10000000-0000-4000-8000-000000000008",
+      matchId: MOCK_CS2_LOBBY_MATCH_ID,
       teams: [
         { teamId: MOCK_CS2_TEAM_A_ID, score: 0 },
         { teamId: MOCK_CS2_TEAM_B_ID, score: 0 },
       ],
       arena: {
-        id: "10000000-0000-4000-8000-000000000009",
+        id: MOCK_CS2_LOBBY_ARENA_ID,
         activePlayersCount: 84,
         entryFeeLamports: 100_000_000,
         prizePoolLamports: 8_400_000_000,
@@ -285,6 +288,29 @@ export const mockArena: Arena = {
   escrowAccount: "ArEnAEscrowPDA11111111111111111111111111",
 };
 
+export const mockCs2LobbyMatch: Cs2Match = {
+  id: MOCK_CS2_LOBBY_MATCH_ID,
+  discipline: "cs2",
+  seriesId: MOCK_CS2_SERIES_ID,
+  seriesMatchIndex: 2,
+  startTime: mockCs2SeriesSummary.scheduledStartTime,
+  status: "scheduled",
+  teamScores: [
+    { teamId: MOCK_CS2_TEAM_A_ID, name: "Team Spirit", score: 0 },
+    { teamId: MOCK_CS2_TEAM_B_ID, name: "Team Vitality", score: 0 },
+  ],
+};
+
+export const mockCs2LobbyArena: Arena = {
+  id: MOCK_CS2_LOBBY_ARENA_ID,
+  matchId: MOCK_CS2_LOBBY_MATCH_ID,
+  status: "lobby",
+  activePlayersCount: 84,
+  entryFeeLamports: 100_000_000,
+  prizePoolLamports: 8_400_000_000,
+  escrowAccount: "ArEnAEscrowPDA11111111111111111111111111",
+};
+
 export const mockArenaPlayer: ArenaPlayer = {
   id: MOCK_ARENA_PLAYER_ID,
   arenaId: MOCK_ARENA_ID,
@@ -378,6 +404,25 @@ export function buildMockRound(
       windowStartMinute: window.start,
       windowEndMinute: window.end,
       resolve: "event_in_window",
+    },
+    status: "pending",
+  };
+}
+
+export function buildMockCs2Round(roundNumber: number): PredictionRound {
+  return {
+    id: `10000000-0000-4000-8000-0000000001${String(roundNumber).padStart(2, "0")}`,
+    arenaId: MOCK_CS2_LOBBY_ARENA_ID,
+    matchId: MOCK_CS2_LOBBY_MATCH_ID,
+    discipline: "cs2",
+    roundNumber,
+    question: "Will Team Spirit win this round?",
+    settlementCondition: {
+      discipline: "cs2",
+      topic: "round_winner",
+      params: { targetTeamId: MOCK_CS2_TEAM_A_ID },
+      roundNumber,
+      resolve: "snapshot_diff",
     },
     status: "pending",
   };
