@@ -10,16 +10,16 @@ describe("parseSnapshot", () => {
   it("parses a well-formed response into a two-team Cs2GameSnapshot", () => {
     const raw = rawWithGame(
       [
-        { name: "A", score: 3, deaths: 10, weaponKills: [{ weaponName: "ak47", count: 5 }], players: [{ id: "p1", kills: 2 }] },
-        { name: "B", score: 2, deaths: 8, weaponKills: [], players: [] },
+        { id: "team-a", name: "A", score: 3, deaths: 10, weaponKills: [{ weaponName: "ak47", count: 5 }], players: [{ id: "p1", kills: 2 }] },
+        { id: "team-b", name: "B", score: 2, deaths: 8, weaponKills: [], players: [] },
       ],
       { ticking: true, currentSeconds: 90 },
     );
     const snapshot = parseSnapshot(raw);
     expect(snapshot).toEqual({
       teams: [
-        { name: "A", score: 3, deaths: 10, weaponKills: [{ weaponName: "ak47", count: 5 }], players: [{ id: "p1", kills: 2 }] },
-        { name: "B", score: 2, deaths: 8, weaponKills: [], players: [] },
+        { teamId: "team-a", name: "A", score: 3, deaths: 10, weaponKills: [{ weaponName: "ak47", count: 5 }], players: [{ id: "p1", kills: 2 }] },
+        { teamId: "team-b", name: "B", score: 2, deaths: 8, weaponKills: [], players: [] },
       ],
       clock: { ticking: true, currentSeconds: 90 },
     });
@@ -34,14 +34,14 @@ describe("parseSnapshot", () => {
   });
 
   it("returns undefined for a team count other than 2", () => {
-    const raw = rawWithGame([{ name: "A", score: 0, deaths: 0, weaponKills: [], players: [] }]);
+    const raw = rawWithGame([{ id: "team-a", name: "A", score: 0, deaths: 0, weaponKills: [], players: [] }]);
     expect(parseSnapshot(raw)).toBeUndefined();
   });
 
   it("returns undefined when clock is missing or malformed", () => {
     const teams = [
-      { name: "A", score: 0, deaths: 0, weaponKills: [], players: [] },
-      { name: "B", score: 0, deaths: 0, weaponKills: [], players: [] },
+      { id: "team-a", name: "A", score: 0, deaths: 0, weaponKills: [], players: [] },
+      { id: "team-b", name: "B", score: 0, deaths: 0, weaponKills: [], players: [] },
     ];
     expect(parseSnapshot({ data: { seriesState: { games: [{ teams }] } } })).toBeUndefined();
     expect(parseSnapshot(rawWithGame(teams, { ticking: "yes", currentSeconds: 90 }))).toBeUndefined();
@@ -51,6 +51,12 @@ describe("parseSnapshot", () => {
     expect(parseSnapshot({ unexpected: true })).toBeUndefined();
     expect(parseSnapshot(null)).toBeUndefined();
     expect(parseSnapshot("not an object")).toBeUndefined();
+  });
+
+  it("returns undefined for missing or duplicate team identities", () => {
+    const team = { name: "A", score: 0, deaths: 0, weaponKills: [], players: [] };
+    expect(parseSnapshot(rawWithGame([{ ...team, id: "team-a" }, team]))).toBeUndefined();
+    expect(parseSnapshot(rawWithGame([{ ...team, id: "same" }, { ...team, id: "same" }]))).toBeUndefined();
   });
 
   it("parses every recorded fixture snapshot that has a live game without throwing", () => {
@@ -71,8 +77,8 @@ describe("deriveRoundNumber", () => {
     expect(
       deriveRoundNumber({
         teams: [
-          { name: "A", score: 0, deaths: 0, weaponKills: [], players: [] },
-          { name: "B", score: 0, deaths: 0, weaponKills: [], players: [] },
+          { teamId: "team-a", name: "A", score: 0, deaths: 0, weaponKills: [], players: [] },
+          { teamId: "team-b", name: "B", score: 0, deaths: 0, weaponKills: [], players: [] },
         ],
         clock,
       }),
@@ -80,8 +86,8 @@ describe("deriveRoundNumber", () => {
     expect(
       deriveRoundNumber({
         teams: [
-          { name: "A", score: 5, deaths: 0, weaponKills: [], players: [] },
-          { name: "B", score: 3, deaths: 0, weaponKills: [], players: [] },
+          { teamId: "team-a", name: "A", score: 5, deaths: 0, weaponKills: [], players: [] },
+          { teamId: "team-b", name: "B", score: 3, deaths: 0, weaponKills: [], players: [] },
         ],
         clock,
       }),
@@ -105,8 +111,8 @@ describe("parseFormat", () => {
 
 describe("isRoundLive", () => {
   const teams = (a: number, b: number) => [
-    { name: "A", score: a, deaths: 0, weaponKills: [], players: [] },
-    { name: "B", score: b, deaths: 0, weaponKills: [], players: [] },
+    { teamId: "team-a", name: "A", score: a, deaths: 0, weaponKills: [], players: [] },
+    { teamId: "team-b", name: "B", score: b, deaths: 0, weaponKills: [], players: [] },
   ] as const;
 
   it("is true when currentSeconds jumps up past the threshold and ticking is true", () => {

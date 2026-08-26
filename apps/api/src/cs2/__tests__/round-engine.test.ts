@@ -93,8 +93,8 @@ describe("Cs2RoundEngine — full fixture replay (cs2_series_28, one Bo3 map)", 
 const clock = (currentSeconds: number, ticking = true) => ({ ticking, currentSeconds });
 const snapshot = (a: number, b: number, cs = 90): Cs2GameSnapshot => ({
   teams: [
-    { name: "Home", score: a, deaths: 0, weaponKills: [], players: [] },
-    { name: "Away", score: b, deaths: 0, weaponKills: [], players: [] },
+    { teamId: "team-a", name: "Home", score: a, deaths: 0, weaponKills: [], players: [] },
+    { teamId: "team-b", name: "Away", score: b, deaths: 0, weaponKills: [], players: [] },
   ],
   clock: clock(cs),
 });
@@ -217,7 +217,7 @@ describe("Cs2RoundEngine — isArenaFinished gate", () => {
     expect(engine.roundsByNumber.has(2)).toBe(false);
 
     const after = snapshot(1, 0, 20);
-    bus.publish({ kind: "cs2_round_end", roundNumber: 1, winner: "home", snapshot: after, timestamp: "t2" });
+    bus.publish({ kind: "cs2_round_end", roundNumber: 1, snapshot: after, timestamp: "t2" });
     expect(engine.roundsByNumber.get(1)?.status).toBe("settled");
   });
 });

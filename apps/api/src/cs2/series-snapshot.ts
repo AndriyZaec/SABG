@@ -2,6 +2,7 @@ import { z } from "zod";
 import { parseFormat } from "./snapshot.js";
 
 const SeriesTeamSchema = z.object({
+  id: z.string().min(1),
   name: z.string(),
   /** Maps won, not the live game's round score. */
   score: z.number(),
@@ -30,6 +31,7 @@ const RawResponseSchema = z
   .passthrough();
 
 export interface Cs2SeriesTeam {
+  teamId: string;
   name: string;
   score: number;
   won: boolean;
@@ -53,11 +55,19 @@ export function parseSeriesSnapshot(raw: unknown): Cs2SeriesSnapshot | undefined
 
   const [a, b] = seriesState.teams;
   if (a === undefined || b === undefined) return undefined;
+  if (a.id === b.id) return undefined;
+
+  const toSeriesTeam = (team: typeof a): Cs2SeriesTeam => ({
+    teamId: team.id,
+    name: team.name,
+    score: team.score,
+    won: team.won,
+  });
 
   return {
     format: parseFormat(seriesState.format),
     finished: seriesState.finished,
     hasLiveGame: Array.isArray(seriesState.games) && seriesState.games.length > 0,
-    teams: [a, b],
+    teams: [toSeriesTeam(a), toSeriesTeam(b)],
   };
 }

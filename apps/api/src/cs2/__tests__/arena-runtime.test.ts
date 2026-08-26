@@ -18,8 +18,8 @@ const PLAYER_SILENT: Uuid = "00000000-0000-0000-0000-000000000003";
 const clock = (currentSeconds: number, ticking = true) => ({ ticking, currentSeconds });
 const snapshot = (a: number, b: number, cs = 90): Cs2GameSnapshot => ({
   teams: [
-    { name: "Home", score: a, deaths: 0, weaponKills: [], players: [] },
-    { name: "Away", score: b, deaths: 0, weaponKills: [], players: [] },
+    { teamId: "team-a", name: "Home", score: a, deaths: 0, weaponKills: [], players: [] },
+    { teamId: "team-b", name: "Away", score: b, deaths: 0, weaponKills: [], players: [] },
   ],
   clock: clock(cs),
 });
@@ -114,7 +114,7 @@ describe("Cs2ArenaRuntime — elimination wiring", () => {
     bus.publish({ kind: "cs2_round_lock", roundNumber: 1, timestamp: "t1" });
 
     const after = snapshot(1, 0, 20);
-    bus.publish({ kind: "cs2_round_end", roundNumber: 1, winner: "home", snapshot: after, timestamp: "t2" });
+    bus.publish({ kind: "cs2_round_end", roundNumber: 1, snapshot: after, timestamp: "t2" });
 
     expect(arenaPlayerStore.getStatus(PLAYER_YES)).toBe("active");
     expect(arenaPlayerStore.getStatus(PLAYER_NO)).toBe("eliminated");
@@ -175,7 +175,7 @@ describe("Cs2ArenaRuntime — elimination wiring", () => {
     bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(0, 0, 18), timestamp: "t0" });
     bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(0, 0, 105), timestamp: "t1" });
     bus.publish({ kind: "cs2_round_lock", roundNumber: 1, timestamp: "t1" });
-    bus.publish({ kind: "cs2_round_end", roundNumber: 1, winner: "home", snapshot: snapshot(1, 0, 20), timestamp: "t2" });
+    bus.publish({ kind: "cs2_round_end", roundNumber: 1, snapshot: snapshot(1, 0, 20), timestamp: "t2" });
 
     const settleIdx = broadcasts.findIndex((m) => m.type === "round.settle");
     const leaderboardIdx = broadcasts.findIndex((m) => m.type === "leaderboard.update");
@@ -193,7 +193,7 @@ describe("Cs2ArenaRuntime — elimination wiring", () => {
     bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(0, 0, 18), timestamp: "t0" });
     bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(0, 0, 105), timestamp: "t1" });
     bus.publish({ kind: "cs2_round_lock", roundNumber: 1, timestamp: "t1" });
-    bus.publish({ kind: "cs2_round_end", roundNumber: 1, winner: "home", snapshot: snapshot(1, 0, 20), timestamp: "t2" });
+    bus.publish({ kind: "cs2_round_end", roundNumber: 1, snapshot: snapshot(1, 0, 20), timestamp: "t2" });
 
     const finishMsg = broadcasts.find((m) => m.type === "arena.finished");
     expect(finishMsg).toMatchObject({ type: "arena.finished", winners: [PLAYER_YES] });
@@ -214,7 +214,7 @@ describe("Cs2ArenaRuntime — elimination wiring", () => {
     bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(0, 0, 18), timestamp: "t0" });
     bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(0, 0, 105), timestamp: "t1" });
     bus.publish({ kind: "cs2_round_lock", roundNumber: 1, timestamp: "t1" });
-    bus.publish({ kind: "cs2_round_end", roundNumber: 1, winner: "home", snapshot: snapshot(1, 0, 20), timestamp: "t2" });
+    bus.publish({ kind: "cs2_round_end", roundNumber: 1, snapshot: snapshot(1, 0, 20), timestamp: "t2" });
 
     const round2Voided = upserts.find((r) => r.roundNumber === 2 && r.status === "voided");
     expect(round2Voided).toBeDefined();
@@ -224,7 +224,7 @@ describe("Cs2ArenaRuntime — elimination wiring", () => {
 
     bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(1, 0, 105), timestamp: "t3" });
     bus.publish({ kind: "cs2_round_lock", roundNumber: 2, timestamp: "t3" });
-    bus.publish({ kind: "cs2_round_end", roundNumber: 2, winner: "home", snapshot: snapshot(2, 0, 20), timestamp: "t4" });
+    bus.publish({ kind: "cs2_round_end", roundNumber: 2, snapshot: snapshot(2, 0, 20), timestamp: "t4" });
 
     expect(broadcasts.filter((m) => m.type === "round.settle")).toHaveLength(settlesBefore);
     expect(arenaPlayerStore.getStatus(PLAYER_NO)).toBe("eliminated");
@@ -248,7 +248,7 @@ describe("Cs2ArenaRuntime — elimination wiring", () => {
     ]);
     expect(runtime.pendingPredictionsFor(PLAYER_SILENT)).toEqual([]);
 
-    bus.publish({ kind: "cs2_round_end", roundNumber: 1, winner: "home", snapshot: snapshot(1, 0, 20), timestamp: "t2" });
+    bus.publish({ kind: "cs2_round_end", roundNumber: 1, snapshot: snapshot(1, 0, 20), timestamp: "t2" });
 
     expect(runtime.pendingPredictionsFor(PLAYER_YES)).toEqual([]);
     expect(runtime.pendingPredictionsFor(PLAYER_SILENT)).toEqual([]);
@@ -306,7 +306,7 @@ describe("Cs2ArenaRuntime — elimination wiring", () => {
     bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(0, 0, 18), timestamp: "t0" });
     bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(0, 0, 105), timestamp: "t1" });
     bus.publish({ kind: "cs2_round_lock", roundNumber: 1, timestamp: "t1" });
-    bus.publish({ kind: "cs2_round_end", roundNumber: 1, winner: "away", snapshot: snapshot(0, 1, 20), timestamp: "t2" });
+    bus.publish({ kind: "cs2_round_end", roundNumber: 1, snapshot: snapshot(0, 1, 20), timestamp: "t2" });
     bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(0, 1, 60), timestamp: "t3" });
     bus.publish({ kind: "cs2_match_end", timestamp: "t4" });
 
@@ -329,7 +329,7 @@ describe("Cs2ArenaRuntime — elimination wiring", () => {
     bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(0, 0, 18), timestamp: "t0" });
     bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(0, 0, 105), timestamp: "t1" });
     bus.publish({ kind: "cs2_round_lock", roundNumber: 1, timestamp: "t1" });
-    bus.publish({ kind: "cs2_round_end", roundNumber: 1, winner: "home", snapshot: snapshot(1, 0, 20), timestamp: "t2" });
+    bus.publish({ kind: "cs2_round_end", roundNumber: 1, snapshot: snapshot(1, 0, 20), timestamp: "t2" });
     bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(1, 0, 60), timestamp: "t3" });
     bus.publish({ kind: "cs2_match_end", timestamp: "t4" });
 

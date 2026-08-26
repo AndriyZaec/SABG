@@ -1,7 +1,7 @@
 // Score changes end rounds; the next clock reset locks the next round. A mid-round first poll does
 // not synthesize an unobserved lock.
 
-import type { Cs2GameSnapshot, Cs2MatchSignal, IsoDateTime, TeamSide } from "@arena/contracts";
+import type { Cs2GameSnapshot, Cs2MatchSignal, IsoDateTime } from "@arena/contracts";
 import { deriveRoundNumber, isRoundLive } from "./snapshot.js";
 
 export interface Cs2TrackerState {
@@ -16,12 +16,10 @@ export function initialCs2TrackerState(): Cs2TrackerState {
   return { lastSnapshot: undefined, roundInProgress: undefined, lockSnapshot: undefined, lockedRound: undefined };
 }
 
-function roundWinner(before: Cs2GameSnapshot, after: Cs2GameSnapshot): TeamSide {
-  const homeDiff = after.teams[0].score - before.teams[0].score;
-  const awayDiff = after.teams[1].score - before.teams[1].score;
-  if (homeDiff > awayDiff) return "home";
-  if (awayDiff > homeDiff) return "away";
-  return "any";
+function haveSameTeams(before: Cs2GameSnapshot, after: Cs2GameSnapshot): boolean {
+  const beforeIds = new Set(before.teams.map((team) => team.teamId));
+  const afterIds = new Set(after.teams.map((team) => team.teamId));
+  return beforeIds.size === 2 && afterIds.size === 2 && after.teams.every((team) => beforeIds.has(team.teamId));
 }
 
 /** Emits round end before round lock when both are observed in one poll. */
@@ -37,6 +35,14 @@ export function trackCs2Poll(
 
   const signals: Cs2MatchSignal[] = [{ kind: "cs2_snapshot", snapshot, timestamp }];
   const currentRoundByScore = deriveRoundNumber(snapshot);
+
+  if (state.lastSnapshot !== undefined && !haveSameTeams(state.lastSnapshot, snapshot)) {
+    return {
+      state: { ...initialCs2TrackerState(), lastSnapshot: snapshot, roundInProgress: currentRoundByScore },
+      signals,
+    };
+  }
+
   let nextState = state;
 
   if (state.roundInProgress === undefined) {
@@ -48,7 +54,6 @@ export function trackCs2Poll(
       signals.push({
         kind: "cs2_round_end",
         roundNumber: state.roundInProgress,
-        winner: roundWinner(state.lockSnapshot, snapshot),
         snapshot,
         timestamp,
       });

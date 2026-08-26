@@ -6,7 +6,7 @@ import { parseSnapshot } from "../snapshot.js";
 import { defaultCs2FixturePath, loadCs2Fixture } from "../fixture.js";
 
 function team(overrides: Partial<Cs2GameSnapshot["teams"][0]> = {}) {
-  return { name: "T", score: 0, deaths: 0, weaponKills: [], players: [], ...overrides };
+  return { teamId: "team", name: "T", score: 0, deaths: 0, weaponKills: [], players: [], ...overrides };
 }
 
 const DEFAULT_CLOCK: Cs2GameSnapshot["clock"] = { ticking: true, currentSeconds: 60 };

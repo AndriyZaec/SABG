@@ -12,6 +12,7 @@ const PlayerSchema = z.object({
 });
 
 const GameTeamSchema = z.object({
+  id: z.string().min(1),
   name: z.string(),
   score: z.number(),
   deaths: z.number(),
@@ -70,8 +71,10 @@ export function observeSnapshot(raw: unknown): Cs2SnapshotObservation {
 
   const [a, b] = game.teams;
   if (a === undefined || b === undefined) return { kind: "invalid" };
+  if (a.id === b.id) return { kind: "invalid" };
 
   const toTeamStats = (t: (typeof game.teams)[number]): Cs2TeamStats => ({
+    teamId: t.id,
     name: t.name,
     score: t.score,
     deaths: t.deaths,

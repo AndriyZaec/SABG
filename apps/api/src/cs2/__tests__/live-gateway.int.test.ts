@@ -35,8 +35,8 @@ function snapshot(hasLiveGame: boolean): Cs2SeriesSnapshot {
     finished: false,
     hasLiveGame,
     teams: [
-      { name: "Team A", score: 0, won: false },
-      { name: "Team B", score: 0, won: false },
+      { teamId: "team-a", name: "Team A", score: 0, won: false },
+      { teamId: "team-b", name: "Team B", score: 0, won: false },
     ],
   };
 }

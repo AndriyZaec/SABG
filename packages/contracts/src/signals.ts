@@ -37,7 +37,6 @@ export interface MatchSignalCs2RoundLock {
 export interface MatchSignalCs2RoundEnd {
   kind: "cs2_round_end";
   roundNumber: number;
-  winner: TeamSide;
   snapshot: Cs2GameSnapshot;
   timestamp: IsoDateTime;
 }

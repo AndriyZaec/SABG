@@ -52,7 +52,10 @@ export interface Cs2SettlementCondition {
 
 export type SettlementCondition = SoccerSettlementCondition | Cs2SettlementCondition;
 
+export type Cs2TeamId = string;
+
 export interface Cs2TeamStats {
+  teamId: Cs2TeamId;
   name: string;
   /** In-map round score, not series map wins. */
   score: number;

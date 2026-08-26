@@ -16,7 +16,6 @@ import type {
   MatchState,
   Prediction,
   PredictionRound,
-  Score,
   TxSignature,
   User,
   Uuid,
@@ -68,6 +67,7 @@ export interface MatchListResponse {
 }
 
 export interface Cs2SeriesTeam {
+  id: Uuid;
   name: string;
   shortName?: string;
   logoUrl?: string;
@@ -97,6 +97,11 @@ export interface Cs2ArenaSummary {
   prizePoolLamports: number;
 }
 
+export interface Cs2TeamScore {
+  teamId: Uuid;
+  score: number;
+}
+
 export type Cs2SeriesMapSummary =
   | {
       state: "pending";
@@ -109,7 +114,7 @@ export type Cs2SeriesMapSummary =
       mapName?: string;
       matchId: Uuid;
       matchStatus: MatchStatus;
-      score: Score;
+      teams: [Cs2TeamScore, Cs2TeamScore];
       arena: Cs2ArenaSummary;
     };
 

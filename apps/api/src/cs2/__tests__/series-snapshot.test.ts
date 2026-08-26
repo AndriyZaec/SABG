@@ -13,8 +13,8 @@ function rawSeries(opts: {
         format: opts.format ?? "best-of-3",
         finished: opts.finished ?? false,
         teams: opts.teams ?? [
-          { name: "A", score: 0, won: false },
-          { name: "B", score: 0, won: false },
+          { id: "team-a", name: "A", score: 0, won: false },
+          { id: "team-b", name: "B", score: 0, won: false },
         ],
         ...(opts.games !== undefined ? { games: opts.games } : {}),
       },
@@ -28,8 +28,8 @@ describe("parseSeriesSnapshot", () => {
       format: "best-of-3",
       finished: false,
       teams: [
-        { name: "ICP", score: 1, won: false },
-        { name: "ENCE", score: 0, won: false },
+        { id: "icp", name: "ICP", score: 1, won: false },
+        { id: "ence", name: "ENCE", score: 0, won: false },
       ],
       games: [{ some: "map-state" }],
     });
@@ -38,8 +38,8 @@ describe("parseSeriesSnapshot", () => {
       finished: false,
       hasLiveGame: true,
       teams: [
-        { name: "ICP", score: 1, won: false },
-        { name: "ENCE", score: 0, won: false },
+        { teamId: "icp", name: "ICP", score: 1, won: false },
+        { teamId: "ence", name: "ENCE", score: 0, won: false },
       ],
     });
   });
@@ -59,8 +59,8 @@ describe("parseSeriesSnapshot", () => {
       format: "best-of-3",
       finished: true,
       teams: [
-        { name: "ICP", score: 2, won: true },
-        { name: "ENCE", score: 0, won: false },
+        { id: "icp", name: "ICP", score: 2, won: true },
+        { id: "ence", name: "ENCE", score: 0, won: false },
       ],
       games: [],
     });
@@ -69,14 +69,20 @@ describe("parseSeriesSnapshot", () => {
       finished: true,
       hasLiveGame: false,
       teams: [
-        { name: "ICP", score: 2, won: true },
-        { name: "ENCE", score: 0, won: false },
+        { teamId: "icp", name: "ICP", score: 2, won: true },
+        { teamId: "ence", name: "ENCE", score: 0, won: false },
       ],
     });
   });
 
   it("returns undefined for a team count other than 2", () => {
-    expect(parseSeriesSnapshot(rawSeries({ teams: [{ name: "A", score: 0, won: false }] }))).toBeUndefined();
+    expect(parseSeriesSnapshot(rawSeries({ teams: [{ id: "team-a", name: "A", score: 0, won: false }] }))).toBeUndefined();
+  });
+
+  it("returns undefined for missing or duplicate team identities", () => {
+    const team = { name: "A", score: 0, won: false };
+    expect(parseSeriesSnapshot(rawSeries({ teams: [{ ...team, id: "team-a" }, team] }))).toBeUndefined();
+    expect(parseSeriesSnapshot(rawSeries({ teams: [{ ...team, id: "same" }, { ...team, id: "same" }] }))).toBeUndefined();
   });
 
   it("returns undefined for a malformed/unrelated payload — never throws", () => {
