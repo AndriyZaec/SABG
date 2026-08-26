@@ -5,8 +5,7 @@ import { createInMemoryRuntimeStores } from "../../gateway/stores/in-memory-stor
 import type { GatewayBroadcaster } from "../../gateway/arena-runtime.js";
 import { Cs2ArenaRuntime, type Cs2ArenaPersistence } from "../arena-runtime.js";
 import type { Cs2QuestionProvider } from "../question-provider.js";
-import { defaultCs2FixturePath, loadCs2Fixture } from "../fixture.js";
-import { parseSnapshot } from "../snapshot.js";
+import { defaultCs2FixturePath, loadCs2Fixture, parseFixtureSnapshot } from "../fixture.js";
 import { initialCs2TrackerState, trackCs2Poll } from "../round-tracker.js";
 
 const MATCH_ID = "00000000-0000-0000-0000-0000000000c2";
@@ -361,7 +360,7 @@ describe("Cs2ArenaRuntime — full recorded fixture (real question provider, gen
 
     let trackerState = initialCs2TrackerState();
     for (const entry of loadCs2Fixture(defaultCs2FixturePath())) {
-      const snap = parseSnapshot(entry.raw);
+      const snap = parseFixtureSnapshot(entry.raw);
       const { state, signals } = trackCs2Poll(trackerState, snap, entry.receivedAt);
       trackerState = state;
       for (const signal of signals) bus.publish(signal);

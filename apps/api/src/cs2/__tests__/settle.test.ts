@@ -2,8 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Cs2GameSnapshot } from "@arena/contracts";
 import { resolveCs2Settlement } from "../settle.js";
 import { buildCs2SettlementCondition } from "../catalog.js";
-import { parseSnapshot } from "../snapshot.js";
-import { defaultCs2FixturePath, loadCs2Fixture } from "../fixture.js";
+import { defaultCs2FixturePath, loadCs2Fixture, parseFixtureSnapshot } from "../fixture.js";
 
 function team(teamId: string, overrides: Partial<Cs2GameSnapshot["teams"][0]> = {}) {
   return { teamId, name: teamId, score: 0, deaths: 0, weaponKills: [], players: [], ...overrides };
@@ -108,8 +107,8 @@ describe("resolveCs2Settlement — synthetic cases", () => {
 describe("resolveCs2Settlement — Round 1 of the recorded fixture (cs2_series_28)", () => {
   // Fixture boundary: round 1 lock baseline to the first 1-0 snapshot.
   const entries = loadCs2Fixture(defaultCs2FixturePath());
-  const before = parseSnapshot(entries[0]!.raw)!;
-  const after = parseSnapshot(entries[18]!.raw)!;
+  const before = parseFixtureSnapshot(entries[0]!.raw)!;
+  const after = parseFixtureSnapshot(entries[18]!.raw)!;
 
   it("round_winner resolves each team by identity", () => {
     expect(settlementAnswer(buildCs2SettlementCondition("round_winner", { targetTeamId: before.teams[0].teamId }, 1), before, after)).toBe("yes");
@@ -147,15 +146,15 @@ describe("resolveCs2Settlement — Round 1 of the recorded fixture (cs2_series_2
 
 describe("resolveCs2Settlement — Round 24 boundary (12-12 vs one side clinched) from the recorded fixture", () => {
   const entries = loadCs2Fixture(defaultCs2FixturePath());
-  const before = parseSnapshot(entries[0]!.raw)!;
+  const before = parseFixtureSnapshot(entries[0]!.raw)!;
 
   it("reads 12-12 as yes", () => {
-    const tied = parseSnapshot(entries[246]!.raw)!;
+    const tied = parseFixtureSnapshot(entries[246]!.raw)!;
     expect(settlementAnswer(buildCs2SettlementCondition("ot_score", {}, 24), before, tied)).toBe("yes");
   });
 
   it("reads 12-13 as no", () => {
-    const clinched = parseSnapshot(entries[269]!.raw)!;
+    const clinched = parseFixtureSnapshot(entries[269]!.raw)!;
     expect(settlementAnswer(buildCs2SettlementCondition("ot_score", {}, 24), before, clinched)).toBe("no");
   });
 });

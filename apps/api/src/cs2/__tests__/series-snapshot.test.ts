@@ -1,5 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { parseSeriesSnapshot } from "../series-snapshot.js";
+import { parseSeriesSnapshot as parseNormalizedSeriesSnapshot } from "../series-snapshot.js";
+import type { Cs2TeamIdentityMap } from "../team-identity.js";
+
+const TEAM_A_ID = "00000000-0000-0000-0000-00000000000a";
+const TEAM_B_ID = "00000000-0000-0000-0000-00000000000b";
+const ICP_ID = "00000000-0000-0000-0000-00000000000c";
+const ENCE_ID = "00000000-0000-0000-0000-00000000000d";
+const TEAM_IDENTITIES: Cs2TeamIdentityMap = new Map([
+  ["team-a", { teamId: TEAM_A_ID, name: "A" }],
+  ["team-b", { teamId: TEAM_B_ID, name: "B" }],
+  ["icp", { teamId: ICP_ID, name: "ICP" }],
+  ["ence", { teamId: ENCE_ID, name: "ENCE" }],
+]);
+
+function parseSeriesSnapshot(raw: unknown) {
+  return parseNormalizedSeriesSnapshot(raw, TEAM_IDENTITIES);
+}
 
 function rawSeries(opts: {
   format?: string;
@@ -38,8 +54,8 @@ describe("parseSeriesSnapshot", () => {
       finished: false,
       hasLiveGame: true,
       teams: [
-        { teamId: "icp", name: "ICP", score: 1, won: false },
-        { teamId: "ence", name: "ENCE", score: 0, won: false },
+        { teamId: ICP_ID, name: "ICP", score: 1, won: false },
+        { teamId: ENCE_ID, name: "ENCE", score: 0, won: false },
       ],
     });
   });
@@ -69,8 +85,8 @@ describe("parseSeriesSnapshot", () => {
       finished: true,
       hasLiveGame: false,
       teams: [
-        { teamId: "icp", name: "ICP", score: 2, won: true },
-        { teamId: "ence", name: "ENCE", score: 0, won: false },
+        { teamId: ICP_ID, name: "ICP", score: 2, won: true },
+        { teamId: ENCE_ID, name: "ENCE", score: 0, won: false },
       ],
     });
   });
@@ -83,6 +99,19 @@ describe("parseSeriesSnapshot", () => {
     const team = { name: "A", score: 0, won: false };
     expect(parseSeriesSnapshot(rawSeries({ teams: [{ ...team, id: "team-a" }, team] }))).toBeUndefined();
     expect(parseSeriesSnapshot(rawSeries({ teams: [{ ...team, id: "same" }, { ...team, id: "same" }] }))).toBeUndefined();
+  });
+
+  it("returns undefined when a participant is outside the cached identity map", () => {
+    expect(
+      parseSeriesSnapshot(
+        rawSeries({
+          teams: [
+            { id: "team-a", name: "A", score: 0, won: false },
+            { id: "team-c", name: "C", score: 0, won: false },
+          ],
+        }),
+      ),
+    ).toBeUndefined();
   });
 
   it("returns undefined for a malformed/unrelated payload — never throws", () => {

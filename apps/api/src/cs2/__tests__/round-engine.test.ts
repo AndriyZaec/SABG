@@ -3,8 +3,7 @@ import type { Cs2GameSnapshot, PredictionRound } from "@arena/contracts";
 import { MatchSignalBus } from "../../ingestion/event-bus.js";
 import { Cs2RoundEngine, type Cs2RoundLifecycleEvent } from "../round-engine.js";
 import { initialCs2TrackerState, trackCs2Poll } from "../round-tracker.js";
-import { defaultCs2FixturePath, loadCs2Fixture } from "../fixture.js";
-import { parseSnapshot } from "../snapshot.js";
+import { defaultCs2FixturePath, loadCs2Fixture, parseFixtureSnapshot } from "../fixture.js";
 import type { Cs2QuestionProvider } from "../question-provider.js";
 
 const MATCH_ID = "00000000-0000-0000-0000-0000000000c2";
@@ -17,11 +16,11 @@ const TEAMS = [
 function driveEngineWithFixture(engine: Cs2RoundEngine, bus: MatchSignalBus): void {
   const entries = loadCs2Fixture(defaultCs2FixturePath());
   let trackerState = initialCs2TrackerState();
-  const firstSnapshot = parseSnapshot(entries[0]!.raw);
+  const firstSnapshot = parseFixtureSnapshot(entries[0]!.raw);
   if (firstSnapshot === undefined) throw new Error("Fixture has no initial CS2 snapshot");
   engine.onMatchLiveDetected(entries[0]!.receivedAt, firstSnapshot.teams);
   for (const entry of entries) {
-    const snapshot = parseSnapshot(entry.raw);
+    const snapshot = parseFixtureSnapshot(entry.raw);
     const { state, signals } = trackCs2Poll(trackerState, snapshot, entry.receivedAt);
     trackerState = state;
     for (const signal of signals) bus.publish(signal);
