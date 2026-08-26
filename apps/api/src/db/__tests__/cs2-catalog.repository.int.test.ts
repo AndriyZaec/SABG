@@ -46,7 +46,7 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
       teams: [{ gridTeamId: firstGridTeamId, name: "Team A" }],
     });
     expect(first.participantCount).toBe(1);
-    await expect(repository.findSupportedById(first.seriesId)).resolves.toMatchObject({
+    await expect(repository.findSupportedById(first.seriesId, [gridTournamentId])).resolves.toMatchObject({
       id: first.seriesId,
       participants: [
         { state: "known", displayOrder: 1, team: { name: "Team A" }, seriesScore: 0 },
@@ -110,8 +110,9 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
       isSupported: false,
       teams: [],
     });
-    await expect(repository.findSupportedById(unsupported.seriesId)).resolves.toBeUndefined();
-    await expect(repository.listSupported()).resolves.not.toContainEqual(
+    await expect(repository.findSupportedById(unsupported.seriesId, [gridTournamentId])).resolves.toBeUndefined();
+    await expect(repository.findSupportedById(first.seriesId, ["other-tournament"])).resolves.toBeUndefined();
+    await expect(repository.listSupported([gridTournamentId])).resolves.not.toContainEqual(
       expect.objectContaining({ id: unsupported.seriesId }),
     );
   });

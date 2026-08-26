@@ -44,10 +44,13 @@ describe("GridCentralDataClient", () => {
       } } }));
     const client = new GridCentralDataClient({ request } as GridGraphqlRequester);
 
-    const series = await client.fetchSeries({
-      from: new Date("2026-09-01T00:00:00.000Z"),
-      to: new Date("2026-09-02T00:00:00.000Z"),
-    });
+    const series = await client.fetchSeries(
+      {
+        from: new Date("2026-09-01T00:00:00.000Z"),
+        to: new Date("2026-09-02T00:00:00.000Z"),
+      },
+      ["tournament-1"],
+    );
 
     expect(series).toHaveLength(2);
     expect(series[0]).toMatchObject({
@@ -57,7 +60,10 @@ describe("GridCentralDataClient", () => {
       competition: { gridTournamentId: "tournament-1", name: "Major" },
       teams: [{ gridTeamId: "team-a", name: "Team A" }, { gridTeamId: "team-b", name: "Team B" }],
     });
-    expect(request.mock.calls[1]?.[1]).toMatchObject({ first: 50, filter: { titleId: "title-cs2" } });
+    expect(request.mock.calls[1]?.[1]).toMatchObject({
+      first: 50,
+      filter: { titleId: "title-cs2", tournamentIds: { in: ["tournament-1"] } },
+    });
     expect(request.mock.calls[2]?.[1]).toMatchObject({ after: "cursor-1", filter: { titleId: "title-cs2" } });
   });
 
@@ -86,6 +92,16 @@ describe("GridCentralDataClient", () => {
       } } }));
     const client = new GridCentralDataClient({ request } as GridGraphqlRequester);
 
-    await expect(client.fetchSeries({ from: new Date("2026-09-01"), to: new Date("2026-09-02") })).resolves.toEqual([]);
+    await expect(
+      client.fetchSeries({ from: new Date("2026-09-01"), to: new Date("2026-09-02") }, ["tournament-1"]),
+    ).resolves.toEqual([]);
+  });
+
+  it("fails closed without selected tournaments", async () => {
+    const request = vi.fn();
+    const client = new GridCentralDataClient({ request } as GridGraphqlRequester);
+
+    await expect(client.fetchSeries({ from: new Date("2026-09-01"), to: new Date("2026-09-02") }, [])).resolves.toEqual([]);
+    expect(request).not.toHaveBeenCalled();
   });
 });

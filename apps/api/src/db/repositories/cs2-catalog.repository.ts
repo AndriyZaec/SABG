@@ -1,5 +1,6 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { Cs2SeriesLifecycle, Cs2SeriesParticipant, Cs2SeriesSummary, Uuid } from "@arena/contracts";
+import { cs2CatalogConfig } from "../../cs2/catalog-config.js";
 import { db } from "../client.js";
 import { cs2Competitions, cs2SeriesParticipants, cs2Teams, series } from "../schema.js";
 
@@ -43,7 +44,8 @@ function validateInput(input: Cs2CatalogSeriesInput): void {
   }
 }
 
-async function readSupportedSeries(id?: Uuid): Promise<Cs2SeriesSummary[]> {
+async function readSupportedSeries(tournamentIds: readonly string[], id?: Uuid): Promise<Cs2SeriesSummary[]> {
+  if (tournamentIds.length === 0) return [];
   const catalogRows = await db
     .select({
       id: series.id,
@@ -56,7 +58,11 @@ async function readSupportedSeries(id?: Uuid): Promise<Cs2SeriesSummary[]> {
     })
     .from(series)
     .innerJoin(cs2Competitions, eq(series.competitionId, cs2Competitions.id))
-    .where(and(eq(series.isSupported, true), id === undefined ? undefined : eq(series.id, id)))
+    .where(and(
+      eq(series.isSupported, true),
+      inArray(cs2Competitions.gridTournamentId, [...tournamentIds]),
+      id === undefined ? undefined : eq(series.id, id),
+    ))
     .orderBy(asc(series.scheduledStartTime));
   if (catalogRows.length === 0) return [];
 
@@ -116,12 +122,15 @@ async function readSupportedSeries(id?: Uuid): Promise<Cs2SeriesSummary[]> {
 }
 
 export const cs2CatalogRepository = {
-  async listSupported(): Promise<Cs2SeriesSummary[]> {
-    return readSupportedSeries();
+  async listSupported(tournamentIds: readonly string[] = cs2CatalogConfig.tournamentIds): Promise<Cs2SeriesSummary[]> {
+    return readSupportedSeries(tournamentIds);
   },
 
-  async findSupportedById(id: Uuid): Promise<Cs2SeriesSummary | undefined> {
-    const [catalogSeries] = await readSupportedSeries(id);
+  async findSupportedById(
+    id: Uuid,
+    tournamentIds: readonly string[] = cs2CatalogConfig.tournamentIds,
+  ): Promise<Cs2SeriesSummary | undefined> {
+    const [catalogSeries] = await readSupportedSeries(tournamentIds, id);
     return catalogSeries;
   },
 

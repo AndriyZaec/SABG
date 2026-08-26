@@ -28,6 +28,7 @@ describe("synchronizeCs2Catalog", () => {
 
     const result = await synchronizeCs2Catalog(window, {
       now: new Date("2026-09-01T12:00:00.000Z"),
+      tournamentIds: ["tournament-1"],
       source: { fetchSeries } as Cs2CatalogSource,
       store: { synchronizeSeries } as Cs2CatalogStore,
     });
@@ -59,11 +60,34 @@ describe("synchronizeCs2Catalog", () => {
     const synchronizeSeries = vi.fn().mockResolvedValue({ seriesId: "id", participantCount: 0 });
 
     const result = await synchronizeCs2Catalog(window, {
+      tournamentIds: ["tournament-1"],
       source: { fetchSeries: vi.fn().mockResolvedValue([item, item]) },
       store: { synchronizeSeries } as Cs2CatalogStore,
     });
 
     expect(synchronizeSeries).toHaveBeenCalledTimes(1);
     expect(result.persisted).toBe(1);
+  });
+
+  it("rejects provider rows outside the selected tournaments", async () => {
+    const synchronizeSeries = vi.fn();
+    const fetchSeries = vi.fn().mockResolvedValue([
+      {
+        gridSeriesId: "other-series",
+        format: 3,
+        scheduledStartTime: new Date("2026-09-02"),
+        competition: { gridTournamentId: "tournament-2", name: "Other" },
+        teams: [],
+        hasFullLiveData: true,
+      },
+    ]);
+
+    await expect(synchronizeCs2Catalog(window, {
+      tournamentIds: ["tournament-1"],
+      source: { fetchSeries } as Cs2CatalogSource,
+      store: { synchronizeSeries } as Cs2CatalogStore,
+    })).resolves.toEqual({ discovered: 0, persisted: 0, supported: 0, incompleteParticipants: 0 });
+    expect(fetchSeries).toHaveBeenCalledWith(window, ["tournament-1"], undefined);
+    expect(synchronizeSeries).not.toHaveBeenCalled();
   });
 });

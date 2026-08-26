@@ -215,10 +215,15 @@ export class GridCentralDataClient {
     return this.cs2TitleId;
   }
 
-  async fetchSeries(window: GridCatalogWindow, signal?: AbortSignal): Promise<GridCatalogSeries[]> {
+  async fetchSeries(
+    window: GridCatalogWindow,
+    tournamentIds: readonly string[],
+    signal?: AbortSignal,
+  ): Promise<GridCatalogSeries[]> {
     if (Number.isNaN(window.from.getTime()) || Number.isNaN(window.to.getTime()) || window.from >= window.to) {
       throw new Error("GRID catalog window is invalid");
     }
+    if (tournamentIds.length === 0) return [];
     const titleId = await this.resolveCs2TitleId(signal);
     const series: GridCatalogSeries[] = [];
     let after: string | null = null;
@@ -231,6 +236,7 @@ export class GridCentralDataClient {
           first: 50,
           filter: {
             titleId,
+            tournamentIds: { in: [...tournamentIds] },
             startTimeScheduled: { gte: window.from.toISOString(), lte: window.to.toISOString() },
             types: ["ESPORTS"],
             workflowStatuses: ["PUBLISHED"],
