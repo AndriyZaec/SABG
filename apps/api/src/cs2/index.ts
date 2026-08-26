@@ -6,5 +6,7 @@ export * from "./question-provider.js";
 export * from "./round-engine.js";
 export * from "./fixture.js";
 export * from "./series-snapshot.js";
+export * from "./central-data-client.js";
+export * from "./catalog-synchronizer.js";
 export * from "./series-lifecycle.js";
 export * from "./arena-runtime.js";

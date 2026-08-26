@@ -2,6 +2,7 @@ import {
   ANSWERS,
   ARENA_PLAYER_STATUSES,
   ARENA_STATUSES,
+  CS2_SERIES_LIFECYCLES,
   DISCIPLINES,
   ENTRY_PASS_STATUSES,
   MATCH_PERIODS,
@@ -46,6 +47,7 @@ export const targetEventTypeEnum = pgEnum("target_event_type", TARGET_EVENT_TYPE
 export const teamSideEnum = pgEnum("team_side", TEAM_SIDES);
 export const disciplineEnum = pgEnum("discipline", DISCIPLINES);
 export const seriesStatusEnum = pgEnum("series_status", SERIES_STATUSES);
+export const cs2SeriesLifecycleEnum = pgEnum("cs2_series_lifecycle", CS2_SERIES_LIFECYCLES);
 
 const timestamps = {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -62,14 +64,34 @@ export const users = pgTable("user", {
   uniqueIndex("user_wallet_address_idx").on(t.walletAddress),
 ]);
 
+export const cs2Competitions = pgTable("cs2_competition", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  gridTournamentId: text("grid_tournament_id").notNull(),
+  name: text("name").notNull(),
+  shortName: text("short_name"),
+  logoUrl: text("logo_url"),
+  ...timestamps,
+}, (t) => [
+  uniqueIndex("cs2_competition_grid_tournament_id_idx").on(t.gridTournamentId),
+  check("cs2_competition_grid_tournament_id_not_blank", sql`btrim(${t.gridTournamentId}) <> ''`),
+  check("cs2_competition_name_not_blank", sql`btrim(${t.name}) <> ''`),
+]);
+
 export const series = pgTable("series", {
   id: uuid("id").primaryKey().defaultRandom(),
   gridSeriesId: text("grid_series_id").notNull().unique(),
+  competitionId: uuid("competition_id").references(() => cs2Competitions.id, { onDelete: "restrict" }),
   format: integer("format").notNull(),
   scheduledStartTime: timestamp("scheduled_start_time", { withTimezone: true }).notNull(),
   status: seriesStatusEnum("status").notNull(),
+  catalogLifecycle: cs2SeriesLifecycleEnum("catalog_lifecycle").notNull().default("unknown"),
+  isSupported: boolean("is_supported").notNull().default(false),
   ...timestamps,
-});
+}, (t) => [
+  index("series_competition_id_idx").on(t.competitionId),
+  index("series_catalog_idx").on(t.isSupported, t.catalogLifecycle, t.scheduledStartTime),
+  check("series_format_check", sql`${t.format} between 1 and 7`),
+]);
 
 export const cs2Teams = pgTable("cs2_team", {
   id: uuid("id").primaryKey().defaultRandom(),
