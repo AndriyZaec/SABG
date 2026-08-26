@@ -15,12 +15,16 @@ import type {
   WalletSignInRequest,
   WalletSignInResponse,
 } from "@arena/contracts";
+import { createCs2CatalogRouter, type Cs2CatalogReadStore } from "../cs2/catalog-routes.js";
 
 import {
   MOCK_ENTRY_PASS_ID,
+  MOCK_CS2_SERIES_ID,
   mockArena,
   mockArenaPlayer,
   mockCurrentRound,
+  mockCs2SeriesDetail,
+  mockCs2SeriesSummary,
   mockLeaderboard,
   mockMatch,
   mockMatches,
@@ -29,6 +33,17 @@ import {
 } from "./fixtures.js";
 
 export const mockRouter: RouterType = Router();
+
+const mockCs2CatalogStore: Cs2CatalogReadStore = {
+  async listSupported() {
+    return [mockCs2SeriesSummary];
+  },
+  async findSupportedDetailById(id) {
+    return id === MOCK_CS2_SERIES_ID ? mockCs2SeriesDetail : undefined;
+  },
+};
+
+mockRouter.use(createCs2CatalogRouter(mockCs2CatalogStore));
 
 /** Returns true and writes a 404 if `id` isn't the fixture arena's id. */
 function arenaNotFound(id: string, res: Response): boolean {

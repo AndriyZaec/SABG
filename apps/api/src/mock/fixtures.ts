@@ -6,6 +6,8 @@ import { MATCH_WINDOWS } from "@arena/contracts";
 import type {
   Arena,
   ArenaPlayer,
+  Cs2SeriesDetail,
+  Cs2SeriesSummary,
   LeaderboardEntry,
   Match,
   MatchState,
@@ -18,6 +20,56 @@ export const MOCK_MATCH_ID = "00000000-0000-0000-0000-000000000010";
 export const MOCK_ARENA_ID = "00000000-0000-0000-0000-000000000020";
 export const MOCK_ENTRY_PASS_ID = "00000000-0000-0000-0000-000000000030";
 export const MOCK_ARENA_PLAYER_ID = "00000000-0000-0000-0000-000000000040";
+export const MOCK_CS2_SERIES_ID = "10000000-0000-4000-8000-000000000001";
+export const MOCK_CS2_TEAM_A_ID = "10000000-0000-4000-8000-000000000002";
+export const MOCK_CS2_TEAM_B_ID = "10000000-0000-4000-8000-000000000003";
+export const MOCK_CS2_MATCH_ID = "10000000-0000-4000-8000-000000000004";
+export const MOCK_CS2_ARENA_ID = "10000000-0000-4000-8000-000000000005";
+
+export const mockCs2SeriesSummary: Cs2SeriesSummary = {
+  id: MOCK_CS2_SERIES_ID,
+  participants: [
+    {
+      state: "known",
+      displayOrder: 1,
+      team: { id: MOCK_CS2_TEAM_A_ID, name: "Team Spirit", shortName: "Spirit" },
+      seriesScore: 0,
+    },
+    {
+      state: "known",
+      displayOrder: 2,
+      team: { id: MOCK_CS2_TEAM_B_ID, name: "Team Vitality", shortName: "Vitality" },
+      seriesScore: 0,
+    },
+  ],
+  competition: { name: "BLAST Premier", shortName: "BLAST" },
+  format: 3,
+  scheduledStartTime: "2026-09-01T18:00:00.000Z",
+  lifecycle: "upcoming",
+};
+
+export const mockCs2SeriesDetail: Cs2SeriesDetail = {
+  ...mockCs2SeriesSummary,
+  maps: [
+    {
+      state: "lobby",
+      seriesMatchIndex: 1,
+      matchId: MOCK_CS2_MATCH_ID,
+      teams: [
+        { teamId: MOCK_CS2_TEAM_A_ID, score: 0 },
+        { teamId: MOCK_CS2_TEAM_B_ID, score: 0 },
+      ],
+      arena: {
+        id: MOCK_CS2_ARENA_ID,
+        activePlayersCount: 128,
+        entryFeeLamports: 100_000_000,
+        prizePoolLamports: 12_800_000_000,
+      },
+    },
+    { state: "pending", seriesMatchIndex: 2 },
+    { state: "pending", seriesMatchIndex: 3 },
+  ],
+};
 
 export const mockUser: User = {
   id: MOCK_USER_ID,
