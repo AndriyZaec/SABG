@@ -14,6 +14,7 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
 
   const runId = randomUUID();
   const gridSeriesId = `catalog-series-${runId}`;
+  const unsupportedGridSeriesId = `catalog-unsupported-series-${runId}`;
   const gridTournamentId = `catalog-tournament-${runId}`;
   const firstGridTeamId = `catalog-team-a-${runId}`;
   const secondGridTeamId = `catalog-team-b-${runId}`;
@@ -26,7 +27,7 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
 
   afterAll(async () => {
     if (db === undefined) return;
-    await db.delete(schema.series).where(eq(schema.series.gridSeriesId, gridSeriesId));
+    await db.delete(schema.series).where(inArray(schema.series.gridSeriesId, [gridSeriesId, unsupportedGridSeriesId]));
     await db.delete(schema.cs2Teams).where(inArray(schema.cs2Teams.gridTeamId, [firstGridTeamId, secondGridTeamId]));
     await db.delete(schema.cs2Competitions).where(eq(schema.cs2Competitions.gridTournamentId, gridTournamentId));
   });
@@ -45,6 +46,16 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
       teams: [{ gridTeamId: firstGridTeamId, name: "Team A" }],
     });
     expect(first.participantCount).toBe(1);
+    await expect(repository.findSupportedById(first.seriesId)).resolves.toMatchObject({
+      id: first.seriesId,
+      participants: [
+        { state: "known", displayOrder: 1, team: { name: "Team A" }, seriesScore: 0 },
+        { state: "tbd", displayOrder: 2, seriesScore: null },
+      ],
+      competition: { name: "Major" },
+      format: 3,
+      lifecycle: "upcoming",
+    });
 
     await db
       .update(schema.cs2SeriesParticipants)
@@ -92,5 +103,16 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
       .from(schema.series)
       .where(eq(schema.series.id, first.seriesId));
     expect(persistedSeries?.lifecycle).toBe("live");
+
+    const unsupported = await repository.synchronizeSeries({
+      ...base,
+      gridSeriesId: unsupportedGridSeriesId,
+      isSupported: false,
+      teams: [],
+    });
+    await expect(repository.findSupportedById(unsupported.seriesId)).resolves.toBeUndefined();
+    await expect(repository.listSupported()).resolves.not.toContainEqual(
+      expect.objectContaining({ id: unsupported.seriesId }),
+    );
   });
 });

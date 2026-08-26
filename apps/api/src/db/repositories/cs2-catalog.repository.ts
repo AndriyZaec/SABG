@@ -1,5 +1,5 @@
-import { eq, sql } from "drizzle-orm";
-import type { Cs2SeriesLifecycle, Uuid } from "@arena/contracts";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import type { Cs2SeriesLifecycle, Cs2SeriesParticipant, Cs2SeriesSummary, Uuid } from "@arena/contracts";
 import { db } from "../client.js";
 import { cs2Competitions, cs2SeriesParticipants, cs2Teams, series } from "../schema.js";
 
@@ -43,7 +43,88 @@ function validateInput(input: Cs2CatalogSeriesInput): void {
   }
 }
 
+async function readSupportedSeries(id?: Uuid): Promise<Cs2SeriesSummary[]> {
+  const catalogRows = await db
+    .select({
+      id: series.id,
+      format: series.format,
+      scheduledStartTime: series.scheduledStartTime,
+      lifecycle: series.catalogLifecycle,
+      competitionName: cs2Competitions.name,
+      competitionShortName: cs2Competitions.shortName,
+      competitionLogoUrl: cs2Competitions.logoUrl,
+    })
+    .from(series)
+    .innerJoin(cs2Competitions, eq(series.competitionId, cs2Competitions.id))
+    .where(and(eq(series.isSupported, true), id === undefined ? undefined : eq(series.id, id)))
+    .orderBy(asc(series.scheduledStartTime));
+  if (catalogRows.length === 0) return [];
+
+  const participantRows = await db
+    .select({
+      seriesId: cs2SeriesParticipants.seriesId,
+      displayOrder: cs2SeriesParticipants.displayOrder,
+      seriesScore: cs2SeriesParticipants.score,
+      teamId: cs2Teams.id,
+      teamName: cs2Teams.name,
+      teamShortName: cs2Teams.shortName,
+      teamLogoUrl: cs2Teams.logoUrl,
+    })
+    .from(cs2SeriesParticipants)
+    .innerJoin(cs2Teams, eq(cs2SeriesParticipants.teamId, cs2Teams.id))
+    .where(inArray(cs2SeriesParticipants.seriesId, catalogRows.map((row) => row.id)))
+    .orderBy(asc(cs2SeriesParticipants.displayOrder));
+
+  const participantsBySeries = new Map<Uuid, [Cs2SeriesParticipant, Cs2SeriesParticipant]>();
+  for (const row of participantRows) {
+    if (row.displayOrder !== 1 && row.displayOrder !== 2) {
+      throw new Error(`CS2 series ${row.seriesId} has invalid participant order ${row.displayOrder}`);
+    }
+    const participants = participantsBySeries.get(row.seriesId) ?? [
+      { state: "tbd", displayOrder: 1, seriesScore: null },
+      { state: "tbd", displayOrder: 2, seriesScore: null },
+    ];
+    participants[row.displayOrder - 1] = {
+      state: "known",
+      displayOrder: row.displayOrder,
+      team: {
+        id: row.teamId,
+        name: row.teamName,
+        ...(row.teamShortName !== null ? { shortName: row.teamShortName } : {}),
+        ...(row.teamLogoUrl !== null ? { logoUrl: row.teamLogoUrl } : {}),
+      },
+      seriesScore: row.seriesScore,
+    };
+    participantsBySeries.set(row.seriesId, participants);
+  }
+
+  return catalogRows.map((row) => ({
+    id: row.id,
+    participants: participantsBySeries.get(row.id) ?? [
+      { state: "tbd", displayOrder: 1, seriesScore: null },
+      { state: "tbd", displayOrder: 2, seriesScore: null },
+    ],
+    competition: {
+      name: row.competitionName,
+      ...(row.competitionShortName !== null ? { shortName: row.competitionShortName } : {}),
+      ...(row.competitionLogoUrl !== null ? { logoUrl: row.competitionLogoUrl } : {}),
+    },
+    format: row.format,
+    scheduledStartTime: row.scheduledStartTime.toISOString(),
+    lifecycle: row.lifecycle,
+  }));
+}
+
 export const cs2CatalogRepository = {
+  async listSupported(): Promise<Cs2SeriesSummary[]> {
+    return readSupportedSeries();
+  },
+
+  async findSupportedById(id: Uuid): Promise<Cs2SeriesSummary | undefined> {
+    const [catalogSeries] = await readSupportedSeries(id);
+    return catalogSeries;
+  },
+
   async synchronizeSeries(input: Cs2CatalogSeriesInput): Promise<{ seriesId: Uuid; participantCount: number }> {
     validateInput(input);
 
