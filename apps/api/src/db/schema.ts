@@ -17,16 +17,20 @@ import {
 import {
   bigint,
   boolean,
+  check,
   index,
   integer,
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
+  smallint,
   text,
   timestamp,
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const matchStatusEnum = pgEnum("match_status", MATCH_STATUSES);
 export const matchPeriodEnum = pgEnum("match_period", MATCH_PERIODS);
@@ -67,6 +71,36 @@ export const series = pgTable("series", {
   ...timestamps,
 });
 
+export const cs2Teams = pgTable("cs2_team", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  gridTeamId: text("grid_team_id").notNull(),
+  name: text("name").notNull(),
+  shortName: text("short_name"),
+  logoUrl: text("logo_url"),
+  ...timestamps,
+}, (t) => [
+  uniqueIndex("cs2_team_grid_team_id_idx").on(t.gridTeamId),
+  check("cs2_team_grid_team_id_not_blank", sql`btrim(${t.gridTeamId}) <> ''`),
+  check("cs2_team_name_not_blank", sql`btrim(${t.name}) <> ''`),
+]);
+
+export const cs2SeriesParticipants = pgTable("cs2_series_participant", {
+  seriesId: uuid("series_id")
+    .notNull()
+    .references(() => series.id, { onDelete: "cascade" }),
+  teamId: uuid("team_id")
+    .notNull()
+    .references(() => cs2Teams.id, { onDelete: "restrict" }),
+  displayOrder: smallint("display_order").notNull(),
+  score: integer("score").notNull().default(0),
+}, (t) => [
+  primaryKey({ columns: [t.seriesId, t.teamId], name: "cs2_series_participant_pk" }),
+  uniqueIndex("cs2_series_participant_order_idx").on(t.seriesId, t.displayOrder),
+  index("cs2_series_participant_team_id_idx").on(t.teamId),
+  check("cs2_series_participant_display_order_check", sql`${t.displayOrder} in (1, 2)`),
+  check("cs2_series_participant_score_check", sql`${t.score} >= 0`),
+]);
+
 export const matches = pgTable("match", {
   id: uuid("id").primaryKey().defaultRandom(),
   discipline: disciplineEnum("discipline").notNull().default("soccer"),
@@ -86,6 +120,20 @@ export const matches = pgTable("match", {
   uniqueIndex("match_teams_start_time_idx").on(t.homeTeam, t.awayTeam, t.startTime),
   index("match_series_id_idx").on(t.seriesId),
   uniqueIndex("match_series_match_index_idx").on(t.seriesId, t.seriesMatchIndex),
+]);
+
+export const cs2MatchTeamScores = pgTable("cs2_match_team_score", {
+  matchId: uuid("match_id")
+    .notNull()
+    .references(() => matches.id, { onDelete: "cascade" }),
+  teamId: uuid("team_id")
+    .notNull()
+    .references(() => cs2Teams.id, { onDelete: "restrict" }),
+  score: integer("score").notNull().default(0),
+}, (t) => [
+  primaryKey({ columns: [t.matchId, t.teamId], name: "cs2_match_team_score_pk" }),
+  index("cs2_match_team_score_team_id_idx").on(t.teamId),
+  check("cs2_match_team_score_score_check", sql`${t.score} >= 0`),
 ]);
 
 export const arenas = pgTable("arena", {
