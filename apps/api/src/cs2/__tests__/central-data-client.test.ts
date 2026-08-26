@@ -57,6 +57,7 @@ describe("GridCentralDataClient", () => {
       competition: { gridTournamentId: "tournament-1", name: "Major" },
       teams: [{ gridTeamId: "team-a", name: "Team A" }, { gridTeamId: "team-b", name: "Team B" }],
     });
+    expect(request.mock.calls[1]?.[1]).toMatchObject({ first: 50, filter: { titleId: "title-cs2" } });
     expect(request.mock.calls[2]?.[1]).toMatchObject({ after: "cursor-1", filter: { titleId: "title-cs2" } });
   });
 

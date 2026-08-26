@@ -7,7 +7,7 @@ const envSchema = z.object({
   GRID_API_KEY: z.string().min(1, "GRID_API_KEY is required"),
   GRID_CENTRAL_DATA_API_KEY: z.string().min(1).optional(),
   GRID_GRAPHQL_URL: z.string().url().default("https://api-op.grid.gg/live-data-feed/series-state/graphql"),
-  GRID_CENTRAL_DATA_URL: z.string().url().default("https://api.grid.gg/central-data/graphql"),
+  GRID_CENTRAL_DATA_URL: z.string().url().default("https://api-op.grid.gg/central-data/graphql"),
   GRID_SERIES_ID: z.string().min(1).default("28"),
   GRID_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(10_000),
   GRID_RATE_LIMIT_RETRY_MS: z.coerce.number().int().positive().default(1_000),

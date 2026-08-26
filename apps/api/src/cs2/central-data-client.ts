@@ -191,13 +191,9 @@ export class GridCentralDataClient {
       this.graphql = graphql;
       return;
     }
-    const apiKey = gridConfig.grid.centralDataApiKey;
-    if (apiKey === undefined) {
-      throw new Error("GRID_CENTRAL_DATA_API_KEY is required for CS2 catalog synchronization");
-    }
     this.graphql = new GridGraphqlClient({
       url: gridConfig.grid.centralDataUrl,
-      apiKey,
+      apiKey: gridConfig.grid.centralDataApiKey ?? gridConfig.grid.apiKey,
       requestTimeoutMs: gridConfig.grid.requestTimeoutMs,
       rateLimitRetryMs: gridConfig.grid.rateLimitRetryMs,
       maxRateLimitRetries: gridConfig.grid.maxRateLimitRetries,
@@ -232,7 +228,7 @@ export class GridCentralDataClient {
         SERIES_QUERY,
         {
           after,
-          first: 100,
+          first: 50,
           filter: {
             titleId,
             startTimeScheduled: { gte: window.from.toISOString(), lte: window.to.toISOString() },
