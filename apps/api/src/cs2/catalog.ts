@@ -1,45 +1,60 @@
 import { CS2_WEAPON_WHITELIST } from "@arena/contracts";
-import type { Cs2SettlementCondition, Cs2Topic, Cs2TopicParams, Cs2Weapon, TeamSide } from "@arena/contracts";
+import type {
+  Cs2SettlementCondition,
+  Cs2TeamIdentity,
+  Cs2TeamId,
+  Cs2Topic,
+  Cs2TopicParams,
+  Cs2Weapon,
+} from "@arena/contracts";
 
 export interface Cs2Candidate {
   topic: Cs2Topic;
   params: Cs2TopicParams;
 }
 
-const CANDIDATE_TEAM_SIDES: readonly TeamSide[] = ["home", "away"];
 const MULTIKILL_Y = [2, 3, 4, 5];
 const SURVIVORS_TEAM_Y = [0, 1, 2, 3, 4];
 const SURVIVORS_ROUND_Y = [0, 1, 2, 3, 4, 5];
 
-const GENERAL_CANDIDATES: readonly Cs2Candidate[] = [
-  ...CANDIDATE_TEAM_SIDES.map((targetTeam): Cs2Candidate => ({ topic: "round_winner", params: { targetTeam } })),
-  ...CS2_WEAPON_WHITELIST.map((weapon): Cs2Candidate => ({ topic: "weapon_kill", params: { weapon } })),
-  ...CANDIDATE_TEAM_SIDES.map((targetTeam): Cs2Candidate => ({ topic: "team_ace", params: { targetTeam } })),
-  ...CANDIDATE_TEAM_SIDES.flatMap((targetTeam) =>
-    MULTIKILL_Y.map((y): Cs2Candidate => ({ topic: "multikill", params: { targetTeam, y } })),
-  ),
-  ...CANDIDATE_TEAM_SIDES.flatMap((targetTeam) =>
-    SURVIVORS_TEAM_Y.map((y): Cs2Candidate => ({ topic: "survivors_team", params: { targetTeam, y } })),
-  ),
-  ...SURVIVORS_ROUND_Y.map((y): Cs2Candidate => ({ topic: "survivors_round", params: { y } })),
-];
-
-export const CS2_GENERAL_CANDIDATES: readonly Cs2Candidate[] = GENERAL_CANDIDATES;
-
-export function pickCs2Candidate(): Cs2Candidate {
-  const index = Math.floor(Math.random() * GENERAL_CANDIDATES.length);
-  return GENERAL_CANDIDATES[index]!;
+export function buildCs2GeneralCandidates(teams: readonly [Cs2TeamIdentity, Cs2TeamIdentity]): Cs2Candidate[] {
+  const teamIds = teams.map((team) => team.teamId);
+  return [
+    ...teamIds.map((targetTeamId): Cs2Candidate => ({ topic: "round_winner", params: { targetTeamId } })),
+    ...CS2_WEAPON_WHITELIST.map((weapon): Cs2Candidate => ({ topic: "weapon_kill", params: { weapon } })),
+    ...teamIds.map((targetTeamId): Cs2Candidate => ({ topic: "team_ace", params: { targetTeamId } })),
+    ...teamIds.flatMap((targetTeamId) =>
+      MULTIKILL_Y.map((y): Cs2Candidate => ({ topic: "multikill", params: { targetTeamId, y } })),
+    ),
+    ...teamIds.flatMap((targetTeamId) =>
+      SURVIVORS_TEAM_Y.map((y): Cs2Candidate => ({ topic: "survivors_team", params: { targetTeamId, y } })),
+    ),
+    ...SURVIVORS_ROUND_Y.map((y): Cs2Candidate => ({ topic: "survivors_round", params: { y } })),
+  ];
 }
 
-function teamLabel(team: TeamSide, teamNames?: { home: string; away: string }): string {
-  if (team === "home") return teamNames?.home ?? "Home";
-  if (team === "away") return teamNames?.away ?? "Away";
-  return team;
+export function pickCs2Candidate(teams: readonly [Cs2TeamIdentity, Cs2TeamIdentity]): Cs2Candidate {
+  const candidates = buildCs2GeneralCandidates(teams);
+  const index = Math.floor(Math.random() * candidates.length);
+  return candidates[index]!;
 }
 
-function requireTeam(params: Cs2TopicParams, topic: Cs2Topic): TeamSide {
-  if (params.targetTeam === undefined) throw new Error(`cs2 catalog: topic "${topic}" requires params.targetTeam`);
-  return params.targetTeam;
+function requireTeamId(params: Cs2TopicParams, topic: Cs2Topic): Cs2TeamId {
+  if (params.targetTeamId === undefined) {
+    throw new Error(`cs2 catalog: topic "${topic}" requires params.targetTeamId`);
+  }
+  return params.targetTeamId;
+}
+
+function teamName(
+  params: Cs2TopicParams,
+  topic: Cs2Topic,
+  teams: readonly [Cs2TeamIdentity, Cs2TeamIdentity],
+): string {
+  const teamId = requireTeamId(params, topic);
+  const team = teams.find((candidate) => candidate.teamId === teamId);
+  if (team === undefined) throw new Error(`cs2 catalog: unknown targetTeamId "${teamId}"`);
+  return team.name;
 }
 
 function requireWeapon(params: Cs2TopicParams): Cs2Weapon {
@@ -55,23 +70,23 @@ function requireY(params: Cs2TopicParams, topic: Cs2Topic): number {
 export function renderCs2Question(
   topic: Cs2Topic,
   params: Cs2TopicParams,
-  teamNames?: { home: string; away: string },
+  teams: readonly [Cs2TeamIdentity, Cs2TeamIdentity],
 ): string {
   switch (topic) {
     case "round_winner":
-      return `Will Team ${teamLabel(requireTeam(params, topic), teamNames)} win this round?`;
+      return `Will Team ${teamName(params, topic, teams)} win this round?`;
     case "weapon_kill":
       return `Will there be a kill with ${requireWeapon(params)} this round?`;
     case "team_ace":
-      return `Will every player on Team ${teamLabel(requireTeam(params, topic), teamNames)} get a kill this round?`;
+      return `Will every player on Team ${teamName(params, topic, teams)} get a kill this round?`;
     case "multikill":
-      return `Will Team ${teamLabel(requireTeam(params, topic), teamNames)} get a ${requireY(params, topic)}-kill this round?`;
+      return `Will Team ${teamName(params, topic, teams)} get a ${requireY(params, topic)}-kill this round?`;
     case "survivors_team":
-      return `Will Team ${teamLabel(requireTeam(params, topic), teamNames)} have more than ${requireY(params, topic)} survivors this round?`;
+      return `Will Team ${teamName(params, topic, teams)} have more than ${requireY(params, topic)} survivors this round?`;
     case "survivors_round":
       return `Will more than ${requireY(params, topic)} players survive this round in total?`;
     case "pistol_round":
-      return `Will Team ${teamLabel(requireTeam(params, topic), teamNames)} win the pistol round?`;
+      return `Will Team ${teamName(params, topic, teams)} win the pistol round?`;
     case "ot_score":
       return "Will the score be 12-12 after this round?";
   }

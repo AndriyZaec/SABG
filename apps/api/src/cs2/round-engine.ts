@@ -1,7 +1,17 @@
 import { randomUUID } from "node:crypto";
-import type { Answer, Cs2SettlementCondition, IsoDateTime, MatchSignal, PredictionRound, Uuid } from "@arena/contracts";
-import type { Cs2GameSnapshot } from "@arena/contracts";
+import type {
+  Answer,
+  Cs2GameSnapshot,
+  Cs2SettlementCondition,
+  Cs2SettlementInvalidReason,
+  Cs2TeamIdentity,
+  IsoDateTime,
+  MatchSignal,
+  PredictionRound,
+  Uuid,
+} from "@arena/contracts";
 import type { MatchSignalBus } from "../ingestion/event-bus.js";
+import { logger } from "../grid/logger.js";
 import { resolveCs2Settlement } from "./settle.js";
 import { createCs2QuestionProvider, type Cs2QuestionProvider } from "./question-provider.js";
 import { deriveRoundNumber } from "./snapshot.js";
@@ -10,11 +20,11 @@ export type Cs2RoundLifecycleEvent =
   | { type: "open"; round: PredictionRound }
   | { type: "lock"; roundId: Uuid; roundNumber: number }
   | { type: "settle"; roundId: Uuid; roundNumber: number; correctAnswer: Answer }
-  | { type: "void"; roundId: Uuid; roundNumber: number };
+  | { type: "void"; roundId: Uuid; roundNumber: number; reason?: Cs2SettlementInvalidReason };
 
 export interface Cs2RoundEngineOptions {
   questionProvider?: Cs2QuestionProvider;
-  teamNames?: { home: string; away: string };
+  teams?: readonly [Cs2TeamIdentity, Cs2TeamIdentity];
   initialRounds?: readonly PredictionRound[];
   isArenaFinished?: () => boolean;
   onTransition?: (event: Cs2RoundLifecycleEvent) => void;
@@ -27,6 +37,7 @@ export class Cs2RoundEngine {
   /** Used at match end only when it proves one score transition. */
   private lastLiveSnapshot: Cs2GameSnapshot | undefined;
   private readonly questionProvider: Cs2QuestionProvider;
+  private teams: readonly [Cs2TeamIdentity, Cs2TeamIdentity] | undefined;
 
   constructor(
     private readonly matchId: Uuid,
@@ -34,6 +45,7 @@ export class Cs2RoundEngine {
     private readonly options: Cs2RoundEngineOptions = {},
   ) {
     this.questionProvider = options.questionProvider ?? createCs2QuestionProvider();
+    this.teams = options.teams;
     for (const round of options.initialRounds ?? []) {
       if (round.roundNumber === undefined || round.matchId !== matchId || round.arenaId !== arenaId) {
         throw new Error(`Invalid restored CS2 round ${round.id}`);
@@ -46,7 +58,11 @@ export class Cs2RoundEngine {
     return this.rounds;
   }
 
-  onMatchLiveDetected(timestamp: IsoDateTime): void {
+  onMatchLiveDetected(
+    timestamp: IsoDateTime,
+    teams?: readonly [Cs2TeamIdentity, Cs2TeamIdentity],
+  ): void {
+    this.teams = teams ?? this.teams;
     this.handleOpen(1, timestamp);
   }
 
@@ -54,6 +70,7 @@ export class Cs2RoundEngine {
     switch (signal.kind) {
       case "cs2_snapshot":
         this.lastLiveSnapshot = signal.snapshot;
+        this.teams = signal.snapshot.teams;
         return;
       case "cs2_round_lock":
         this.handleRoundLock(signal.roundNumber, signal.timestamp);
@@ -75,12 +92,13 @@ export class Cs2RoundEngine {
 
   private handleOpen(roundNumber: number, timestamp: IsoDateTime): void {
     if (this.rounds.has(roundNumber)) return;
+    if (this.teams === undefined) throw new Error(`Cannot open CS2 round ${roundNumber} without team identities`);
 
     const generated = this.questionProvider.generate({
       matchId: this.matchId,
       arenaId: this.arenaId,
       roundNumber,
-      teamNames: this.options.teamNames,
+      teams: this.teams,
     });
 
     const round: PredictionRound = {
@@ -158,10 +176,7 @@ export class Cs2RoundEngine {
     for (const [roundNumber, round] of this.rounds) {
       if (roundNumber > throughRoundNumber) continue;
       if (round.status !== "open" && round.status !== "locked") continue;
-      const voided: PredictionRound = { ...round, status: "voided" };
-      this.rounds.set(roundNumber, voided);
-      this.lockSnapshotByRound.delete(roundNumber);
-      this.options.onTransition?.({ type: "void", roundId: voided.id, roundNumber });
+      this.voidRound(roundNumber, round);
     }
   }
 
@@ -173,15 +188,40 @@ export class Cs2RoundEngine {
     after: Cs2GameSnapshot,
     timestamp: IsoDateTime,
   ): void {
-    const correctAnswer = resolveCs2Settlement(condition, before, after);
+    const result = resolveCs2Settlement(condition, before, after);
+    if (result.status === "invalid") {
+      logger.warn(
+        { arenaId: this.arenaId, matchId: this.matchId, roundNumber, reason: result.reason },
+        "cs2: voiding round after invalid settlement input",
+      );
+      this.voidRound(roundNumber, round, result.reason);
+      return;
+    }
+
     const settled: PredictionRound = {
       ...round,
       status: "settled",
-      correctAnswer,
+      correctAnswer: result.answer,
       settledAt: timestamp,
       settledBy: "round_end",
     };
     this.rounds.set(roundNumber, settled);
-    this.options.onTransition?.({ type: "settle", roundId: settled.id, roundNumber, correctAnswer });
+    this.options.onTransition?.({ type: "settle", roundId: settled.id, roundNumber, correctAnswer: result.answer });
+  }
+
+  private voidRound(
+    roundNumber: number,
+    round: PredictionRound,
+    reason?: Cs2SettlementInvalidReason,
+  ): void {
+    const voided: PredictionRound = { ...round, status: "voided" };
+    this.rounds.set(roundNumber, voided);
+    this.lockSnapshotByRound.delete(roundNumber);
+    this.options.onTransition?.({
+      type: "void",
+      roundId: voided.id,
+      roundNumber,
+      ...(reason !== undefined ? { reason } : {}),
+    });
   }
 }

@@ -9,11 +9,17 @@ import type { Cs2QuestionProvider } from "../question-provider.js";
 
 const MATCH_ID = "00000000-0000-0000-0000-0000000000c2";
 const ARENA_ID = "00000000-0000-0000-0000-0000000000a2";
+const TEAMS = [
+  { teamId: "team-a", name: "Team A" },
+  { teamId: "team-b", name: "Team B" },
+] as const;
 
 function driveEngineWithFixture(engine: Cs2RoundEngine, bus: MatchSignalBus): void {
   const entries = loadCs2Fixture(defaultCs2FixturePath());
   let trackerState = initialCs2TrackerState();
-  engine.onMatchLiveDetected(entries[0]!.receivedAt);
+  const firstSnapshot = parseSnapshot(entries[0]!.raw);
+  if (firstSnapshot === undefined) throw new Error("Fixture has no initial CS2 snapshot");
+  engine.onMatchLiveDetected(entries[0]!.receivedAt, firstSnapshot.teams);
   for (const entry of entries) {
     const snapshot = parseSnapshot(entry.raw);
     const { state, signals } = trackCs2Poll(trackerState, snapshot, entry.receivedAt);
@@ -93,8 +99,8 @@ describe("Cs2RoundEngine — full fixture replay (cs2_series_28, one Bo3 map)", 
 const clock = (currentSeconds: number, ticking = true) => ({ ticking, currentSeconds });
 const snapshot = (a: number, b: number, cs = 90): Cs2GameSnapshot => ({
   teams: [
-    { teamId: "team-a", name: "Home", score: a, deaths: 0, weaponKills: [], players: [] },
-    { teamId: "team-b", name: "Away", score: b, deaths: 0, weaponKills: [], players: [] },
+    { teamId: "team-a", name: "Team A", score: a, deaths: 0, weaponKills: [], players: [] },
+    { teamId: "team-b", name: "Team B", score: b, deaths: 0, weaponKills: [], players: [] },
   ],
   clock: clock(cs),
 });
@@ -103,19 +109,55 @@ function fakeProvider(): Cs2QuestionProvider {
   return {
     generate: (ctx) => ({
       question: `Round ${ctx.roundNumber}?`,
-      settlementCondition: { discipline: "cs2", topic: "round_winner", params: { targetTeam: "home" }, roundNumber: ctx.roundNumber, resolve: "snapshot_diff" },
+      settlementCondition: { discipline: "cs2", topic: "round_winner", params: { targetTeamId: "team-a" }, roundNumber: ctx.roundNumber, resolve: "snapshot_diff" },
     }),
   };
 }
 
 describe("Cs2RoundEngine — synthetic match-end voiding", () => {
+  it("voids a locked round when its target team identity does not exist", () => {
+    const bus = new MatchSignalBus();
+    const events: Cs2RoundLifecycleEvent[] = [];
+    const questionProvider: Cs2QuestionProvider = {
+      generate: (ctx) => ({
+        question: "Invalid target?",
+        settlementCondition: {
+          discipline: "cs2",
+          topic: "round_winner",
+          params: { targetTeamId: "missing" },
+          roundNumber: ctx.roundNumber,
+          resolve: "snapshot_diff",
+        },
+      }),
+    };
+    const engine = new Cs2RoundEngine(MATCH_ID, ARENA_ID, {
+      questionProvider,
+      onTransition: (event) => events.push(event),
+    });
+    engine.subscribeTo(bus);
+
+    engine.onMatchLiveDetected("t0", TEAMS);
+    bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(0, 0, 105), timestamp: "t1" });
+    bus.publish({ kind: "cs2_round_lock", roundNumber: 1, timestamp: "t1" });
+    bus.publish({ kind: "cs2_round_end", roundNumber: 1, snapshot: snapshot(1, 0, 20), timestamp: "t2" });
+
+    expect(engine.roundsByNumber.get(1)?.status).toBe("voided");
+    expect(events).toContainEqual({
+      type: "void",
+      roundId: engine.roundsByNumber.get(1)?.id,
+      roundNumber: 1,
+      reason: "unknown_team_id",
+    });
+    expect(events.some((event) => event.type === "settle" && event.roundNumber === 1)).toBe(false);
+  });
+
   it("voids the in-flight round when the last snapshot does not prove a score transition", () => {
     const bus = new MatchSignalBus();
     const events: Cs2RoundLifecycleEvent[] = [];
     const engine = new Cs2RoundEngine(MATCH_ID, ARENA_ID, { questionProvider: fakeProvider(), onTransition: (e) => events.push(e) });
     engine.subscribeTo(bus);
 
-    engine.onMatchLiveDetected("t0");
+    engine.onMatchLiveDetected("t0", TEAMS);
     bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(0, 0, 18), timestamp: "t0" });
     bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(0, 0, 105), timestamp: "t1" });
     bus.publish({ kind: "cs2_round_lock", roundNumber: 1, timestamp: "t1" });
@@ -140,7 +182,7 @@ describe("Cs2RoundEngine — synthetic match-end voiding", () => {
     });
     engine.subscribeTo(bus);
 
-    engine.onMatchLiveDetected("t0");
+    engine.onMatchLiveDetected("t0", TEAMS);
     bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(0, 0, 105), timestamp: "t1" });
     bus.publish({ kind: "cs2_round_lock", roundNumber: 1, timestamp: "t1" });
     bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(1, 0, 20), timestamp: "t2" });
@@ -161,7 +203,7 @@ describe("Cs2RoundEngine — synthetic match-end voiding", () => {
     const engine = new Cs2RoundEngine(MATCH_ID, ARENA_ID, { questionProvider: fakeProvider(), onTransition: (e) => events.push(e) });
     engine.subscribeTo(bus);
 
-    engine.onMatchLiveDetected("t0");
+    engine.onMatchLiveDetected("t0", TEAMS);
     bus.publish({ kind: "cs2_match_end", timestamp: "t1" });
 
     expect(events.filter((e) => e.type === "settle")).toHaveLength(0);
@@ -181,7 +223,7 @@ describe("Cs2RoundEngine — resync at the next reliable lock", () => {
     });
     engine.subscribeTo(bus);
 
-    engine.onMatchLiveDetected("t0");
+    engine.onMatchLiveDetected("t0", TEAMS);
     // Polling began after round 1's lock; round 2 is the first reliable boundary.
     bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(1, 0, 105), timestamp: "t1" });
     bus.publish({ kind: "cs2_round_lock", roundNumber: 2, timestamp: "t1" });
@@ -207,7 +249,7 @@ describe("Cs2RoundEngine — isArenaFinished gate", () => {
     });
     engine.subscribeTo(bus);
 
-    engine.onMatchLiveDetected("t0");
+    engine.onMatchLiveDetected("t0", TEAMS);
     bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(0, 0, 18), timestamp: "t0" });
     bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(0, 0, 105), timestamp: "t1" });
     finished = true;

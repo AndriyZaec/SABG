@@ -169,10 +169,11 @@ export class Cs2SeriesOrchestrator {
   }
 
   private async openArena(matchIndex: number, snapshot: Cs2SeriesSnapshot | undefined, now: IsoDateTime): Promise<void> {
-    const teamNames = snapshot ? { home: snapshot.teams[0].name, away: snapshot.teams[1].name } : undefined;
+    if (snapshot === undefined) throw new Error(`Cannot open CS2 Arena ${matchIndex} without team identities`);
+    const [firstTeam, secondTeam] = snapshot.teams;
     const match = await matchRepository.upsertForSeriesMap(this.series.id, matchIndex, {
-      homeTeam: teamNames?.home ?? "Home",
-      awayTeam: teamNames?.away ?? "Away",
+      homeTeam: firstTeam.name,
+      awayTeam: secondTeam.name,
       startTime: new Date(now),
     });
     const arena = await arenaRepository.upsertForMatch(match.id, {
@@ -183,7 +184,7 @@ export class Cs2SeriesOrchestrator {
     const opened = await this.createRuntime(match, arena, [], false);
     this.arenasByMatchIndex.set(matchIndex, opened);
     this.options.onArenaOpened?.(arena.id, opened.runtime);
-    opened.runtime.openRoundOne(now);
+    opened.runtime.openRoundOne(now, snapshot.teams);
   }
 
   private async createRuntime(
@@ -231,7 +232,6 @@ export class Cs2SeriesOrchestrator {
       persistence,
       initialRounds,
       ...(this.options.broadcaster !== undefined ? { broadcaster: this.options.broadcaster } : {}),
-      teamNames: { home: match.homeTeam, away: match.awayTeam },
     });
 
     return { matchId: match.id, arenaId: arena.id, runtime, bus };

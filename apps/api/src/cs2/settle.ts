@@ -1,10 +1,15 @@
-// GRID supplies an ordered team pair, interpreted consistently as home then away.
+import type {
+  Cs2GameSnapshot,
+  Cs2SettlementCondition,
+  Cs2SettlementInvalidReason,
+  Cs2SettlementResult,
+  Cs2SettleFn,
+  Cs2TeamId,
+  Cs2TeamStats,
+} from "@arena/contracts";
 
-import type { Answer, Cs2GameSnapshot, Cs2SettlementCondition, Cs2SettleFn, Cs2TeamStats, TeamSide } from "@arena/contracts";
-
-function teamStats(snapshot: Cs2GameSnapshot, team: TeamSide): Cs2TeamStats {
-  const [home, away] = snapshot.teams;
-  return team === "away" ? away : home;
+function teamStats(snapshot: Cs2GameSnapshot, teamId: Cs2TeamId): Cs2TeamStats | undefined {
+  return snapshot.teams.find((team) => team.teamId === teamId);
 }
 
 function weaponKillCount(team: Cs2TeamStats, weapon: string): number {
@@ -19,68 +24,91 @@ function killDeltas(before: Cs2TeamStats, after: Cs2TeamStats): number[] {
     .map((p) => p.kills - (beforeKills.get(p.id) ?? p.kills));
 }
 
-function answer(condition: boolean): Answer {
-  return condition ? "yes" : "no";
+function settled(condition: boolean): Cs2SettlementResult {
+  return { status: "settled", answer: condition ? "yes" : "no" };
 }
 
-function roundWinnerAnswer(snapshotBefore: Cs2GameSnapshot, snapshotAfter: Cs2GameSnapshot, targetTeam: TeamSide): Answer {
-  const before = teamStats(snapshotBefore, targetTeam);
-  const after = teamStats(snapshotAfter, targetTeam);
-  return answer(after.score > before.score);
+function invalid(reason: Cs2SettlementInvalidReason): Cs2SettlementResult {
+  return { status: "invalid", reason };
+}
+
+function haveSameTeamIdentities(before: Cs2GameSnapshot, after: Cs2GameSnapshot): boolean {
+  const beforeIds = new Set(before.teams.map((team) => team.teamId));
+  const afterIds = new Set(after.teams.map((team) => team.teamId));
+  return beforeIds.size === 2 && afterIds.size === 2 && after.teams.every((team) => beforeIds.has(team.teamId));
+}
+
+function targetedTeams(
+  before: Cs2GameSnapshot,
+  after: Cs2GameSnapshot,
+  targetTeamId: Cs2TeamId | undefined,
+): readonly [Cs2TeamStats, Cs2TeamStats] | undefined {
+  if (targetTeamId === undefined) return undefined;
+  const beforeTeam = teamStats(before, targetTeamId);
+  const afterTeam = teamStats(after, targetTeamId);
+  return beforeTeam === undefined || afterTeam === undefined ? undefined : [beforeTeam, afterTeam];
 }
 
 export const resolveCs2Settlement: Cs2SettleFn = (
   condition: Cs2SettlementCondition,
   before: Cs2GameSnapshot,
   after: Cs2GameSnapshot,
-): Answer => {
+): Cs2SettlementResult => {
+  if (!haveSameTeamIdentities(before, after)) return invalid("team_identity_mismatch");
+
   const { topic, params } = condition;
   switch (topic) {
     case "round_winner":
     case "pistol_round": {
-      if (params.targetTeam === undefined) return "no";
-      return roundWinnerAnswer(before, after, params.targetTeam);
+      if (params.targetTeamId === undefined) return invalid("invalid_condition");
+      const teams = targetedTeams(before, after, params.targetTeamId);
+      if (teams === undefined) return invalid("unknown_team_id");
+      return settled(teams[1].score > teams[0].score);
     }
 
     case "weapon_kill": {
-      if (params.weapon === undefined) return "no";
+      if (params.weapon === undefined) return invalid("invalid_condition");
       const beforeCount = weaponKillCount(before.teams[0], params.weapon) + weaponKillCount(before.teams[1], params.weapon);
       const afterCount = weaponKillCount(after.teams[0], params.weapon) + weaponKillCount(after.teams[1], params.weapon);
-      return answer(afterCount > beforeCount);
+      return settled(afterCount > beforeCount);
     }
 
     case "team_ace": {
-      if (params.targetTeam === undefined) return "no";
-      const deltas = killDeltas(teamStats(before, params.targetTeam), teamStats(after, params.targetTeam));
-      return answer(deltas.length === 5 && deltas.every((d) => d === 1));
+      if (params.targetTeamId === undefined) return invalid("invalid_condition");
+      const teams = targetedTeams(before, after, params.targetTeamId);
+      if (teams === undefined) return invalid("unknown_team_id");
+      const deltas = killDeltas(...teams);
+      return settled(deltas.length === 5 && deltas.every((d) => d === 1));
     }
 
     case "multikill": {
-      if (params.targetTeam === undefined || params.y === undefined) return "no";
-      const deltas = killDeltas(teamStats(before, params.targetTeam), teamStats(after, params.targetTeam));
+      if (params.targetTeamId === undefined || params.y === undefined) return invalid("invalid_condition");
+      const teams = targetedTeams(before, after, params.targetTeamId);
+      if (teams === undefined) return invalid("unknown_team_id");
+      const deltas = killDeltas(...teams);
       const max = deltas.length > 0 ? Math.max(...deltas) : 0;
-      return answer(max >= params.y);
+      return settled(max >= params.y);
     }
 
     case "survivors_team": {
-      if (params.targetTeam === undefined || params.y === undefined) return "no";
-      const beforeTeam = teamStats(before, params.targetTeam);
-      const afterTeam = teamStats(after, params.targetTeam);
+      if (params.targetTeamId === undefined || params.y === undefined) return invalid("invalid_condition");
+      const teams = targetedTeams(before, after, params.targetTeamId);
+      if (teams === undefined) return invalid("unknown_team_id");
+      const [beforeTeam, afterTeam] = teams;
       const survivors = 5 - (afterTeam.deaths - beforeTeam.deaths);
-      return answer(survivors > params.y);
+      return settled(survivors > params.y);
     }
 
     case "survivors_round": {
-      if (params.y === undefined) return "no";
+      if (params.y === undefined) return invalid("invalid_condition");
       const deathsDiff =
         after.teams[0].deaths - before.teams[0].deaths + (after.teams[1].deaths - before.teams[1].deaths);
       const survivors = 10 - deathsDiff;
-      return answer(survivors > params.y);
+      return settled(survivors > params.y);
     }
 
     case "ot_score": {
-      // Overtime depends on the resulting score, not a stat delta.
-      return answer(after.teams[0].score === 12 && after.teams[1].score === 12);
+      return settled(after.teams[0].score === 12 && after.teams[1].score === 12);
     }
   }
 };

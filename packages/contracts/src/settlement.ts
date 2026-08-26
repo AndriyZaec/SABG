@@ -33,9 +33,16 @@ export const CS2_WEAPON_WHITELIST = [
 ] as const;
 export type Cs2Weapon = (typeof CS2_WEAPON_WHITELIST)[number];
 
+export type Cs2TeamId = string;
+
+export interface Cs2TeamIdentity {
+  teamId: Cs2TeamId;
+  name: string;
+}
+
 export interface Cs2TopicParams {
   /** Present only for team-targeted topics. */
-  targetTeam?: TeamSide;
+  targetTeamId?: Cs2TeamId;
   /** Present only for weapon-kill topics. */
   weapon?: Cs2Weapon;
   /** Present only for threshold-based topics. */
@@ -52,11 +59,7 @@ export interface Cs2SettlementCondition {
 
 export type SettlementCondition = SoccerSettlementCondition | Cs2SettlementCondition;
 
-export type Cs2TeamId = string;
-
-export interface Cs2TeamStats {
-  teamId: Cs2TeamId;
-  name: string;
+export interface Cs2TeamStats extends Cs2TeamIdentity {
   /** In-map round score, not series map wins. */
   score: number;
   deaths: number;
@@ -74,11 +77,20 @@ export interface Cs2GameSnapshot {
   clock: Cs2Clock;
 }
 
+export type Cs2SettlementInvalidReason =
+  | "invalid_condition"
+  | "team_identity_mismatch"
+  | "unknown_team_id";
+
+export type Cs2SettlementResult =
+  | { status: "settled"; answer: Answer }
+  | { status: "invalid"; reason: Cs2SettlementInvalidReason };
+
 export type Cs2SettleFn = (
   condition: Cs2SettlementCondition,
   before: Cs2GameSnapshot,
   after: Cs2GameSnapshot,
-) => Answer;
+) => Cs2SettlementResult;
 
 export interface SettleableEvent {
   eventType: TargetEventType;

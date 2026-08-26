@@ -14,12 +14,16 @@ const ARENA_ID = "00000000-0000-0000-0000-0000000000a2";
 const PLAYER_YES: Uuid = "00000000-0000-0000-0000-000000000001";
 const PLAYER_NO: Uuid = "00000000-0000-0000-0000-000000000002";
 const PLAYER_SILENT: Uuid = "00000000-0000-0000-0000-000000000003";
+const TEAMS = [
+  { teamId: "team-a", name: "Team A" },
+  { teamId: "team-b", name: "Team B" },
+] as const;
 
 const clock = (currentSeconds: number, ticking = true) => ({ ticking, currentSeconds });
 const snapshot = (a: number, b: number, cs = 90): Cs2GameSnapshot => ({
   teams: [
-    { teamId: "team-a", name: "Home", score: a, deaths: 0, weaponKills: [], players: [] },
-    { teamId: "team-b", name: "Away", score: b, deaths: 0, weaponKills: [], players: [] },
+    { teamId: "team-a", name: "Team A", score: a, deaths: 0, weaponKills: [], players: [] },
+    { teamId: "team-b", name: "Team B", score: b, deaths: 0, weaponKills: [], players: [] },
   ],
   clock: clock(cs),
 });
@@ -31,7 +35,7 @@ function fakeProvider(): Cs2QuestionProvider {
       settlementCondition: {
         discipline: "cs2",
         topic: "round_winner",
-        params: { targetTeam: "home" },
+        params: { targetTeamId: "team-a" },
         roundNumber: ctx.roundNumber,
         resolve: "snapshot_diff",
       },
@@ -90,6 +94,7 @@ function buildRuntime(playerIds: Uuid[], questionProvider?: Cs2QuestionProvider)
     predictionStore,
     arenaPlayerStore,
     roster: playerIds.map((userId, i) => ({ userId, username: `p${i}`, joinedAt: "2026-01-01T00:00:00.000Z" })),
+    teams: TEAMS,
     broadcaster,
     persistence,
     ...(questionProvider !== undefined ? { questionProvider } : {}),
