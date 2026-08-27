@@ -135,6 +135,9 @@ case "$command_name" in
       printf 'APP_PRESENT=false\n'
     fi
     ;;
+  discover-cs2)
+    compose run --rm --no-deps app node dist/cs2/operator-discovery.js
+    ;;
   discover-live)
     exec 9>"$deploy_path/.operation.lock"
     flock -n 9 || fail "another event operation is running"
