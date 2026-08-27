@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GridCatalogSeries } from "../central-data-client.js";
-import { buildDiscoveryWindow, buildOperatorDiscoveryPayload } from "../operator-discovery.js";
+import { buildDiscoveryWindow, buildOperatorDiscoveryPayload, selectOperatorSeries } from "../operator-discovery.js";
 
 function series(overrides: Partial<GridCatalogSeries> = {}): GridCatalogSeries {
   return {
@@ -40,5 +40,13 @@ describe("CS2 operator discovery", () => {
       { state: "disabled", reason: "PARTICIPANTS_INCOMPLETE" },
       { state: "disabled", reason: "FULL_LIVE_DATA_UNAVAILABLE" },
     ]);
+  });
+
+  it("selects only a discovered Series with complete participants and FULL Live Data", () => {
+    const selectable = series();
+
+    expect(selectOperatorSeries([selectable], selectable.gridSeriesId)).toBe(selectable);
+    expect(() => selectOperatorSeries([series({ teams: [] })], "series-1")).toThrow("PARTICIPANTS_INCOMPLETE");
+    expect(() => selectOperatorSeries([], "missing-series")).toThrow("was not found");
   });
 });

@@ -10,10 +10,18 @@ type OperatorSeriesSelection =
   | { state: "selectable" }
   | { state: "disabled"; reason: "PARTICIPANTS_INCOMPLETE" | "FULL_LIVE_DATA_UNAVAILABLE" };
 
-function selectionFor(series: GridCatalogSeries): OperatorSeriesSelection {
+export function selectionFor(series: GridCatalogSeries): OperatorSeriesSelection {
   if (series.teams.length !== 2) return { state: "disabled", reason: "PARTICIPANTS_INCOMPLETE" };
   if (!series.hasFullLiveData) return { state: "disabled", reason: "FULL_LIVE_DATA_UNAVAILABLE" };
   return { state: "selectable" };
+}
+
+export function selectOperatorSeries(series: readonly GridCatalogSeries[], gridSeriesId: string): GridCatalogSeries {
+  const selected = series.find((item) => item.gridSeriesId === gridSeriesId);
+  if (selected === undefined) throw new Error(`GRID Series ${gridSeriesId} was not found in the operator discovery window`);
+  const selection = selectionFor(selected);
+  if (selection.state === "disabled") throw new Error(`GRID Series ${gridSeriesId} is not selectable: ${selection.reason}`);
+  return selected;
 }
 
 export function buildDiscoveryWindow(now: Date, lookbackHours: number, lookaheadDays: number): GridCatalogWindow {
@@ -21,6 +29,11 @@ export function buildDiscoveryWindow(now: Date, lookbackHours: number, lookahead
     from: new Date(now.getTime() - lookbackHours * 60 * 60 * 1_000),
     to: new Date(now.getTime() + lookaheadDays * 24 * 60 * 60 * 1_000),
   };
+}
+
+export function operatorDiscoveryWindow(now: Date, env: NodeJS.ProcessEnv = process.env): GridCatalogWindow {
+  const config = DiscoveryConfigSchema.parse(env);
+  return buildDiscoveryWindow(now, config.CS2_DISCOVERY_LOOKBACK_HOURS, config.CS2_DISCOVERY_LOOKAHEAD_DAYS);
 }
 
 export function buildOperatorDiscoveryPayload(window: GridCatalogWindow, series: readonly GridCatalogSeries[]) {
@@ -38,8 +51,7 @@ export function buildOperatorDiscoveryPayload(window: GridCatalogWindow, series:
 }
 
 async function main(): Promise<void> {
-  const config = DiscoveryConfigSchema.parse(process.env);
-  const window = buildDiscoveryWindow(new Date(), config.CS2_DISCOVERY_LOOKBACK_HOURS, config.CS2_DISCOVERY_LOOKAHEAD_DAYS);
+  const window = operatorDiscoveryWindow(new Date());
   const series = await new GridCentralDataClient().discoverSeries(window);
   const payload = Buffer.from(JSON.stringify(buildOperatorDiscoveryPayload(window, series)), "utf8").toString("base64url");
   process.stdout.write(`SABG_CS2_DISCOVERY=${payload}\n`);
