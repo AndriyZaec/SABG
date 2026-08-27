@@ -91,9 +91,6 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
     });
     const updated = await matchRepository.findById(matchId);
     expect(updated).toMatchObject({ currentMinute: 42, period: "second_half", score: { home: 2, away: 1 } });
-
-    const list = await matchRepository.list();
-    expect(list.some((m) => m.id === matchId)).toBe(true);
   });
 
   it("arena.repository: upsertForMatch is idempotent, and bumpActivePlayers/bumpPrizePool increment atomically", async () => {

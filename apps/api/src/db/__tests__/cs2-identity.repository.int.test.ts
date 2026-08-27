@@ -53,8 +53,8 @@ describe.skipIf(!RUN)("cs2IdentityRepository (integration, requires DATABASE_URL
     ]);
 
     expect(swapped).toEqual([
-      { teamId: first[0].teamId, name: "Team A", displayOrder: 1, seriesScore: 2 },
-      { teamId: first[1].teamId, name: "Team B Renamed", displayOrder: 2, seriesScore: 1 },
+      { teamId: first[0].teamId, gridTeamId: firstGridTeamId, name: "Team A", displayOrder: 1, seriesScore: 2 },
+      { teamId: first[1].teamId, gridTeamId: secondGridTeamId, name: "Team B Renamed", displayOrder: 2, seriesScore: 1 },
     ]);
   });
 

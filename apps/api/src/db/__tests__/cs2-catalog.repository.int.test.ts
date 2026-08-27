@@ -13,7 +13,7 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
   let repository: typeof import("../repositories/cs2-catalog.repository.js")["cs2CatalogRepository"];
   let matchRepository: typeof import("../repositories/match.repository.js")["matchRepository"];
   let arenaRepository: typeof import("../repositories/arena.repository.js")["arenaRepository"];
-  let firstMapMatchId: string | undefined;
+  const seriesMatchIds: string[] = [];
 
   const runId = randomUUID();
   const gridSeriesId = `catalog-series-${runId}`;
@@ -32,8 +32,9 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
 
   afterAll(async () => {
     if (db === undefined) return;
-    if (firstMapMatchId !== undefined) {
-      await db.delete(schema.arenas).where(eq(schema.arenas.matchId, firstMapMatchId));
+    if (seriesMatchIds.length > 0) {
+      await db.delete(schema.arenas).where(inArray(schema.arenas.matchId, seriesMatchIds));
+      await db.delete(schema.matches).where(inArray(schema.matches.id, seriesMatchIds));
     }
     await db.delete(schema.series).where(inArray(schema.series.gridSeriesId, [gridSeriesId, unsupportedGridSeriesId]));
     await db.delete(schema.cs2Teams).where(inArray(schema.cs2Teams.gridTeamId, [firstGridTeamId, secondGridTeamId]));
@@ -122,15 +123,16 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
       teams,
       startTime: new Date("2026-09-01T12:00:00.000Z"),
     });
-    firstMapMatchId = firstMap.id;
+    seriesMatchIds.push(firstMap.id);
     const firstMapArena = await arenaRepository.upsertForMatch(firstMap.id, {
       entryFeeLamports: 100_000_000,
       prizePoolLamports: 0,
     });
-    await matchRepository.upsertForSeriesMap(first.seriesId, 2, {
+    const secondMap = await matchRepository.upsertForSeriesMap(first.seriesId, 2, {
       teams,
       startTime: new Date("2026-09-01T13:00:00.000Z"),
     });
+    seriesMatchIds.push(secondMap.id);
 
     const detail = await repository.findSupportedDetailById(first.seriesId, [gridTournamentId]);
     expect(detail?.maps).toEqual([

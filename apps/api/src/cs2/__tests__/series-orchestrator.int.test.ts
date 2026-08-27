@@ -111,7 +111,7 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     });
 
     await orchestrator.poll(snapshot(matchTeamIds, {}), at(-10));
-    const matchesForSeries = (await matchRepository.list()).filter((m) => m.discipline === "cs2" && m.seriesId === series.id);
+    const matchesForSeries = await matchRepository.listBySeriesId(series.id);
     expect(matchesForSeries).toHaveLength(1);
     const match1Id = matchesForSeries[0]!.id;
     matchIds.push(match1Id);
@@ -132,7 +132,7 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     expect(arena1AfterMld?.status).toBe("live");
 
     await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: false, teams: [1, 0] }), at(20));
-    const matchesAfterM1 = (await matchRepository.list()).filter((m) => m.discipline === "cs2" && m.seriesId === series.id);
+    const matchesAfterM1 = await matchRepository.listBySeriesId(series.id);
     expect(matchesAfterM1).toHaveLength(2);
     const match2Id = matchesAfterM1.find((m) => m.id !== match1Id)!.id;
     matchIds.push(match2Id);
