@@ -60,6 +60,9 @@ export const CS2_SERIES_LIFECYCLES = [
 ] as const;
 export type Cs2SeriesLifecycle = (typeof CS2_SERIES_LIFECYCLES)[number];
 
+export const CS2_SERIES_AVAILABILITIES = ["available", "soon"] as const;
+export type Cs2SeriesAvailability = (typeof CS2_SERIES_AVAILABILITIES)[number];
+
 export const ENTRY_PASS_STATUSES = ["paid", "refunded"] as const;
 export type EntryPassStatus = (typeof ENTRY_PASS_STATUSES)[number];
 

@@ -41,6 +41,7 @@ const mockCompetition = {
 
 export const mockCs2SeriesSummary: Cs2SeriesSummary = {
   id: MOCK_CS2_SERIES_ID,
+  availability: "available",
   participants: [
     {
       state: "known",
@@ -112,6 +113,7 @@ export const mockCs2SeriesDetail: Cs2SeriesDetail = {
 
 export const mockCs2UpcomingSeriesSummary: Cs2SeriesSummary = {
   id: MOCK_CS2_UPCOMING_SERIES_ID,
+  availability: "soon",
   participants: [
     {
       state: "known",
@@ -143,6 +145,7 @@ export const mockCs2UpcomingSeriesDetail: Cs2SeriesDetail = {
 
 export const mockCs2MouzSeriesSummary: Cs2SeriesSummary = {
   id: MOCK_CS2_MOUZ_SERIES_ID,
+  availability: "soon",
   participants: [
     mockCs2UpcomingSeriesSummary.participants[0],
     {
@@ -174,6 +177,7 @@ export const mockCs2MouzSeriesDetail: Cs2SeriesDetail = {
 
 export const mockCs2LaterSeriesSummary: Cs2SeriesSummary = {
   id: "10000000-0000-4000-8000-000000000011",
+  availability: "soon",
   participants: [
     mockCs2SeriesSummary.participants[0],
     mockCs2MouzSeriesSummary.participants[1],
@@ -186,6 +190,7 @@ export const mockCs2LaterSeriesSummary: Cs2SeriesSummary = {
 
 export const mockCs2TomorrowSeriesSummary: Cs2SeriesSummary = {
   id: "10000000-0000-4000-8000-000000000012",
+  availability: "soon",
   participants: [
     {
       ...mockCs2SeriesSummary.participants[1],

@@ -1,7 +1,7 @@
 // S2 — REST request/response DTOs (build plan §S2, P0.4).
 // The mock server and the real API both implement these shapes.
 
-import type { Answer, ArenaStatus, Cs2SeriesLifecycle } from "./enums.js";
+import type { Answer, ArenaStatus, Cs2SeriesAvailability, Cs2SeriesLifecycle } from "./enums.js";
 import type {
   Arena,
   ArenaPlayer,
@@ -17,7 +17,7 @@ import type {
   WalletAddress,
 } from "./entities.js";
 
-export type GameSourceMode = "replay" | "live";
+export type GameSourceMode = "catalog" | "replay" | "live";
 
 /** GET /api/runtime-config — public display metadata, never secrets. */
 export interface RuntimeConfigResponse {
@@ -89,6 +89,7 @@ export interface Cs2CompetitionSummary {
 
 export interface Cs2SeriesSummary {
   id: Uuid;
+  availability: Cs2SeriesAvailability;
   participants: [Cs2SeriesParticipant, Cs2SeriesParticipant];
   competition: Cs2CompetitionSummary;
   format: number;

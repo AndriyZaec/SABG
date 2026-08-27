@@ -24,6 +24,11 @@ import { buildCs2TeamIdentityMap } from "./team-identity.js";
 
 const CS2_ENTRY_FEE_LAMPORTS = 10_000_000;
 
+if (cs2Config.mode !== "live") {
+  throw new Error("CS2 live runtime requires CS2_RUNTIME_MODE=live");
+}
+const liveConfig = cs2Config;
+
 async function primeSeries(client: GridClient, signal: AbortSignal): Promise<GridCs2SeriesSnapshot | undefined> {
   let errorStreak = 0;
   while (!signal.aborted) {
@@ -91,7 +96,7 @@ async function main(): Promise<void> {
 
     const series = await seriesRepository.upsertByGridSeriesId(gridConfig.grid.seriesId, {
       format: primedSeries.format,
-      scheduledStartTime: new Date(cs2Config.scheduledStartTime),
+      scheduledStartTime: new Date(liveConfig.scheduledStartTime),
     });
     if (abortController.signal.aborted) return;
     const persistedTeams = await cs2IdentityRepository.synchronizeSeriesTeams(series.id, primedSeries.teams);
@@ -111,12 +116,12 @@ async function main(): Promise<void> {
     });
 
     // Accept joins before polling can open the first arena.
-    await listenHttpServer(httpServer, cs2Config.gatewayPort, abortController.signal);
+    await listenHttpServer(httpServer, liveConfig.gatewayPort, abortController.signal);
     if (abortController.signal.aborted) return;
-    logger.info({ port: cs2Config.gatewayPort }, `cs2: gateway listening — REST/WS http://localhost:${cs2Config.gatewayPort}`);
+    logger.info({ port: liveConfig.gatewayPort }, `cs2: gateway listening — REST/WS http://localhost:${liveConfig.gatewayPort}`);
 
     let rawRecorder: Cs2RawRecorder | undefined;
-    if (cs2Config.rawRecordingEnabled) {
+    if (liveConfig.rawRecordingEnabled) {
       if (gridConfig.mongo.uri === undefined) {
         logger.warn("cs2: CS2_RAW_RECORDING_ENABLED is true but MONGODB_URI is unset — running without raw recording");
       } else {

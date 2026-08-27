@@ -1,4 +1,5 @@
 import dotenv from "dotenv";
+import { cs2Config } from "./config/env.js";
 
 dotenv.config();
 
@@ -13,4 +14,5 @@ export function parseCatalogTournamentIds(value: string | undefined): string[] {
 
 export const cs2CatalogConfig = {
   tournamentIds: parseCatalogTournamentIds(process.env["CS2_CATALOG_TOURNAMENT_IDS"]),
+  activeGridSeriesId: cs2Config.mode === "live" ? cs2Config.activeGridSeriesId : undefined,
 };

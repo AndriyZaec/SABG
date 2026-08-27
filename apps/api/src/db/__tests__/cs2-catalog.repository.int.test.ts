@@ -54,8 +54,9 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
       teams: [{ gridTeamId: firstGridTeamId, name: "Team A" }],
     });
     expect(first.participantCount).toBe(1);
-    await expect(repository.findSupportedById(first.seriesId, [gridTournamentId])).resolves.toMatchObject({
+    await expect(repository.findSupportedById(first.seriesId, [gridTournamentId], gridSeriesId)).resolves.toMatchObject({
       id: first.seriesId,
+      availability: "available",
       participants: [
         { state: "known", displayOrder: 1, team: { name: "Team A" }, seriesScore: 0 },
         { state: "tbd", displayOrder: 2, seriesScore: null },
