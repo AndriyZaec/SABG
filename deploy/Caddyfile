@@ -1,5 +1,18 @@
 {$SABG_HOST:localhost} {
 	encode zstd gzip
 
-	reverse_proxy app:4000
+	handle_path /cs2-api/* {
+		rewrite * /api{uri}
+		reverse_proxy app:4000
+	}
+
+	@cs2Ws path /cs2-ws
+	handle @cs2Ws {
+		rewrite * /ws
+		reverse_proxy app:4000
+	}
+
+	handle {
+		reverse_proxy app:4000
+	}
 }

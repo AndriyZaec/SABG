@@ -18,6 +18,7 @@
     "build": "tsc -p tsconfig.json && pnpm copy:assets",
     "copy:assets": "mkdir -p dist/db/seeds dist/db/migrations dist/ingestion/__fixtures__ dist/live/idl && cp src/db/seeds/matches.json dist/db/seeds/matches.json && cp -R src/db/migrations/. dist/db/migrations/ && cp src/ingestion/__fixtures__/*.json dist/ingestion/__fixtures__/ && cp src/live/idl/txoracle.json dist/live/idl/txoracle.json && cp graphql-schema-request.txt dist/graphql-schema-request.txt",
     "start": "node dist/gateway/run.js",
+    "start:cs2": "node dist/cs2/service-run.js",
     "start:replay-cycle": "node dist/gateway/replay-cycle.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",

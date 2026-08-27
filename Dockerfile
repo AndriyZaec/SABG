@@ -45,8 +45,6 @@ WORKDIR /app
 COPY --from=build --chown=node:node /prod/app/ ./
 COPY --from=build --chown=node:node /workspace/apps/web/dist/ ./web/
 
-RUN mkdir -p /app/audit /app/state && chown node:node /app/audit /app/state
-
 USER node
 
 EXPOSE 4000
@@ -54,4 +52,4 @@ EXPOSE 4000
 HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=6 \
   CMD ["node", "-e", "fetch('http://127.0.0.1:4000/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
 
-CMD ["node", "dist/gateway/replay-cycle.js"]
+CMD ["node", "dist/cs2/service-run.js"]

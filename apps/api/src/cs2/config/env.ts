@@ -24,11 +24,12 @@ const envSchema = z.discriminatedUnion("CS2_RUNTIME_MODE", [
 const parsed = envSchema.safeParse({
   ...process.env,
   CS2_RUNTIME_MODE: process.env["CS2_RUNTIME_MODE"] ?? "catalog",
+  CS2_GATEWAY_PORT: process.env["CS2_GATEWAY_PORT"] ?? process.env["PORT"],
 });
 
 if (!parsed.success) {
   const issues = parsed.error.issues.map((issue) => `  - ${issue.path.join(".") || "(root)"}: ${issue.message}`);
-  throw new Error(`Invalid CS2 live poller environment configuration:\n${issues.join("\n")}`);
+  throw new Error(`Invalid CS2 runtime environment configuration:\n${issues.join("\n")}`);
 }
 
 export const cs2Config = parsed.data.CS2_RUNTIME_MODE === "live"
