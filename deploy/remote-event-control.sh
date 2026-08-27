@@ -116,28 +116,32 @@ assert_app_healthy() {
     || fail "application health check failed"
 }
 
+print_status() {
+  mode=$(read_runtime_mode)
+  tournament_id=$(read_env_value "$deploy_path/deploy/app.env" CS2_CATALOG_TOURNAMENT_IDS || true)
+  series_id=$(read_env_value "$deploy_path/deploy/app.env" GRID_SERIES_ID || true)
+  scheduled_start_time=$(read_env_value "$deploy_path/deploy/app.env" CS2_SCHEDULED_START_TIME || true)
+  if [ "$mode" != live ]; then
+    series_id=
+    scheduled_start_time=
+  fi
+  revision=$(read_env_value "$deploy_path/.env" SABG_VCS_REF || printf 'unknown')
+  container_id=$(compose ps -q app 2>/dev/null || true)
+  app_health=absent
+  if [ -n "$container_id" ]; then
+    app_health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_id" 2>/dev/null || printf 'unknown')
+  fi
+  printf 'MODE=%s\n' "$mode"
+  printf 'TOURNAMENT_ID=%s\n' "$tournament_id"
+  printf 'SERIES_ID=%s\n' "$series_id"
+  printf 'SCHEDULED_START_TIME=%s\n' "$scheduled_start_time"
+  printf 'REVISION=%s\n' "$revision"
+  printf 'APP_HEALTH=%s\n' "$app_health"
+}
+
 case "$command_name" in
   status)
-    mode=$(read_runtime_mode)
-    tournament_id=$(read_env_value "$deploy_path/deploy/app.env" CS2_CATALOG_TOURNAMENT_IDS || true)
-    series_id=$(read_env_value "$deploy_path/deploy/app.env" GRID_SERIES_ID || true)
-    scheduled_start_time=$(read_env_value "$deploy_path/deploy/app.env" CS2_SCHEDULED_START_TIME || true)
-    if [ "$mode" != live ]; then
-      series_id=
-      scheduled_start_time=
-    fi
-    revision=$(read_env_value "$deploy_path/.env" SABG_VCS_REF || printf 'unknown')
-    container_id=$(compose ps -q app 2>/dev/null || true)
-    app_health=absent
-    if [ -n "$container_id" ]; then
-      app_health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_id" 2>/dev/null || printf 'unknown')
-    fi
-    printf 'MODE=%s\n' "$mode"
-    printf 'TOURNAMENT_ID=%s\n' "$tournament_id"
-    printf 'SERIES_ID=%s\n' "$series_id"
-    printf 'SCHEDULED_START_TIME=%s\n' "$scheduled_start_time"
-    printf 'REVISION=%s\n' "$revision"
-    printf 'APP_HEALTH=%s\n' "$app_health"
+    print_status
     ;;
   discover-cs2)
     compose run --rm --no-deps app node dist/cs2/operator-discovery.js
@@ -256,6 +260,8 @@ case "$command_name" in
     printf 'Stopped CS2 Series %s; catalog remains online\n' "$series_id"
     ;;
   logs)
+    print_status
+    printf '%s\n' '--- APP LOGS (last 15 minutes) ---'
     compose logs --since 15m app
     ;;
   *) fail "unknown command: $command_name" ;;

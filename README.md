@@ -53,7 +53,7 @@ TxLINE SSE -> normalization -> match state -> round planning
   reconnection and auditability.
 - **Solana** holds entry funds and executes the final payout.
 
-The gateway can run from either the live TxLINE source or a recorded fixture. Both sources publish
+The football gateway can run from either the live TxLINE source or a recorded fixture. Both sources publish
 the same internal signals, so the game engines do not contain separate live and replay logic.
 
 ## Technical highlights
@@ -67,8 +67,8 @@ the same internal signals, so the game engines do not contain separate live and 
 - Entry submission verifies the wallet signature and the intended `buy_entry` instruction before
   relaying it to Solana. Wallet-added compute-budget instructions are accepted, while added
   transfers, programs, accounts, or signers are rejected.
-- The production stack uses Docker Compose, Caddy, PostgreSQL, and MongoDB. Release deployments use
-  immutable GHCR image digests and guarded replay/live source transitions.
+- The deployment stack uses Docker Compose, Caddy, PostgreSQL, and optional MongoDB raw recording.
+  Releases use immutable GHCR image digests. The current internal VPS event profile is CS2-only.
 
 ## TxLINE integration
 
@@ -125,9 +125,21 @@ SABG/
 │   └── contracts/    # shared types, DTOs, WebSocket catalog, settlement conditions
 ├── programs/
 │   └── arena/        # Anchor program for arena identity, entry escrow, and payout
-├── deploy/           # event control, replay/live switching, Caddy, and database setup
+├── deploy/           # CS2 event control, Caddy, and database setup
 └── compose.yml       # production service topology
 ```
+
+## CS2 beta event deployment
+
+The internal devnet event stack starts in catalog-only mode, where the website and CS2 schedule are
+available without polling a GRID Series. An operator runs `deploy/event-control.sh` to discover
+published tournaments, select one eligible Series, start its single-Series runtime, inspect status
+and logs, or return the site to catalog-only mode.
+
+The deployment and control scripts are intentionally committed as operational documentation. They
+contain no credentials. VPS connection settings stay in gitignored `deploy/event-control.env`, and
+service credentials stay in permission-restricted `deploy/*.env` files created from the committed
+examples.
 
 ## Run locally
 

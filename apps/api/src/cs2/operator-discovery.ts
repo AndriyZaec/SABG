@@ -45,6 +45,7 @@ export function buildOperatorDiscoveryPayload(window: GridCatalogWindow, series:
       scheduledStartTime: item.scheduledStartTime.toISOString(),
       competition: item.competition,
       teams: item.teams,
+      liveDataServiceLevel: item.hasFullLiveData ? "FULL" : "UNAVAILABLE",
       selection: selectionFor(item),
     })),
   };

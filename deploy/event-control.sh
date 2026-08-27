@@ -270,11 +270,12 @@ ALL_SERIES_TOURNAMENT_IDS=()
 ALL_SERIES_TEAMS=()
 ALL_SERIES_SCHEDULES=()
 ALL_SERIES_FORMATS=()
+ALL_SERIES_SERVICE_LEVELS=()
 ALL_SERIES_STATES=()
 ALL_SERIES_REASONS=()
 
 decode_discovery() {
-  local payload="$1" kind first second third fourth fifth sixth seventh
+  local payload="$1" kind first second third fourth fifth sixth seventh eighth
   _DISCOVERY_FILE=$(mktemp)
   node - "$payload" > "$_DISCOVERY_FILE" <<'NODE'
 const payload = JSON.parse(Buffer.from(process.argv[2], "base64url").toString("utf8"));
@@ -318,13 +319,14 @@ for (const series of payload.series) {
     `${firstTeam} vs ${secondTeam}`,
     formatter.format(start),
     `Bo${Number(series.format)}`,
+    clean(series.liveDataServiceLevel ?? "UNAVAILABLE"),
     state,
     reason,
   ].join("|") + "\n");
 }
 NODE
 
-  while IFS='|' read -r kind first second third fourth fifth sixth seventh; do
+  while IFS='|' read -r kind first second third fourth fifth sixth seventh eighth; do
     case "$kind" in
       T)
         TOURNAMENT_IDS+=("$first")
@@ -337,8 +339,9 @@ NODE
         ALL_SERIES_TEAMS+=("$third")
         ALL_SERIES_SCHEDULES+=("$fourth")
         ALL_SERIES_FORMATS+=("$fifth")
-        ALL_SERIES_STATES+=("$sixth")
-        ALL_SERIES_REASONS+=("$seventh")
+        ALL_SERIES_SERVICE_LEVELS+=("$sixth")
+        ALL_SERIES_STATES+=("$seventh")
+        ALL_SERIES_REASONS+=("$eighth")
         ;;
     esac
   done < "$_DISCOVERY_FILE"
@@ -377,6 +380,7 @@ select_series() {
   SERIES_TEAMS=()
   SERIES_SCHEDULES=()
   SERIES_FORMATS=()
+  SERIES_SERVICE_LEVELS=()
   SERIES_STATES=()
   SERIES_REASONS=()
   for row in "${!ALL_SERIES_IDS[@]}"; do
@@ -385,6 +389,7 @@ select_series() {
     SERIES_TEAMS+=("${ALL_SERIES_TEAMS[$row]}")
     SERIES_SCHEDULES+=("${ALL_SERIES_SCHEDULES[$row]}")
     SERIES_FORMATS+=("${ALL_SERIES_FORMATS[$row]}")
+    SERIES_SERVICE_LEVELS+=("${ALL_SERIES_SERVICE_LEVELS[$row]}")
     SERIES_STATES+=("${ALL_SERIES_STATES[$row]}")
     SERIES_REASONS+=("${ALL_SERIES_REASONS[$row]}")
   done
@@ -397,8 +402,9 @@ select_series() {
     printf '%s  ↑/↓ move · Enter select · q/Esc cancel%s\n\n' "$DIM" "$RESET"
     for row in "${!SERIES_IDS[@]}"; do
       reason="${SERIES_REASONS[$row]}"
-      [[ "$reason" == PARTICIPANTS_INCOMPLETE ]] && reason="TBD"
+      [[ "$reason" == PARTICIPANTS_INCOMPLETE ]] && reason="${SERIES_SERVICE_LEVELS[$row]} · TBD"
       [[ "$reason" == FULL_LIVE_DATA_UNAVAILABLE ]] && reason="NO LIVE DATA"
+      [[ "$reason" == - ]] && reason="${SERIES_SERVICE_LEVELS[$row]}"
       if [[ "${SERIES_STATES[$row]}" == disabled ]]; then
         printf '%s' "$DIM"
       fi
@@ -407,6 +413,7 @@ select_series() {
       else
         printf '    %-34s %-17s %-4s  %s%s\n' "${SERIES_TEAMS[$row]}" "${SERIES_SCHEDULES[$row]}" "${SERIES_FORMATS[$row]}" "$reason" "$RESET"
       fi
+      printf '    %sGRID Series: %s%s\n' "$DIM" "${SERIES_IDS[$row]}" "$RESET"
     done
     key=$(read_menu_key) || { show_cursor; return 1; }
     case "$key" in
