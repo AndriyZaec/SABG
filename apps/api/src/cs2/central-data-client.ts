@@ -182,6 +182,12 @@ function normalizeSeries(node: z.infer<typeof SeriesNodeSchema>): GridCatalogSer
   };
 }
 
+function validateCatalogWindow(window: GridCatalogWindow): void {
+  if (Number.isNaN(window.from.getTime()) || Number.isNaN(window.to.getTime()) || window.from >= window.to) {
+    throw new Error("GRID catalog window is invalid");
+  }
+}
+
 export class GridCentralDataClient {
   private readonly graphql: GridGraphqlRequester;
   private cs2TitleId: string | undefined;
@@ -220,10 +226,21 @@ export class GridCentralDataClient {
     tournamentIds: readonly string[],
     signal?: AbortSignal,
   ): Promise<GridCatalogSeries[]> {
-    if (Number.isNaN(window.from.getTime()) || Number.isNaN(window.to.getTime()) || window.from >= window.to) {
-      throw new Error("GRID catalog window is invalid");
-    }
+    validateCatalogWindow(window);
     if (tournamentIds.length === 0) return [];
+    return this.fetchMatchingSeries(window, tournamentIds, signal);
+  }
+
+  async discoverSeries(window: GridCatalogWindow, signal?: AbortSignal): Promise<GridCatalogSeries[]> {
+    validateCatalogWindow(window);
+    return this.fetchMatchingSeries(window, undefined, signal);
+  }
+
+  private async fetchMatchingSeries(
+    window: GridCatalogWindow,
+    tournamentIds: readonly string[] | undefined,
+    signal?: AbortSignal,
+  ): Promise<GridCatalogSeries[]> {
     const titleId = await this.resolveCs2TitleId(signal);
     const series: GridCatalogSeries[] = [];
     let after: string | null = null;
@@ -236,7 +253,7 @@ export class GridCentralDataClient {
           first: 50,
           filter: {
             titleId,
-            tournamentIds: { in: [...tournamentIds] },
+            ...(tournamentIds !== undefined ? { tournamentIds: { in: [...tournamentIds] } } : {}),
             startTimeScheduled: { gte: window.from.toISOString(), lte: window.to.toISOString() },
             types: ["ESPORTS"],
             workflowStatuses: ["PUBLISHED"],

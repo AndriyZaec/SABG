@@ -104,4 +104,31 @@ describe("GridCentralDataClient", () => {
     await expect(client.fetchSeries({ from: new Date("2026-09-01"), to: new Date("2026-09-02") }, [])).resolves.toEqual([]);
     expect(request).not.toHaveBeenCalled();
   });
+
+  it("discovers operator Series across tournaments without weakening the public filter", async () => {
+    const request = vi.fn()
+      .mockResolvedValueOnce(response({ data: { titles: [
+        { id: "title-cs2", name: "Counter-Strike 2", nameShortened: "CS2" },
+      ] } }))
+      .mockResolvedValueOnce(response({ data: { allSeries: {
+        edges: [{ node: seriesNode({ tournament: {
+          id: "tournament-2",
+          logoUrl: "https://img/tournament-2",
+          name: "Next Event",
+          nameShortened: "NEXT",
+        } }) }],
+        pageInfo: { endCursor: null, hasNextPage: false },
+      } } }));
+    const client = new GridCentralDataClient({ request } as GridGraphqlRequester);
+
+    await expect(
+      client.discoverSeries({ from: new Date("2026-09-01"), to: new Date("2026-10-01") }),
+    ).resolves.toMatchObject([
+      { competition: { gridTournamentId: "tournament-2", name: "Next Event" } },
+    ]);
+    expect(request.mock.calls[1]?.[1]).toMatchObject({
+      filter: { titleId: "title-cs2" },
+    });
+    expect(request.mock.calls[1]?.[1]).not.toHaveProperty("filter.tournamentIds");
+  });
 });
