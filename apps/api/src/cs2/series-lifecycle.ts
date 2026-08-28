@@ -80,7 +80,7 @@ export function processCs2SeriesPoll(
   const k = next.openedThrough;
 
   // Only the first arena has a scheduled start from which to measure no-show.
-  if (k === 1 && !next.matchLiveDetected) {
+  if (k === 1 && !next.matchLiveDetected && snapshot?.hasLiveGame !== true) {
     if (Date.parse(now) - Date.parse(next.scheduledStartTime) > NO_SHOW_TIMEOUT_MS) {
       actions.push({ type: "cancel_arena", matchIndex: 1, reason: "no_show" });
       return { state: { ...next, invalid: true }, actions };
