@@ -73,11 +73,20 @@ inspect_active_cs2_arenas() {
   arena_table=$(compose exec -T postgres sh -ec \
     'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At --command="SELECT to_regclass(\$\$public.arena\$\$)"') \
     || fail "could not verify current arena status"
-  if [ -n "$arena_table" ]; then
-    compose exec -T postgres sh -ec \
-      'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At --command="SELECT count(*) FROM arena a JOIN \"match\" m ON m.id = a.match_id WHERE m.discipline = '\''cs2'\'' AND a.status NOT IN ('\''finished'\'', '\''cancelled'\'')"' \
-      || fail "could not verify current arena status"
+  if [ -z "$arena_table" ]; then
+    printf '0\n'
+    return 0
   fi
+  discipline_column=$(compose exec -T postgres sh -ec \
+    'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At --command="SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '\''public'\'' AND table_name = '\''match'\'' AND column_name = '\''discipline'\'')"') \
+    || fail "could not verify current arena schema"
+  if [ "$discipline_column" != t ]; then
+    printf '0\n'
+    return 0
+  fi
+  compose exec -T postgres sh -ec \
+    'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At --command="SELECT count(*) FROM arena a JOIN \"match\" m ON m.id = a.match_id WHERE m.discipline = '\''cs2'\'' AND a.status NOT IN ('\''finished'\'', '\''cancelled'\'')"' \
+    || fail "could not verify current arena status"
 }
 
 assert_no_active_cs2_arenas() {
