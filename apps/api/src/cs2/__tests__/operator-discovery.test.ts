@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GridCatalogSeries } from "../central-data-client.js";
-import {
-  buildDiscoveryWindow,
-  buildOperatorDiscoveryPayload,
-  selectOperatorSeries,
-  selectOperatorTournament,
-} from "../operator-discovery.js";
+import { buildDiscoveryWindow, buildOperatorDiscoveryPayload, selectOperatorSeries } from "../operator-discovery.js";
 
 function series(overrides: Partial<GridCatalogSeries> = {}): GridCatalogSeries {
   return {
@@ -54,17 +49,5 @@ describe("CS2 operator discovery", () => {
     expect(selectOperatorSeries([selectable], selectable.gridSeriesId)).toBe(selectable);
     expect(() => selectOperatorSeries([series({ teams: [] })], "series-1")).toThrow("PARTICIPANTS_INCOMPLETE");
     expect(() => selectOperatorSeries([], "missing-series")).toThrow("was not found");
-  });
-
-  it("selects every discovered Series in an operator-selected tournament", () => {
-    const selected = series();
-    const sibling = series({ gridSeriesId: "series-2" });
-    const other = series({
-      gridSeriesId: "series-3",
-      competition: { gridTournamentId: "tournament-2", name: "Other" },
-    });
-
-    expect(selectOperatorTournament([selected, sibling, other], "tournament-1")).toEqual([selected, sibling]);
-    expect(() => selectOperatorTournament([other], "tournament-1")).toThrow("was not found");
   });
 });

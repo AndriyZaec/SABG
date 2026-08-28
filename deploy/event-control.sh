@@ -497,12 +497,21 @@ case "$action" in
     discover_tournaments || exit 1
     select_tournament || { say "Selection cancelled."; exit 0; }
     selected_tournament_id=${TOURNAMENT_IDS[$SELECTED_TOURNAMENT_INDEX]}
+    publication_series_id=""
+    for row in "${!ALL_SERIES_IDS[@]}"; do
+      if [[ "${ALL_SERIES_TOURNAMENT_IDS[$row]}" == "$selected_tournament_id" ]] \
+        && [[ "${ALL_SERIES_STATES[$row]}" == selectable ]]; then
+        publication_series_id=${ALL_SERIES_IDS[$row]}
+        break
+      fi
+    done
+    [[ -n "$publication_series_id" ]] || { warn "selected tournament has no Series eligible for publication"; exit 1; }
     say "Tournament: ${TOURNAMENT_NAMES[$SELECTED_TOURNAMENT_INDEX]}"
     say "Series discovered: ${TOURNAMENT_COUNTS[$SELECTED_TOURNAMENT_INDEX]}"
     printf '  Type PUBLISH CS2 %s to confirm: ' "$selected_tournament_id"
     read -r publish_confirmation
     [[ "$publish_confirmation" == "PUBLISH CS2 $selected_tournament_id" ]] || { warn "confirmation did not match"; exit 1; }
-    remote_control publish-cs2 "$selected_tournament_id" "$publish_confirmation"
+    remote_control publish-cs2 "$publication_series_id" "$publish_confirmation"
     ;;
   3)
     [[ "$current_mode" == catalog ]] || { warn "stop active Series $active_series before selecting another"; exit 1; }

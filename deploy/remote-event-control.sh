@@ -147,9 +147,11 @@ case "$command_name" in
     compose run --rm --no-deps app node dist/cs2/operator-discovery.js
     ;;
   publish-cs2)
-    assert_safe_grid_id "$argument" "GRID tournament ID"
-    [ "$confirmation" = "PUBLISH CS2 $argument" ] \
-      || fail "confirmation must exactly match PUBLISH CS2 $argument"
+    assert_safe_grid_id "$argument" "GRID Series ID"
+    tournament_id=${confirmation#PUBLISH CS2 }
+    assert_safe_grid_id "$tournament_id" "GRID tournament ID"
+    [ "$confirmation" = "PUBLISH CS2 $tournament_id" ] \
+      || fail "confirmation must exactly match PUBLISH CS2 $tournament_id"
     exec 9>"$deploy_path/.operation.lock"
     flock -n 9 || fail "another event operation is running"
     [ "$(read_runtime_mode)" = catalog ] || fail "stop the active CS2 Series before publishing another tournament"
@@ -177,27 +179,24 @@ case "$command_name" in
     trap cleanup_publish EXIT HUP INT TERM
 
     umask 077
-    compose run --rm --no-deps -e "CS2_OPERATOR_TOURNAMENT_ID=$argument" app \
-      node dist/cs2/operator-publish.js > "$publication_file"
-    tournament_id=
+    compose run --rm --no-deps -e "CS2_OPERATOR_SERIES_ID=$argument" app \
+      node dist/cs2/operator-activate.js > "$publication_file"
+    validated_tournament_id=
+    series_id=
     synced_series=
-    supported_series=
     while IFS='=' read -r key value; do
       case "$key" in
-        SABG_CS2_TOURNAMENT_ID) tournament_id=$value ;;
+        SABG_CS2_TOURNAMENT_ID) validated_tournament_id=$value ;;
+        SABG_CS2_SERIES_ID) series_id=$value ;;
         SABG_CS2_SYNCED_SERIES) synced_series=$value ;;
-        SABG_CS2_SUPPORTED_SERIES) supported_series=$value ;;
       esac
     done < "$publication_file"
-    [ "$tournament_id" = "$argument" ] || fail "remote validation returned a different GRID tournament"
+    [ "$validated_tournament_id" = "$tournament_id" ] || fail "remote validation returned a different GRID tournament"
+    [ "$series_id" = "$argument" ] || fail "remote validation returned a different GRID Series"
     case "$synced_series" in
       ''|*[!0-9]*) fail "remote validation returned an invalid synchronization count" ;;
     esac
-    case "$supported_series" in
-      ''|*[!0-9]*) fail "remote validation returned an invalid supported Series count" ;;
-    esac
     [ "$synced_series" -gt 0 ] || fail "remote validation synchronized no Series"
-    [ "$supported_series" -gt 0 ] || fail "remote validation found no supported Series"
 
     cp "$deploy_path/deploy/app.env" "$backup_file"
     backup_created=true
@@ -207,8 +206,8 @@ case "$command_name" in
     compose up -d --force-recreate --wait --wait-timeout 180 app caddy
     assert_app_healthy
     switched=true
-    printf 'Published CS2 tournament %s (%s synchronized, %s supported); catalog remains online\n' \
-      "$tournament_id" "$synced_series" "$supported_series"
+    printf 'Published CS2 tournament %s (%s synchronized); catalog remains online\n' \
+      "$tournament_id" "$synced_series"
     ;;
   start-cs2)
     assert_safe_grid_id "$argument" "GRID Series ID"
