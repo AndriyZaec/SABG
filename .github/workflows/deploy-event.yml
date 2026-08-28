@@ -36,6 +36,7 @@ jobs:
     env:
       REQUESTED_SHA: ${{ github.sha }}
       DATABASE_URL: postgres://arena:arena@localhost:5433/arena
+      GRID_API_KEY: ci-test-grid-api-key
     steps:
       - name: Validate request
         shell: bash
