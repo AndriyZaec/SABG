@@ -133,8 +133,9 @@ SABG/
 
 The internal devnet event stack starts in catalog-only mode, where the website and CS2 schedule are
 available without polling a GRID Series. An operator runs `deploy/event-control.sh` to discover
-published tournaments, select one eligible Series, start its single-Series runtime, inspect status
-and logs, or return the site to catalog-only mode.
+published tournaments, publish one to the catalog without starting a match, select one eligible
+Series later, start its single-Series runtime, inspect status and logs, or return the site to
+catalog-only mode.
 
 The deployment and control scripts are intentionally committed as operational documentation. They
 contain no credentials. VPS connection settings stay in gitignored `deploy/event-control.env`, and

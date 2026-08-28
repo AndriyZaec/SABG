@@ -350,6 +350,16 @@ NODE
   [[ ${#TOURNAMENT_IDS[@]} -gt 0 ]] || { warn "GRID returned no CS2 tournaments in the discovery window"; return 1; }
 }
 
+discover_tournaments() {
+  local discovery_output marker="" line
+  discovery_output=$(remote_control discover-cs2)
+  while IFS= read -r line; do
+    [[ "$line" == SABG_CS2_DISCOVERY=* ]] && marker=${line#SABG_CS2_DISCOVERY=}
+  done <<< "$discovery_output"
+  [[ -n "$marker" ]] || { warn "GRID discovery did not return a CS2 payload"; return 1; }
+  decode_discovery "$marker"
+}
+
 select_tournament() {
   local index=0 key row
   hide_cursor
@@ -470,10 +480,11 @@ stage "Choose operation" 1
 say "Mode: $current_mode · App health: $app_health"
 [[ -z "$active_series" ]] || say "Active Series: $active_series"
 printf '  1. Show CS2 status only\n'
-printf '  2. Select tournament and start Series\n'
-printf '  3. Stop active Series\n'
-printf '  4. Show recent CS2 logs\n'
-printf '  Select [1-4]: '
+printf '  2. Publish tournament in catalog\n'
+printf '  3. Select tournament and start Series\n'
+printf '  4. Stop active Series\n'
+printf '  5. Show recent CS2 logs\n'
+printf '  Select [1-5]: '
 read -r action
 
 stage "Execute" 3
@@ -482,14 +493,29 @@ case "$action" in
     printf '%s\n' "$status_output"
     ;;
   2)
+    [[ "$current_mode" == catalog ]] || { warn "stop active Series $active_series before publishing another tournament"; exit 1; }
+    discover_tournaments || exit 1
+    select_tournament || { say "Selection cancelled."; exit 0; }
+    selected_tournament_id=${TOURNAMENT_IDS[$SELECTED_TOURNAMENT_INDEX]}
+    publication_series_id=""
+    for row in "${!ALL_SERIES_IDS[@]}"; do
+      if [[ "${ALL_SERIES_TOURNAMENT_IDS[$row]}" == "$selected_tournament_id" ]] \
+        && [[ "${ALL_SERIES_STATES[$row]}" == selectable ]]; then
+        publication_series_id=${ALL_SERIES_IDS[$row]}
+        break
+      fi
+    done
+    [[ -n "$publication_series_id" ]] || { warn "selected tournament has no Series eligible for publication"; exit 1; }
+    say "Tournament: ${TOURNAMENT_NAMES[$SELECTED_TOURNAMENT_INDEX]}"
+    say "Series discovered: ${TOURNAMENT_COUNTS[$SELECTED_TOURNAMENT_INDEX]}"
+    printf '  Type PUBLISH CS2 %s to confirm: ' "$selected_tournament_id"
+    read -r publish_confirmation
+    [[ "$publish_confirmation" == "PUBLISH CS2 $selected_tournament_id" ]] || { warn "confirmation did not match"; exit 1; }
+    remote_control publish-cs2 "$publication_series_id" "$publish_confirmation"
+    ;;
+  3)
     [[ "$current_mode" == catalog ]] || { warn "stop active Series $active_series before selecting another"; exit 1; }
-    discovery_output=$(remote_control discover-cs2)
-    marker=""
-    while IFS= read -r line; do
-      [[ "$line" == SABG_CS2_DISCOVERY=* ]] && marker=${line#SABG_CS2_DISCOVERY=}
-    done <<< "$discovery_output"
-    [[ -n "$marker" ]] || { warn "GRID discovery did not return a CS2 payload"; exit 1; }
-    decode_discovery "$marker"
+    discover_tournaments || exit 1
     select_tournament || { say "Selection cancelled."; exit 0; }
     selected_tournament_id=${TOURNAMENT_IDS[$SELECTED_TOURNAMENT_INDEX]}
     select_series "$selected_tournament_id" || { say "Selection cancelled."; exit 0; }
@@ -502,7 +528,7 @@ case "$action" in
     [[ "$start_confirmation" == "START CS2 $selected_series_id" ]] || { warn "confirmation did not match"; exit 1; }
     remote_control start-cs2 "$selected_series_id" "$start_confirmation"
     ;;
-  3)
+  4)
     if [[ "$current_mode" == catalog ]]; then
       say "CS2 runtime is already catalog-only."
       exit 0
@@ -514,7 +540,7 @@ case "$action" in
     [[ "$stop_confirmation" == "STOP CS2 $active_series" ]] || { warn "confirmation did not match"; exit 1; }
     remote_control stop-cs2 "$active_series" "$stop_confirmation"
     ;;
-  4)
+  5)
     remote_control logs
     ;;
   *)
