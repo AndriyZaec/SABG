@@ -29,14 +29,14 @@ function send(socket: WebSocket, message: ClientMessage): void {
   socket.send(JSON.stringify(message));
 }
 
-function snapshot(hasLiveGame: boolean): Cs2SeriesSnapshot {
+function snapshot(teamIds: readonly [string, string], hasLiveGame: boolean): Cs2SeriesSnapshot {
   return {
     format: 3,
     finished: false,
     hasLiveGame,
     teams: [
-      { name: "Team A", score: 0, won: false },
-      { name: "Team B", score: 0, won: false },
+      { teamId: teamIds[0], name: "Team A", score: 0, won: false },
+      { teamId: teamIds[1], name: "Team B", score: 0, won: false },
     ],
   };
 }
@@ -47,6 +47,7 @@ describe.skipIf(!RUN)("CS2 live gateway wiring (integration, requires DATABASE_U
   let seriesRepository: typeof import("../../db/repositories/series.repository.js")["seriesRepository"];
   let arenaRepository: typeof import("../../db/repositories/arena.repository.js")["arenaRepository"];
   let matchRepository: typeof import("../../db/repositories/match.repository.js")["matchRepository"];
+  let cs2IdentityRepository: typeof import("../../db/repositories/cs2-identity.repository.js")["cs2IdentityRepository"];
   let WriteQueue: typeof import("../../gateway/stores/write-queue.js")["WriteQueue"];
   let Cs2SeriesOrchestrator: typeof import("../series-orchestrator.js")["Cs2SeriesOrchestrator"];
   let GatewayWebSocketServer: typeof import("../../gateway/ws.js")["GatewayWebSocketServer"];
@@ -55,6 +56,7 @@ describe.skipIf(!RUN)("CS2 live gateway wiring (integration, requires DATABASE_U
   const seriesIds: string[] = [];
   const matchIds: string[] = [];
   const arenaIds: string[] = [];
+  const teamIds: string[] = [];
   let httpServer: HttpServer;
   let sockets: WebSocket[] = [];
 
@@ -64,6 +66,7 @@ describe.skipIf(!RUN)("CS2 live gateway wiring (integration, requires DATABASE_U
     ({ seriesRepository } = await import("../../db/repositories/series.repository.js"));
     ({ arenaRepository } = await import("../../db/repositories/arena.repository.js"));
     ({ matchRepository } = await import("../../db/repositories/match.repository.js"));
+    ({ cs2IdentityRepository } = await import("../../db/repositories/cs2-identity.repository.js"));
     ({ WriteQueue } = await import("../../gateway/stores/write-queue.js"));
     ({ Cs2SeriesOrchestrator } = await import("../series-orchestrator.js"));
     ({ GatewayWebSocketServer } = await import("../../gateway/ws.js"));
@@ -84,6 +87,7 @@ describe.skipIf(!RUN)("CS2 live gateway wiring (integration, requires DATABASE_U
     }
     for (const matchId of matchIds) await db.delete(schema.matches).where(eq(schema.matches.id, matchId));
     for (const seriesId of seriesIds) await db.delete(schema.series).where(eq(schema.series.id, seriesId));
+    for (const teamId of teamIds) await db.delete(schema.cs2Teams).where(eq(schema.cs2Teams.id, teamId));
   });
 
   it("registers a freshly-opened CS2 arena's runtime on the WS gateway, and a subscribing client receives round.open over the real transport", async () => {
@@ -91,6 +95,12 @@ describe.skipIf(!RUN)("CS2 live gateway wiring (integration, requires DATABASE_U
     const start = new Date();
     const series = await seriesRepository.upsertByGridSeriesId(gridSeriesId, { format: 3, scheduledStartTime: start });
     seriesIds.push(series.id);
+    const identities = await cs2IdentityRepository.synchronizeSeriesTeams(series.id, [
+      { gridTeamId: `${gridSeriesId}-a`, name: "Team A", score: 0 },
+      { gridTeamId: `${gridSeriesId}-b`, name: "Team B", score: 0 },
+    ]);
+    const matchTeamIds = [identities[0].teamId, identities[1].teamId] as const;
+    teamIds.push(...matchTeamIds);
 
     const gateway = new GatewayWebSocketServer();
     httpServer = createServer();
@@ -107,9 +117,9 @@ describe.skipIf(!RUN)("CS2 live gateway wiring (integration, requires DATABASE_U
     });
 
     const tenMinutesLater = new Date(start.getTime() + 10 * 60_000).toISOString();
-    await orchestrator.poll(snapshot(false), tenMinutesLater);
+    await orchestrator.poll(snapshot(matchTeamIds, false), tenMinutesLater);
 
-    const match = (await matchRepository.list()).find((m) => m.seriesId === series.id)!;
+    const match = (await matchRepository.list()).find((m) => m.discipline === "cs2" && m.seriesId === series.id)!;
     matchIds.push(match.id);
     const arena = await arenaRepository.findByMatchId(match.id);
     arenaIds.push(arena!.id);

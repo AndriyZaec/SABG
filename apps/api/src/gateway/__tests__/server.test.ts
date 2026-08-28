@@ -68,6 +68,35 @@ describe("production gateway server", () => {
     await expect(response.json()).resolves.toEqual(runtimeConfig);
   });
 
+  it("protects the CS2 catalog with the beta event-access invite", async () => {
+    const eventAccess = {
+      codeHash: await hashEventAccessCode("event-code"),
+      sessionSecret: "test-session-secret-with-at-least-32-characters",
+      secureCookies: false,
+    };
+    const catalogStore = {
+      listSupported: vi.fn().mockResolvedValue([]),
+      findSupportedDetailById: vi.fn().mockResolvedValue(undefined),
+    };
+    const baseUrl = await listen(createGatewayServer({ healthCheck: async () => {}, eventAccess, catalogStore }));
+
+    const blockedCatalog = await fetch(`${baseUrl}/api/series`);
+    expect(blockedCatalog.status).toBe(401);
+
+    const protectedResponse = await fetch(`${baseUrl}/api/runtime-config`);
+    expect(protectedResponse.status).toBe(401);
+
+    const signedIn = await fetch(`${baseUrl}/api/access/session`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ code: "event-code" }),
+    });
+    const cookie = signedIn.headers.get("set-cookie")?.split(";", 1)[0];
+    const catalog = await fetch(`${baseUrl}/api/series`, { headers: { cookie: cookie! } });
+    expect(catalog.status).toBe(200);
+    await expect(catalog.json()).resolves.toEqual({ series: [] });
+  });
+
   it("exchanges a valid event code for a cookie that protects REST and WebSocket access", async () => {
     const codeHash = await hashEventAccessCode("correct horse battery staple");
     const eventAccess = {

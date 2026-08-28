@@ -10,6 +10,8 @@ import type { Answer, ClientMessage, LeaderboardEntry, ServerMessage } from "@ar
 
 import {
   MOCK_USER_ID,
+  MOCK_CS2_LOBBY_ARENA_ID,
+  buildMockCs2Round,
   buildMockRound,
   mockLeaderboard,
   mockMatchState,
@@ -104,7 +106,7 @@ let connectionSeq = 0;
  * looping ROUNDS_TO_PLAY times, then arena.finished.
  * Returns a cleanup function to clear pending timers on socket close.
  */
-export function startMockTimeline(socket: WebSocket): () => void {
+export function startMockTimeline(socket: WebSocket, arenaId: string): () => void {
   connectionSeq += 1;
   const eliminateMockUser = connectionSeq % 2 === 0;
 
@@ -113,7 +115,8 @@ export function startMockTimeline(socket: WebSocket): () => void {
     timers.push(setTimeout(fn, delayMs));
   };
 
-  send(socket, { type: "match.state", state: mockMatchState });
+  const isCs2 = arenaId === MOCK_CS2_LOBBY_ARENA_ID;
+  if (!isCs2) send(socket, { type: "match.state", state: mockMatchState });
 
   const leaderboard: LeaderboardEntry[] = mockLeaderboard.map((e) => ({ ...e }));
 
@@ -132,7 +135,7 @@ export function startMockTimeline(socket: WebSocket): () => void {
     played += 1;
     const script = ROUND_SCRIPTS[played - 1]!;
 
-    const round = buildMockRound(windowIndex);
+    const round = isCs2 ? buildMockCs2Round(played) : buildMockRound(windowIndex);
     windowIndex = (windowIndex + 1) % MATCH_WINDOWS.length;
     const lockAt = new Date(Date.now() + LEAD_MS).toISOString();
 
@@ -177,7 +180,7 @@ export function startMockTimeline(socket: WebSocket): () => void {
   };
 }
 
-export function handleClientMessage(socket: WebSocket, raw: string): void {
+export function handleClientMessage(socket: WebSocket, raw: string, onSubscribe: (arenaId: string) => void): void {
   let message: ClientMessage;
   try {
     message = JSON.parse(raw) as ClientMessage;
@@ -186,7 +189,7 @@ export function handleClientMessage(socket: WebSocket, raw: string): void {
   }
   switch (message.type) {
     case "subscribe":
-      // Timeline is already started on connection in this mock (single-arena fixture).
+      onSubscribe(message.arenaId);
       break;
     case "answer":
       // Mock just acks via logging; real answer flow is REST POST /rounds/:id/answer or WS.

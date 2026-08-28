@@ -2,6 +2,7 @@ import {
   ANSWERS,
   ARENA_PLAYER_STATUSES,
   ARENA_STATUSES,
+  CS2_SERIES_LIFECYCLES,
   DISCIPLINES,
   ENTRY_PASS_STATUSES,
   MATCH_PERIODS,
@@ -17,16 +18,20 @@ import {
 import {
   bigint,
   boolean,
+  check,
   index,
   integer,
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
+  smallint,
   text,
   timestamp,
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const matchStatusEnum = pgEnum("match_status", MATCH_STATUSES);
 export const matchPeriodEnum = pgEnum("match_period", MATCH_PERIODS);
@@ -42,6 +47,7 @@ export const targetEventTypeEnum = pgEnum("target_event_type", TARGET_EVENT_TYPE
 export const teamSideEnum = pgEnum("team_side", TEAM_SIDES);
 export const disciplineEnum = pgEnum("discipline", DISCIPLINES);
 export const seriesStatusEnum = pgEnum("series_status", SERIES_STATUSES);
+export const cs2SeriesLifecycleEnum = pgEnum("cs2_series_lifecycle", CS2_SERIES_LIFECYCLES);
 
 const timestamps = {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -58,14 +64,64 @@ export const users = pgTable("user", {
   uniqueIndex("user_wallet_address_idx").on(t.walletAddress),
 ]);
 
+export const cs2Competitions = pgTable("cs2_competition", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  gridTournamentId: text("grid_tournament_id").notNull(),
+  name: text("name").notNull(),
+  shortName: text("short_name"),
+  logoUrl: text("logo_url"),
+  ...timestamps,
+}, (t) => [
+  uniqueIndex("cs2_competition_grid_tournament_id_idx").on(t.gridTournamentId),
+  check("cs2_competition_grid_tournament_id_not_blank", sql`btrim(${t.gridTournamentId}) <> ''`),
+  check("cs2_competition_name_not_blank", sql`btrim(${t.name}) <> ''`),
+]);
+
 export const series = pgTable("series", {
   id: uuid("id").primaryKey().defaultRandom(),
   gridSeriesId: text("grid_series_id").notNull().unique(),
+  competitionId: uuid("competition_id").references(() => cs2Competitions.id, { onDelete: "restrict" }),
   format: integer("format").notNull(),
   scheduledStartTime: timestamp("scheduled_start_time", { withTimezone: true }).notNull(),
   status: seriesStatusEnum("status").notNull(),
+  catalogLifecycle: cs2SeriesLifecycleEnum("catalog_lifecycle").notNull().default("unknown"),
+  isSupported: boolean("is_supported").notNull().default(false),
   ...timestamps,
-});
+}, (t) => [
+  index("series_competition_id_idx").on(t.competitionId),
+  index("series_catalog_idx").on(t.isSupported, t.catalogLifecycle, t.scheduledStartTime),
+  check("series_format_check", sql`${t.format} between 1 and 7`),
+]);
+
+export const cs2Teams = pgTable("cs2_team", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  gridTeamId: text("grid_team_id").notNull(),
+  name: text("name").notNull(),
+  shortName: text("short_name"),
+  logoUrl: text("logo_url"),
+  ...timestamps,
+}, (t) => [
+  uniqueIndex("cs2_team_grid_team_id_idx").on(t.gridTeamId),
+  check("cs2_team_grid_team_id_not_blank", sql`btrim(${t.gridTeamId}) <> ''`),
+  check("cs2_team_name_not_blank", sql`btrim(${t.name}) <> ''`),
+]);
+
+export const cs2SeriesParticipants = pgTable("cs2_series_participant", {
+  seriesId: uuid("series_id")
+    .notNull()
+    .references(() => series.id, { onDelete: "cascade" }),
+  teamId: uuid("team_id")
+    .notNull()
+    .references(() => cs2Teams.id, { onDelete: "restrict" }),
+  displayOrder: smallint("display_order").notNull(),
+  score: integer("score").notNull().default(0),
+}, (t) => [
+  primaryKey({ columns: [t.seriesId, t.teamId], name: "cs2_series_participant_pk" }),
+  uniqueIndex("cs2_series_participant_order_idx").on(t.seriesId, t.displayOrder),
+  index("cs2_series_participant_team_id_idx").on(t.teamId),
+  check("cs2_series_participant_display_order_check", sql`${t.displayOrder} in (1, 2)`),
+  check("cs2_series_participant_score_check", sql`${t.score} >= 0`),
+]);
 
 export const matches = pgTable("match", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -73,19 +129,41 @@ export const matches = pgTable("match", {
   txoddsFixtureId: integer("txodds_fixture_id").unique(),
   seriesId: uuid("series_id").references(() => series.id),
   seriesMatchIndex: integer("series_match_index"),
-  homeTeam: text("home_team").notNull(),
-  awayTeam: text("away_team").notNull(),
+  homeTeam: text("home_team"),
+  awayTeam: text("away_team"),
   startTime: timestamp("start_time", { withTimezone: true }).notNull(),
   status: matchStatusEnum("status").notNull(),
   currentMinute: integer("current_minute").notNull(),
   period: matchPeriodEnum("period").notNull(),
-  scoreHome: integer("score_home").notNull(),
-  scoreAway: integer("score_away").notNull(),
+  scoreHome: integer("score_home"),
+  scoreAway: integer("score_away"),
   ...timestamps,
 }, (t) => [
   uniqueIndex("match_teams_start_time_idx").on(t.homeTeam, t.awayTeam, t.startTime),
   index("match_series_id_idx").on(t.seriesId),
   uniqueIndex("match_series_match_index_idx").on(t.seriesId, t.seriesMatchIndex),
+  check(
+    "match_soccer_fields_check",
+    sql`${t.discipline} <> 'soccer' OR (${t.homeTeam} IS NOT NULL AND ${t.awayTeam} IS NOT NULL AND ${t.scoreHome} IS NOT NULL AND ${t.scoreAway} IS NOT NULL)`,
+  ),
+  check(
+    "match_cs2_fields_check",
+    sql`${t.discipline} <> 'cs2' OR (${t.seriesId} IS NOT NULL AND ${t.seriesMatchIndex} IS NOT NULL AND ${t.homeTeam} IS NULL AND ${t.awayTeam} IS NULL AND ${t.scoreHome} IS NULL AND ${t.scoreAway} IS NULL)`,
+  ),
+]);
+
+export const cs2MatchTeamScores = pgTable("cs2_match_team_score", {
+  matchId: uuid("match_id")
+    .notNull()
+    .references(() => matches.id, { onDelete: "cascade" }),
+  teamId: uuid("team_id")
+    .notNull()
+    .references(() => cs2Teams.id, { onDelete: "restrict" }),
+  score: integer("score").notNull().default(0),
+}, (t) => [
+  primaryKey({ columns: [t.matchId, t.teamId], name: "cs2_match_team_score_pk" }),
+  index("cs2_match_team_score_team_id_idx").on(t.teamId),
+  check("cs2_match_team_score_score_check", sql`${t.score} >= 0`),
 ]);
 
 export const arenas = pgTable("arena", {

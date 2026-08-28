@@ -26,6 +26,7 @@ function buildWsUrl(token: string | null): string {
 }
 
 function initialView(d: ArenaDetailResponse): ArenaView {
+  if (d.match.discipline !== "soccer") throw new Error(`Arena ${d.arena.id} is not a soccer arena`);
   const state = d.matchState;
   const round = d.currentRound;
   return {

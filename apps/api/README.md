@@ -34,10 +34,10 @@
 
 ```bash
 pnpm install                # from repo root
-pnpm dev:api                # boots the P0.4 mock: REST :4000/api, WS :4000/ws
+pnpm dev:api                # boots the P0.4 mock: REST :4100/api, WS :4100/ws
 ```
 
-`apps/web/vite.config.ts` proxies `/api` and `/ws` to `localhost:4000`, so `pnpm dev:web` talks
+`apps/web/vite.config.ts` proxies `/api`, `/cs2-api`, `/ws`, and `/cs2-ws` to `localhost:4100`, so `pnpm dev:web` talks
 to this mock automatically. `MOCK_LEAD_MS` env var shortens the round lead time (default 60s,
 per spec §5) for faster manual testing, e.g. `MOCK_LEAD_MS=2000 pnpm dev:api`.
 

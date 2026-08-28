@@ -22,10 +22,10 @@ function buildCs2WsUrl(token: string | null): string {
 }
 
 function initialView(d: ArenaDetailResponse): Cs2ArenaView {
+  if (d.match.discipline !== "cs2") throw new Error(`Arena ${d.arena.id} is not a CS2 arena`);
   const round = d.currentRound;
   return {
-    homeTeam: d.match.homeTeam,
-    awayTeam: d.match.awayTeam,
+    teams: [d.match.teamScores[0].name, d.match.teamScores[1].name],
     survivors: d.arena.activePlayersCount,
     totalPlayers: d.arena.activePlayersCount,
     // Restore the current round from the authoritative reconnect snapshot.
@@ -134,14 +134,20 @@ function reduce(view: Cs2ArenaView, msg: ServerMessage, myUserId?: string): Cs2A
 }
 
 export interface Cs2ArenaSocket {
+  detail: ArenaDetailResponse | null;
+  loadError: boolean;
   view: Cs2ArenaView | null;
   connected: boolean;
   answerSubmission: Cs2AnswerSubmission;
   submitAnswer: (answer: Answer) => void;
+  retry: () => void;
 }
 
 export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
   const { token, user } = useAuth();
+  const [detail, setDetail] = useState<ArenaDetailResponse | null>(null);
+  const [loadError, setLoadError] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [view, setView] = useState<Cs2ArenaView | null>(null);
   const [connected, setConnected] = useState(false);
   const [answerSubmission, setAnswerSubmission] = useState<Cs2AnswerSubmission>({ status: "idle" });
@@ -151,6 +157,9 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
 
   useEffect(() => {
     let cancelled = false;
+    setDetail(null);
+    setLoadError(false);
+    setView(null);
     void Promise.all([
       fetchCs2ArenaDetail(arenaId),
       fetchCs2Leaderboard(arenaId).catch(() => null),
@@ -158,6 +167,7 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
     ])
       .then(([detail, board, rounds]) => {
         if (cancelled) return;
+        setDetail(detail);
         const rows: LeaderRow[] = (board?.entries ?? []).map((e, i) => ({
           rank: e.rank ?? i + 1,
           name: e.username,
@@ -168,11 +178,25 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
         const feed = rounds ? feedFromRounds(rounds.rounds, myUserId.current) : [];
         setView((v) => v ?? { ...initialView(detail), leaderboard: rows, feed });
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (!cancelled) setLoadError(true);
+      });
+
+    const poll = window.setInterval(() => {
+      void fetchCs2ArenaDetail(arenaId)
+        .then((next) => {
+          if (cancelled) return;
+          setDetail(next);
+          setLoadError(false);
+          setView((current) => current ?? initialView(next));
+        })
+        .catch(() => undefined);
+    }, 10_000);
     return () => {
       cancelled = true;
+      window.clearInterval(poll);
     };
-  }, [arenaId]);
+  }, [arenaId, loadAttempt]);
 
   useEffect(() => {
     if (!token) return;
@@ -273,5 +297,13 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
     [answerSubmission, view],
   );
 
-  return { view, connected, answerSubmission, submitAnswer };
+  return {
+    detail,
+    loadError,
+    view,
+    connected,
+    answerSubmission,
+    submitAnswer,
+    retry: () => setLoadAttempt((current) => current + 1),
+  };
 }

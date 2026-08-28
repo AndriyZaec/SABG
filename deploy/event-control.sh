@@ -191,8 +191,36 @@ finish() {
 # ──────────────────────────────────────────────────────────────────────────
 
 TOTAL_STAGES=4
-TOTAL_MINUTES=8
+TOTAL_MINUTES=6
 ENV_FILE="${EVENT_CONTROL_ENV_FILE:-deploy/event-control.env}"
+
+_TUI_CURSOR_HIDDEN=false
+_DISCOVERY_FILE=""
+
+restore_event_control() {
+  if [[ "$_TUI_CURSOR_HIDDEN" == true ]] && [[ -t 1 ]] && command -v tput >/dev/null 2>&1; then
+    tput cnorm || true
+  fi
+  _TUI_CURSOR_HIDDEN=false
+  [[ -z "$_DISCOVERY_FILE" ]] || rm -f "$_DISCOVERY_FILE"
+}
+
+trap restore_event_control EXIT
+trap 'exit 130' HUP INT TERM
+
+hide_cursor() {
+  if [[ -t 1 ]] && command -v tput >/dev/null 2>&1; then
+    tput civis || true
+    _TUI_CURSOR_HIDDEN=true
+  fi
+}
+
+show_cursor() {
+  if [[ "$_TUI_CURSOR_HIDDEN" == true ]] && [[ -t 1 ]] && command -v tput >/dev/null 2>&1; then
+    tput cnorm || true
+  fi
+  _TUI_CURSOR_HIDDEN=false
+}
 
 remote_control() {
   local command_name="$1" argument="${2:-}" confirmation="${3:-}"
@@ -202,15 +230,208 @@ remote_control() {
     < deploy/remote-event-control.sh
 }
 
-remote_reset_replay() {
-  local fixture_id="$1"
-  ssh -i "$EVENT_SSH_KEY" -o IdentitiesOnly=yes -o BatchMode=yes \
-    -o StrictHostKeyChecking=yes "$EVENT_USER@$EVENT_HOST" \
-    "sh -s -- '$EVENT_DEPLOY_PATH' '$fixture_id' 'RESET $fixture_id'" \
-    < deploy/remote-reset-replay.sh
+status_value() {
+  local target_key="$1" line
+  while IFS= read -r line; do
+    [[ "${line%%=*}" == "$target_key" ]] || continue
+    printf '%s' "${line#*=}"
+    return 0
+  done <<< "$status_output"
+  return 1
 }
 
-banner "SABG event control"
+read_menu_key() {
+  local key rest=""
+  IFS= read -rsn1 key || return 1
+  if [[ "$key" == $'\e' ]]; then
+    IFS= read -rsn2 -t 0.1 rest || true
+    case "$rest" in
+      '[A') printf 'up' ;;
+      '[B') printf 'down' ;;
+      '') printf 'cancel' ;;
+      *) printf 'ignore' ;;
+    esac
+    return 0
+  fi
+  case "$key" in
+    '') printf 'select' ;;
+    q|Q) printf 'cancel' ;;
+    k|K) printf 'up' ;;
+    j|J) printf 'down' ;;
+    *) printf 'ignore' ;;
+  esac
+}
+
+TOURNAMENT_IDS=()
+TOURNAMENT_NAMES=()
+TOURNAMENT_COUNTS=()
+ALL_SERIES_IDS=()
+ALL_SERIES_TOURNAMENT_IDS=()
+ALL_SERIES_TEAMS=()
+ALL_SERIES_SCHEDULES=()
+ALL_SERIES_FORMATS=()
+ALL_SERIES_SERVICE_LEVELS=()
+ALL_SERIES_STATES=()
+ALL_SERIES_REASONS=()
+
+decode_discovery() {
+  local payload="$1" kind first second third fourth fifth sixth seventh eighth
+  _DISCOVERY_FILE=$(mktemp)
+  node - "$payload" > "$_DISCOVERY_FILE" <<'NODE'
+const payload = JSON.parse(Buffer.from(process.argv[2], "base64url").toString("utf8"));
+if (!payload || !Array.isArray(payload.series)) throw new Error("Discovery payload has no Series array");
+const clean = (value) => String(value).replace(/[\u0000-\u001f\u007f|]/g, " ").trim() || "-";
+const safeId = (value) => {
+  const id = String(value);
+  if (!/^[A-Za-z0-9._:-]{1,200}$/.test(id)) throw new Error(`Unsafe GRID ID: ${id}`);
+  return id;
+};
+const formatter = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+const tournaments = new Map();
+for (const series of payload.series) {
+  const tournamentId = safeId(series.competition?.gridTournamentId);
+  const current = tournaments.get(tournamentId) ?? { name: clean(series.competition?.name), count: 0 };
+  current.count += 1;
+  tournaments.set(tournamentId, current);
+}
+for (const [id, tournament] of tournaments) {
+  process.stdout.write(["T", id, tournament.name, tournament.count].join("|") + "\n");
+}
+for (const series of payload.series) {
+  const id = safeId(series.gridSeriesId);
+  const tournamentId = safeId(series.competition?.gridTournamentId);
+  const teams = Array.isArray(series.teams) ? series.teams : [];
+  const firstTeam = clean(teams[0]?.shortName ?? teams[0]?.name ?? "TBD");
+  const secondTeam = clean(teams[1]?.shortName ?? teams[1]?.name ?? "TBD");
+  const start = new Date(series.scheduledStartTime);
+  if (Number.isNaN(start.getTime())) throw new Error(`Invalid schedule for GRID Series ${id}`);
+  const state = series.selection?.state === "selectable" ? "selectable" : "disabled";
+  const reason = state === "selectable" ? "-" : clean(series.selection?.reason ?? "UNAVAILABLE");
+  process.stdout.write([
+    "S",
+    id,
+    tournamentId,
+    `${firstTeam} vs ${secondTeam}`,
+    formatter.format(start),
+    `Bo${Number(series.format)}`,
+    clean(series.liveDataServiceLevel ?? "UNAVAILABLE"),
+    state,
+    reason,
+  ].join("|") + "\n");
+}
+NODE
+
+  while IFS='|' read -r kind first second third fourth fifth sixth seventh eighth; do
+    case "$kind" in
+      T)
+        TOURNAMENT_IDS+=("$first")
+        TOURNAMENT_NAMES+=("$second")
+        TOURNAMENT_COUNTS+=("$third")
+        ;;
+      S)
+        ALL_SERIES_IDS+=("$first")
+        ALL_SERIES_TOURNAMENT_IDS+=("$second")
+        ALL_SERIES_TEAMS+=("$third")
+        ALL_SERIES_SCHEDULES+=("$fourth")
+        ALL_SERIES_FORMATS+=("$fifth")
+        ALL_SERIES_SERVICE_LEVELS+=("$sixth")
+        ALL_SERIES_STATES+=("$seventh")
+        ALL_SERIES_REASONS+=("$eighth")
+        ;;
+    esac
+  done < "$_DISCOVERY_FILE"
+  rm -f "$_DISCOVERY_FILE"
+  _DISCOVERY_FILE=""
+  [[ ${#TOURNAMENT_IDS[@]} -gt 0 ]] || { warn "GRID returned no CS2 tournaments in the discovery window"; return 1; }
+}
+
+select_tournament() {
+  local index=0 key row
+  hide_cursor
+  while true; do
+    _clear
+    printf '\n%s%s  Select CS2 tournament%s\n' "$BOLD" "$BLUE" "$RESET"
+    printf '%s  ↑/↓ move · Enter select · q/Esc cancel%s\n\n' "$DIM" "$RESET"
+    for row in "${!TOURNAMENT_IDS[@]}"; do
+      if [[ "$row" -eq "$index" ]]; then
+        printf '  %s%s› %-42s %3s Series%s\n' "$BOLD" "$GREEN" "${TOURNAMENT_NAMES[$row]}" "${TOURNAMENT_COUNTS[$row]}" "$RESET"
+      else
+        printf '    %-42s %3s Series\n' "${TOURNAMENT_NAMES[$row]}" "${TOURNAMENT_COUNTS[$row]}"
+      fi
+    done
+    key=$(read_menu_key) || { show_cursor; return 1; }
+    case "$key" in
+      up) index=$(( (index - 1 + ${#TOURNAMENT_IDS[@]}) % ${#TOURNAMENT_IDS[@]} )) ;;
+      down) index=$(( (index + 1) % ${#TOURNAMENT_IDS[@]} )) ;;
+      select) SELECTED_TOURNAMENT_INDEX=$index; show_cursor; return 0 ;;
+      cancel) show_cursor; return 1 ;;
+    esac
+  done
+}
+
+select_series() {
+  local tournament_id="$1" index=0 key row reason
+  SERIES_IDS=()
+  SERIES_TEAMS=()
+  SERIES_SCHEDULES=()
+  SERIES_FORMATS=()
+  SERIES_SERVICE_LEVELS=()
+  SERIES_STATES=()
+  SERIES_REASONS=()
+  for row in "${!ALL_SERIES_IDS[@]}"; do
+    [[ "${ALL_SERIES_TOURNAMENT_IDS[$row]}" == "$tournament_id" ]] || continue
+    SERIES_IDS+=("${ALL_SERIES_IDS[$row]}")
+    SERIES_TEAMS+=("${ALL_SERIES_TEAMS[$row]}")
+    SERIES_SCHEDULES+=("${ALL_SERIES_SCHEDULES[$row]}")
+    SERIES_FORMATS+=("${ALL_SERIES_FORMATS[$row]}")
+    SERIES_SERVICE_LEVELS+=("${ALL_SERIES_SERVICE_LEVELS[$row]}")
+    SERIES_STATES+=("${ALL_SERIES_STATES[$row]}")
+    SERIES_REASONS+=("${ALL_SERIES_REASONS[$row]}")
+  done
+  [[ ${#SERIES_IDS[@]} -gt 0 ]] || return 1
+
+  hide_cursor
+  while true; do
+    _clear
+    printf '\n%s%s  Select Series · %s%s\n' "$BOLD" "$BLUE" "${TOURNAMENT_NAMES[$SELECTED_TOURNAMENT_INDEX]}" "$RESET"
+    printf '%s  ↑/↓ move · Enter select · q/Esc cancel%s\n\n' "$DIM" "$RESET"
+    for row in "${!SERIES_IDS[@]}"; do
+      reason="${SERIES_REASONS[$row]}"
+      [[ "$reason" == PARTICIPANTS_INCOMPLETE ]] && reason="${SERIES_SERVICE_LEVELS[$row]} · TBD"
+      [[ "$reason" == FULL_LIVE_DATA_UNAVAILABLE ]] && reason="NO LIVE DATA"
+      [[ "$reason" == - ]] && reason="${SERIES_SERVICE_LEVELS[$row]}"
+      if [[ "${SERIES_STATES[$row]}" == disabled ]]; then
+        printf '%s' "$DIM"
+      fi
+      if [[ "$row" -eq "$index" ]]; then
+        printf '  %s%s› %-34s %-17s %-4s  %s%s\n' "$BOLD" "$GREEN" "${SERIES_TEAMS[$row]}" "${SERIES_SCHEDULES[$row]}" "${SERIES_FORMATS[$row]}" "$reason" "$RESET"
+      else
+        printf '    %-34s %-17s %-4s  %s%s\n' "${SERIES_TEAMS[$row]}" "${SERIES_SCHEDULES[$row]}" "${SERIES_FORMATS[$row]}" "$reason" "$RESET"
+      fi
+      printf '    %sGRID Series: %s%s\n' "$DIM" "${SERIES_IDS[$row]}" "$RESET"
+    done
+    key=$(read_menu_key) || { show_cursor; return 1; }
+    case "$key" in
+      up) index=$(( (index - 1 + ${#SERIES_IDS[@]}) % ${#SERIES_IDS[@]} )) ;;
+      down) index=$(( (index + 1) % ${#SERIES_IDS[@]} )) ;;
+      select)
+        if [[ "${SERIES_STATES[$index]}" == selectable ]]; then
+          SELECTED_SERIES_INDEX=$index
+          show_cursor
+          return 0
+        fi
+        ;;
+      cancel) show_cursor; return 1 ;;
+    esac
+  done
+}
+
+banner "SABG CS2 event control"
 
 stage "Connection" 1
 if [[ ! -f "$ENV_FILE" ]]; then
@@ -235,53 +456,63 @@ EVENT_SSH_KEY=$(_existing EVENT_SSH_KEY)
 [[ "$EVENT_USER" =~ ^[A-Za-z0-9._-]+$ ]] || { warn "invalid EVENT_USER"; exit 1; }
 [[ "$EVENT_DEPLOY_PATH" =~ ^/[A-Za-z0-9._/-]+$ ]] || { warn "invalid EVENT_DEPLOY_PATH"; exit 1; }
 [[ -f "$EVENT_SSH_KEY" ]] || { warn "SSH key not found: $EVENT_SSH_KEY"; exit 1; }
+command -v node >/dev/null 2>&1 || { warn "Node.js is required to decode GRID discovery"; exit 1; }
 say "Connected configuration loaded from $ENV_FILE."
 
 stage "Current status" 1
 status_output=$(remote_control status)
 printf '%s\n' "$status_output"
+current_mode=$(status_value MODE || printf 'unknown')
+active_series=$(status_value SERIES_ID || true)
+app_health=$(status_value APP_HEALTH || printf 'unknown')
 
 stage "Choose operation" 1
-printf '  1. Show status only\n'
-printf '  2. Reset replay rehearsal\n'
-printf '  3. Discover nearest match and go live\n'
-printf '  4. Show recent app logs\n'
+say "Mode: $current_mode · App health: $app_health"
+[[ -z "$active_series" ]] || say "Active Series: $active_series"
+printf '  1. Show CS2 status only\n'
+printf '  2. Select tournament and start Series\n'
+printf '  3. Stop active Series\n'
+printf '  4. Show recent CS2 logs\n'
 printf '  Select [1-4]: '
 read -r action
 
-stage "Execute" 5
+stage "Execute" 3
 case "$action" in
   1)
-    say "No changes requested."
+    printf '%s\n' "$status_output"
     ;;
   2)
-    current_source=$(printf '%s\n' "$status_output" | grep '^SOURCE=' | cut -d= -f2-)
-    [[ "$current_source" == replay ]] || { warn "replay reset is unavailable while source is $current_source"; exit 1; }
-    replay_fixture=$(printf '%s\n' "$status_output" | grep '^REPLAY_FIXTURE_ID=' | cut -d= -f2-)
-    case "$replay_fixture" in
-      18179764|18241006) ;;
-      *) warn "deployed replay fixture is unavailable"; exit 1 ;;
-    esac
-    confirm "Reset replay fixture $replay_fixture and start a fresh lobby?" || exit 0
-    remote_reset_replay "$replay_fixture"
+    [[ "$current_mode" == catalog ]] || { warn "stop active Series $active_series before selecting another"; exit 1; }
+    discovery_output=$(remote_control discover-cs2)
+    marker=""
+    while IFS= read -r line; do
+      [[ "$line" == SABG_CS2_DISCOVERY=* ]] && marker=${line#SABG_CS2_DISCOVERY=}
+    done <<< "$discovery_output"
+    [[ -n "$marker" ]] || { warn "GRID discovery did not return a CS2 payload"; exit 1; }
+    decode_discovery "$marker"
+    select_tournament || { say "Selection cancelled."; exit 0; }
+    selected_tournament_id=${TOURNAMENT_IDS[$SELECTED_TOURNAMENT_INDEX]}
+    select_series "$selected_tournament_id" || { say "Selection cancelled."; exit 0; }
+    selected_series_id=${SERIES_IDS[$SELECTED_SERIES_INDEX]}
+    say "Tournament: ${TOURNAMENT_NAMES[$SELECTED_TOURNAMENT_INDEX]}"
+    say "Series: ${SERIES_TEAMS[$SELECTED_SERIES_INDEX]}"
+    say "Schedule: ${SERIES_SCHEDULES[$SELECTED_SERIES_INDEX]} · ${SERIES_FORMATS[$SELECTED_SERIES_INDEX]}"
+    printf '  Type START CS2 %s to confirm: ' "$selected_series_id"
+    read -r start_confirmation
+    [[ "$start_confirmation" == "START CS2 $selected_series_id" ]] || { warn "confirmation did not match"; exit 1; }
+    remote_control start-cs2 "$selected_series_id" "$start_confirmation"
     ;;
   3)
-    discovery_output=$(remote_control discover-live)
-    printf '%s\n' "$discovery_output"
-    marker=$(printf '%s\n' "$discovery_output" | grep '^SABG_LIVE_FIXTURE=' | tail -n1)
-    [[ -n "$marker" ]] || { warn "live discovery did not return a fixture"; exit 1; }
-    payload=${marker#SABG_LIVE_FIXTURE=}
-    fixture_json=$(node -e 'process.stdout.write(Buffer.from(process.argv[1], "base64url").toString("utf8"))' "$payload")
-    fixture_id=$(printf '%s' "$fixture_json" | jq -r '.fixtureId')
-    home_team=$(printf '%s' "$fixture_json" | jq -r '.homeTeam')
-    away_team=$(printf '%s' "$fixture_json" | jq -r '.awayTeam')
-    start_time=$(printf '%s' "$fixture_json" | jq -r '.startTime')
-    say "Nearest match: $home_team vs $away_team"
-    say "Kickoff: $start_time"
-    printf '  Type GO LIVE %s to confirm: ' "$fixture_id"
-    read -r live_confirmation
-    [[ "$live_confirmation" == "GO LIVE $fixture_id" ]] || { warn "confirmation did not match"; exit 1; }
-    remote_control switch-live "$fixture_id" "$live_confirmation"
+    if [[ "$current_mode" == catalog ]]; then
+      say "CS2 runtime is already catalog-only."
+      exit 0
+    fi
+    [[ "$current_mode" == live && "$active_series" =~ ^[A-Za-z0-9._:-]+$ ]] \
+      || { warn "active CS2 Series is unavailable"; exit 1; }
+    printf '  Type STOP CS2 %s to confirm: ' "$active_series"
+    read -r stop_confirmation
+    [[ "$stop_confirmation" == "STOP CS2 $active_series" ]] || { warn "confirmation did not match"; exit 1; }
+    remote_control stop-cs2 "$active_series" "$stop_confirmation"
     ;;
   4)
     remote_control logs
@@ -292,4 +523,5 @@ case "$action" in
     ;;
 esac
 
+pause "Press Enter to finish."
 finish

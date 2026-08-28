@@ -1,4 +1,12 @@
-import type { Answer, ArenaPlayerStatus, IsoDateTime, PendingPrediction, PredictionRound, Uuid } from "@arena/contracts";
+import type {
+  Answer,
+  ArenaPlayerStatus,
+  Cs2TeamIdentity,
+  IsoDateTime,
+  PendingPrediction,
+  PredictionRound,
+  Uuid,
+} from "@arena/contracts";
 import type { MatchSignalBus } from "../ingestion/event-bus.js";
 import type {
   ArenaRuntimeLike,
@@ -26,7 +34,7 @@ export interface Cs2ArenaRuntimeOptions {
   roster: LeaderboardRosterEntry[];
   broadcaster?: GatewayBroadcaster;
   persistence?: Cs2ArenaPersistence;
-  teamNames?: { home: string; away: string };
+  teams?: readonly [Cs2TeamIdentity, Cs2TeamIdentity];
   initialRounds?: readonly PredictionRound[];
   questionProvider?: Cs2QuestionProvider;
 }
@@ -63,7 +71,7 @@ export class Cs2ArenaRuntime implements ArenaRuntimeLike {
     });
 
     this.roundEngine = new Cs2RoundEngine(this.matchId, this.arenaId, {
-      ...(options.teamNames !== undefined ? { teamNames: options.teamNames } : {}),
+      ...(options.teams !== undefined ? { teams: options.teams } : {}),
       ...(options.questionProvider !== undefined ? { questionProvider: options.questionProvider } : {}),
       ...(options.initialRounds !== undefined ? { initialRounds: options.initialRounds } : {}),
       isArenaFinished: () => this.winners !== undefined,
@@ -79,8 +87,11 @@ export class Cs2ArenaRuntime implements ArenaRuntimeLike {
     });
   }
 
-  openRoundOne(timestamp: IsoDateTime): void {
-    this.roundEngine.onMatchLiveDetected(timestamp);
+  openRoundOne(
+    timestamp: IsoDateTime,
+    teams?: readonly [Cs2TeamIdentity, Cs2TeamIdentity],
+  ): void {
+    this.roundEngine.onMatchLiveDetected(timestamp, teams);
   }
 
   onMatchLiveDetected(timestamp: IsoDateTime): void {

@@ -58,15 +58,25 @@ export function useCs2ArenaEntry(options: Cs2ArenaEntryOptions = {}): Cs2ArenaEn
   const { publicKey, signTransaction } = useWallet();
   const { setSession } = useAuth();
   const { onchainArenaId, backendArenaId } = options;
+  const [resolvedOnchainArenaId, setResolvedOnchainArenaId] = useState(onchainArenaId);
 
   // An unprovisioned arena cannot have an entry pass.
-  const targetArenaId = useMemo<BN | null>(() => (onchainArenaId != null ? new BN(onchainArenaId) : null), [onchainArenaId]);
+  const targetArenaId = useMemo<BN | null>(
+    () => (resolvedOnchainArenaId != null ? new BN(resolvedOnchainArenaId) : null),
+    [resolvedOnchainArenaId],
+  );
 
   const [status, setStatus] = useState<Status>("loading");
   const [error, setError] = useState<string | undefined>();
   const [info, setInfo] = useState<Cs2ArenaInfo | null>(null);
   const [hasEntry, setHasEntry] = useState(false);
   const [entryRefunded, setEntryRefunded] = useState(false);
+  const [backendEntryConfirmed, setBackendEntryConfirmed] = useState(false);
+
+  useEffect(() => {
+    setResolvedOnchainArenaId(onchainArenaId);
+    setBackendEntryConfirmed(false);
+  }, [backendArenaId, onchainArenaId]);
 
   const refresh = useCallback(async (showLoading = true) => {
     if (!program) return;
@@ -75,7 +85,7 @@ export function useCs2ArenaEntry(options: Cs2ArenaEntryOptions = {}): Cs2ArenaEn
     try {
       if (targetArenaId === null) {
         setInfo({ exists: false, entryFeeSol: toSol(DEFAULT_ENTRY_FEE_LAMPORTS), prizePoolSol: 0, playerCount: 0, state: "open" });
-        setHasEntry(false);
+        setHasEntry(backendEntryConfirmed);
         setEntryRefunded(false);
         if (showLoading) setStatus("idle");
         return;
@@ -110,7 +120,7 @@ export function useCs2ArenaEntry(options: Cs2ArenaEntryOptions = {}): Cs2ArenaEn
         setError(e instanceof Error ? e.message : "Failed to load arena");
       }
     }
-  }, [program, publicKey, targetArenaId]);
+  }, [program, publicKey, targetArenaId, backendEntryConfirmed]);
 
   useEffect(() => {
     void refresh();
@@ -119,12 +129,13 @@ export function useCs2ArenaEntry(options: Cs2ArenaEntryOptions = {}): Cs2ArenaEn
   }, [refresh]);
 
   const run = useCallback(
-    async (action: () => Promise<unknown>) => {
+    async (action: () => Promise<unknown>, refreshAfter = true) => {
       setStatus("working");
       setError(undefined);
       try {
         await action();
-        await refresh();
+        if (refreshAfter) await refresh();
+        else setStatus("idle");
       } catch (e) {
         setStatus("error");
         setError(e instanceof Error ? e.message : "Transaction failed");
@@ -140,12 +151,16 @@ export function useCs2ArenaEntry(options: Cs2ArenaEntryOptions = {}): Cs2ArenaEn
       const { prepareId, tx } = await prepareCs2Entry(backendArenaId, wallet);
       const signed = await signTransaction(Transaction.from(b64ToBytes(tx)));
       const res = await submitCs2Entry(backendArenaId, prepareId, bytesToB64(signed.serialize()));
+      setResolvedOnchainArenaId(res.arena.onchainArenaId);
+      setBackendEntryConfirmed(true);
+      setHasEntry(true);
+      setEntryRefunded(false);
       setSession(res.token, {
         id: res.player.userId,
         walletAddress: wallet,
         username: `fan_${wallet.slice(0, 6)}`,
       });
-    });
+    }, false);
   }, [publicKey, signTransaction, backendArenaId, run, setSession]);
 
   return { ready: program !== null, status, error, info, hasEntry, entryRefunded, join, refresh };

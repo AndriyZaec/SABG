@@ -7,10 +7,10 @@ import type {
   EventAccessSessionResponse,
   EventAccessSignInRequest,
   LeaderboardResponse,
-  Match,
   MatchListResponse,
   PrepareEntryResponse,
   RuntimeConfigResponse,
+  SoccerMatch,
   SubmitEntryResponse,
   WalletNonceRequest,
   WalletNonceResponse,
@@ -127,7 +127,7 @@ export async function walletSignIn(
 /** The backend arena to target, paired with its match (teams, score, clock) for the lobby. */
 export interface PrimaryArena {
   arena: Arena;
-  match: Match;
+  match: SoccerMatch;
 }
 
 export async function fetchPrimaryArena(): Promise<PrimaryArena | null> {
@@ -137,6 +137,7 @@ export async function fetchPrimaryArena(): Promise<PrimaryArena | null> {
   const { matches } = await get<MatchListResponse>("/matches");
   const found: PrimaryArena[] = [];
   for (const match of matches) {
+    if (match.discipline !== "soccer") continue;
     const { arenas } = await get<ArenaListResponse>(`/arenas?matchId=${match.id}`);
     for (const arena of arenas) found.push({ arena, match });
   }

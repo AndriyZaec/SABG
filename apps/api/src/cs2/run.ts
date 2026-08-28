@@ -10,25 +10,32 @@ import {
   type ReleaseFixtureRuntimeLock,
 } from "../db/client.js";
 import { seriesRepository } from "../db/repositories/series.repository.js";
+import { cs2IdentityRepository } from "../db/repositories/cs2-identity.repository.js";
 import { WriteQueue } from "../gateway/stores/write-queue.js";
 import { createGatewayServer } from "../gateway/server.js";
 import { closeHttpServer, listenHttpServer } from "../gateway/http-lifecycle.js";
 import { cs2Config } from "./config/env.js";
 import { Cs2LivePoller } from "./live-poller.js";
-import { parseSeriesSnapshot } from "./series-snapshot.js";
+import { parseGridSeriesSnapshot, type GridCs2SeriesSnapshot } from "./series-snapshot.js";
 import { Cs2SeriesOrchestrator } from "./series-orchestrator.js";
 import { Cs2RawRecorder } from "./raw-recorder.js";
 import { MongoService } from "../grid/mongo/mongo.service.js";
+import { buildCs2TeamIdentityMap } from "./team-identity.js";
 
 const CS2_ENTRY_FEE_LAMPORTS = 10_000_000;
 
-async function primeSeriesFormat(client: GridClient, signal: AbortSignal): Promise<number | undefined> {
+if (cs2Config.mode !== "live") {
+  throw new Error("CS2 live runtime requires CS2_RUNTIME_MODE=live");
+}
+const liveConfig = cs2Config;
+
+async function primeSeries(client: GridClient, signal: AbortSignal): Promise<GridCs2SeriesSnapshot | undefined> {
   let errorStreak = 0;
   while (!signal.aborted) {
     try {
       const result = await client.fetchSeriesState(signal);
-      const snapshot = parseSeriesSnapshot(result.data);
-      if (snapshot?.format !== undefined) return snapshot.format;
+      const snapshot = parseGridSeriesSnapshot(result.data);
+      if (snapshot?.format !== undefined) return snapshot;
       logger.warn("cs2: priming poll had no parseable Series format yet — retrying");
       errorStreak = 0;
     } catch (err) {
@@ -84,15 +91,17 @@ async function main(): Promise<void> {
     if (abortController.signal.aborted) return;
 
     const client = new GridClient();
-    const format = await primeSeriesFormat(client, abortController.signal);
-    if (abortController.signal.aborted || format === undefined) return;
+    const primedSeries = await primeSeries(client, abortController.signal);
+    if (abortController.signal.aborted || primedSeries?.format === undefined) return;
 
     const series = await seriesRepository.upsertByGridSeriesId(gridConfig.grid.seriesId, {
-      format,
-      scheduledStartTime: new Date(cs2Config.scheduledStartTime),
+      format: primedSeries.format,
+      scheduledStartTime: new Date(liveConfig.scheduledStartTime),
     });
     if (abortController.signal.aborted) return;
-    logger.info({ seriesId: series.id, gridSeriesId: series.gridSeriesId, format }, "cs2: series ready");
+    const persistedTeams = await cs2IdentityRepository.synchronizeSeriesTeams(series.id, primedSeries.teams);
+    const teamIdentities = buildCs2TeamIdentityMap(persistedTeams);
+    logger.info({ seriesId: series.id, gridSeriesId: series.gridSeriesId, format: primedSeries.format }, "cs2: series ready");
 
     gatewayServer = createGatewayServer({
       runtimeConfig: { gameSource: "live", sourceLabel: "CS2 LIVE FEED" },
@@ -107,12 +116,12 @@ async function main(): Promise<void> {
     });
 
     // Accept joins before polling can open the first arena.
-    await listenHttpServer(httpServer, cs2Config.gatewayPort, abortController.signal);
+    await listenHttpServer(httpServer, liveConfig.gatewayPort, abortController.signal);
     if (abortController.signal.aborted) return;
-    logger.info({ port: cs2Config.gatewayPort }, `cs2: gateway listening — REST/WS http://localhost:${cs2Config.gatewayPort}`);
+    logger.info({ port: liveConfig.gatewayPort }, `cs2: gateway listening — REST/WS http://localhost:${liveConfig.gatewayPort}`);
 
     let rawRecorder: Cs2RawRecorder | undefined;
-    if (cs2Config.rawRecordingEnabled) {
+    if (liveConfig.rawRecordingEnabled) {
       if (gridConfig.mongo.uri === undefined) {
         logger.warn("cs2: CS2_RAW_RECORDING_ENABLED is true but MONGODB_URI is unset — running without raw recording");
       } else {
@@ -124,6 +133,7 @@ async function main(): Promise<void> {
       target: orchestrator,
       fetchSeriesState: (signal) => client.fetchSeriesState(signal),
       pollIntervalMs: gridConfig.grid.pollIntervalMs,
+      teamIdentities,
       rawRecorder,
     });
     poller.start();

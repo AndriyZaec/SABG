@@ -26,8 +26,7 @@ export type Cs2AnswerSubmission =
   | { status: "rejected"; roundId: string; answer: Answer; reason: AnswerRejectionReason };
 
 export interface Cs2ArenaView {
-  homeTeam?: string;
-  awayTeam?: string;
+  teams?: readonly [string, string];
   seriesFormat?: number;
   survivors: number;
   totalPlayers: number;

@@ -1,10 +1,11 @@
 // S2 — REST request/response DTOs (build plan §S2, P0.4).
 // The mock server and the real API both implement these shapes.
 
-import type { Answer } from "./enums.js";
+import type { Answer, ArenaStatus, Cs2SeriesAvailability, Cs2SeriesLifecycle } from "./enums.js";
 import type {
   Arena,
   ArenaPlayer,
+  IsoDateTime,
   LeaderboardEntry,
   Match,
   MatchState,
@@ -16,7 +17,7 @@ import type {
   WalletAddress,
 } from "./entities.js";
 
-export type GameSourceMode = "replay" | "live";
+export type GameSourceMode = "catalog" | "replay" | "live";
 
 /** GET /api/runtime-config — public display metadata, never secrets. */
 export interface RuntimeConfigResponse {
@@ -58,6 +59,83 @@ export interface WalletSignInResponse {
 /** GET /matches, GET /matches/:id */
 export interface MatchListResponse {
   matches: Match[];
+}
+
+export interface Cs2TeamSummary {
+  id: Uuid;
+  name: string;
+  shortName?: string;
+  logoUrl?: string;
+}
+
+export type Cs2SeriesParticipant =
+  | {
+      state: "known";
+      displayOrder: 1 | 2;
+      team: Cs2TeamSummary;
+      seriesScore: number;
+    }
+  | {
+      state: "tbd";
+      displayOrder: 1 | 2;
+      seriesScore: null;
+    };
+
+export interface Cs2CompetitionSummary {
+  name: string;
+  shortName?: string;
+  logoUrl?: string;
+}
+
+export interface Cs2SeriesSummary {
+  id: Uuid;
+  availability: Cs2SeriesAvailability;
+  participants: [Cs2SeriesParticipant, Cs2SeriesParticipant];
+  competition: Cs2CompetitionSummary;
+  format: number;
+  scheduledStartTime: IsoDateTime;
+  lifecycle: Cs2SeriesLifecycle;
+}
+
+export interface Cs2ArenaSummary {
+  id: Uuid;
+  activePlayersCount: number;
+  entryFeeLamports: number;
+  prizePoolLamports: number;
+}
+
+export interface Cs2TeamScore {
+  teamId: Uuid;
+  score: number;
+}
+
+export type Cs2SeriesMapSummary =
+  | {
+      state: "pending";
+      seriesMatchIndex: number;
+      mapName?: string;
+    }
+  | {
+      state: ArenaStatus;
+      seriesMatchIndex: number;
+      mapName?: string;
+      matchId: Uuid;
+      teams: [Cs2TeamScore, Cs2TeamScore];
+      arena: Cs2ArenaSummary;
+    };
+
+export interface Cs2SeriesDetail extends Cs2SeriesSummary {
+  maps: Cs2SeriesMapSummary[];
+}
+
+/** GET /series */
+export interface Cs2SeriesListResponse {
+  series: Cs2SeriesSummary[];
+}
+
+/** GET /series/:seriesId */
+export interface Cs2SeriesDetailResponse {
+  series: Cs2SeriesDetail;
 }
 
 /** GET /arenas?matchId= — list the arena(s) running against a match (lobby discovery). */

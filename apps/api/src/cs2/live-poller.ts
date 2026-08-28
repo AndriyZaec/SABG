@@ -1,6 +1,6 @@
 // Per-map signals must reach the current arena before series polling can open the next arena.
 
-import type { IsoDateTime } from "@arena/contracts";
+import type { Cs2GameSnapshot, IsoDateTime } from "@arena/contracts";
 import type { MatchSignalBus } from "../ingestion/event-bus.js";
 import { sleep } from "../shared/sleep.js";
 import { nextBackoffMs } from "../grid/backoff.js";
@@ -9,10 +9,12 @@ import { observeSnapshot } from "./snapshot.js";
 import { initialCs2TrackerState, trackCs2Poll, type Cs2TrackerState } from "./round-tracker.js";
 import { parseSeriesSnapshot, type Cs2SeriesSnapshot } from "./series-snapshot.js";
 import type { Cs2RawPollResult } from "./raw-recorder.js";
+import type { Cs2TeamIdentityMap } from "./team-identity.js";
 
 export interface Cs2LivePollerTarget {
   poll(snapshot: Cs2SeriesSnapshot | undefined, now: IsoDateTime): Promise<void>;
   currentBus(): MatchSignalBus | undefined;
+  updateLiveScore(snapshot: Cs2GameSnapshot): Promise<void>;
 }
 
 export interface Cs2RawRecorderTarget {
@@ -23,6 +25,7 @@ export interface Cs2LivePollerOptions {
   target: Cs2LivePollerTarget;
   fetchSeriesState: (signal?: AbortSignal) => Promise<Cs2RawPollResult>;
   pollIntervalMs: number;
+  teamIdentities: Cs2TeamIdentityMap;
   rawRecorder?: Cs2RawRecorderTarget;
 }
 
@@ -31,9 +34,10 @@ export async function handleCs2LivePoll(
   raw: unknown,
   trackerState: Cs2TrackerState,
   now: IsoDateTime,
+  teamIdentities: Cs2TeamIdentityMap,
 ): Promise<Cs2TrackerState> {
-  const observation = observeSnapshot(raw);
-  const seriesSnapshot = parseSeriesSnapshot(raw);
+  const observation = observeSnapshot(raw, teamIdentities);
+  const seriesSnapshot = parseSeriesSnapshot(raw, teamIdentities);
   if (observation.kind === "invalid" || seriesSnapshot === undefined) return trackerState;
 
   const bus = target.currentBus();
@@ -41,6 +45,7 @@ export async function handleCs2LivePoll(
   if (bus !== undefined) {
     for (const signal of tracked.signals) bus.publish(signal);
   }
+  if (observation.kind === "live") await target.updateLiveScore(observation.snapshot);
 
   await target.poll(seriesSnapshot, now);
 
@@ -75,7 +80,13 @@ export class Cs2LivePoller {
       try {
         const result = await this.options.fetchSeriesState(signal);
         const now: IsoDateTime = new Date().toISOString();
-        this.trackerState = await handleCs2LivePoll(this.options.target, result.data, this.trackerState, now);
+        this.trackerState = await handleCs2LivePoll(
+          this.options.target,
+          result.data,
+          this.trackerState,
+          now,
+          this.options.teamIdentities,
+        );
         this.errorStreak = 0;
 
         // Recording failures must not trigger feed backoff.

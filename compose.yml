@@ -138,8 +138,6 @@ services:
     env_file:
       - path: ${SABG_APP_ENV_FILE:-./deploy/app.env}
         format: raw
-    environment:
-      GATEWAY_REPLAY_FIXTURE_ID: ${GATEWAY_REPLAY_FIXTURE_ID:-18241006}
     depends_on:
       postgres:
         condition: service_healthy
@@ -154,9 +152,6 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    volumes:
-      - replay_reset_audits:/app/audit
-      - txline_state:/app/state
     networks:
       - edge
       - backend
@@ -192,7 +187,5 @@ networks:
 volumes:
   postgres_data:
   mongo_data:
-  replay_reset_audits:
-  txline_state:
   caddy_data:
   caddy_config:

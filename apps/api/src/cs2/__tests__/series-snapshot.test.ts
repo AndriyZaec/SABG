@@ -1,5 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { parseSeriesSnapshot } from "../series-snapshot.js";
+import { parseSeriesSnapshot as parseNormalizedSeriesSnapshot } from "../series-snapshot.js";
+import type { Cs2TeamIdentityMap } from "../team-identity.js";
+
+const TEAM_A_ID = "00000000-0000-0000-0000-00000000000a";
+const TEAM_B_ID = "00000000-0000-0000-0000-00000000000b";
+const ICP_ID = "00000000-0000-0000-0000-00000000000c";
+const ENCE_ID = "00000000-0000-0000-0000-00000000000d";
+const TEAM_IDENTITIES: Cs2TeamIdentityMap = new Map([
+  ["team-a", { teamId: TEAM_A_ID, name: "A" }],
+  ["team-b", { teamId: TEAM_B_ID, name: "B" }],
+  ["icp", { teamId: ICP_ID, name: "ICP" }],
+  ["ence", { teamId: ENCE_ID, name: "ENCE" }],
+]);
+
+function parseSeriesSnapshot(raw: unknown) {
+  return parseNormalizedSeriesSnapshot(raw, TEAM_IDENTITIES);
+}
 
 function rawSeries(opts: {
   format?: string;
@@ -13,8 +29,8 @@ function rawSeries(opts: {
         format: opts.format ?? "best-of-3",
         finished: opts.finished ?? false,
         teams: opts.teams ?? [
-          { name: "A", score: 0, won: false },
-          { name: "B", score: 0, won: false },
+          { id: "team-a", name: "A", score: 0, won: false },
+          { id: "team-b", name: "B", score: 0, won: false },
         ],
         ...(opts.games !== undefined ? { games: opts.games } : {}),
       },
@@ -28,8 +44,8 @@ describe("parseSeriesSnapshot", () => {
       format: "best-of-3",
       finished: false,
       teams: [
-        { name: "ICP", score: 1, won: false },
-        { name: "ENCE", score: 0, won: false },
+        { id: "icp", name: "ICP", score: 1, won: false },
+        { id: "ence", name: "ENCE", score: 0, won: false },
       ],
       games: [{ some: "map-state" }],
     });
@@ -38,8 +54,8 @@ describe("parseSeriesSnapshot", () => {
       finished: false,
       hasLiveGame: true,
       teams: [
-        { name: "ICP", score: 1, won: false },
-        { name: "ENCE", score: 0, won: false },
+        { teamId: ICP_ID, name: "ICP", score: 1, won: false },
+        { teamId: ENCE_ID, name: "ENCE", score: 0, won: false },
       ],
     });
   });
@@ -59,8 +75,8 @@ describe("parseSeriesSnapshot", () => {
       format: "best-of-3",
       finished: true,
       teams: [
-        { name: "ICP", score: 2, won: true },
-        { name: "ENCE", score: 0, won: false },
+        { id: "icp", name: "ICP", score: 2, won: true },
+        { id: "ence", name: "ENCE", score: 0, won: false },
       ],
       games: [],
     });
@@ -69,14 +85,33 @@ describe("parseSeriesSnapshot", () => {
       finished: true,
       hasLiveGame: false,
       teams: [
-        { name: "ICP", score: 2, won: true },
-        { name: "ENCE", score: 0, won: false },
+        { teamId: ICP_ID, name: "ICP", score: 2, won: true },
+        { teamId: ENCE_ID, name: "ENCE", score: 0, won: false },
       ],
     });
   });
 
   it("returns undefined for a team count other than 2", () => {
-    expect(parseSeriesSnapshot(rawSeries({ teams: [{ name: "A", score: 0, won: false }] }))).toBeUndefined();
+    expect(parseSeriesSnapshot(rawSeries({ teams: [{ id: "team-a", name: "A", score: 0, won: false }] }))).toBeUndefined();
+  });
+
+  it("returns undefined for missing or duplicate team identities", () => {
+    const team = { name: "A", score: 0, won: false };
+    expect(parseSeriesSnapshot(rawSeries({ teams: [{ ...team, id: "team-a" }, team] }))).toBeUndefined();
+    expect(parseSeriesSnapshot(rawSeries({ teams: [{ ...team, id: "same" }, { ...team, id: "same" }] }))).toBeUndefined();
+  });
+
+  it("returns undefined when a participant is outside the cached identity map", () => {
+    expect(
+      parseSeriesSnapshot(
+        rawSeries({
+          teams: [
+            { id: "team-a", name: "A", score: 0, won: false },
+            { id: "team-c", name: "C", score: 0, won: false },
+          ],
+        }),
+      ),
+    ).toBeUndefined();
   });
 
   it("returns undefined for a malformed/unrelated payload — never throws", () => {

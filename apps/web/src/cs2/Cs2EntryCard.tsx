@@ -1,10 +1,9 @@
+import type { Arena } from "@arena/contracts";
 import type { ReactNode } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useCs2ArenaEntry } from "./useCs2ArenaEntry.js";
-import { useCs2BackendArena } from "./useCs2BackendArena.js";
 import { Button } from "../ui/Button.js";
 import { Badge } from "../ui/Badge.js";
-import { Loading } from "../ui/Loading.js";
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
@@ -17,16 +16,15 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 const sol = (lamports: number) => Number((lamports / 1_000_000_000).toFixed(3));
 
-export function Cs2EntryCard() {
+export function Cs2EntryCard({ arena }: { arena: Arena }) {
   const { connected } = useWallet();
-  const { arena } = useCs2BackendArena();
   const { status, info, error, hasEntry, entryRefunded, join } = useCs2ArenaEntry({
     ...(arena?.onchainArenaId != null ? { onchainArenaId: arena.onchainArenaId } : {}),
-    ...(arena ? { backendArenaId: arena.id } : {}),
+    backendArenaId: arena.id,
   });
 
   const busy = status === "working";
-  const lobbyOpen = arena?.status === "lobby";
+  const lobbyOpen = arena.status === "lobby";
 
   let action: ReactNode;
   if (!connected) {
@@ -41,8 +39,6 @@ export function Cs2EntryCard() {
     action = <div className="nb-hero__joined">✔ You&apos;re in — wait for kickoff</div>;
   } else if (info?.state === "settled") {
     action = <Badge tone="neutral">Arena settled — see payout</Badge>;
-  } else if (!arena) {
-    action = <Loading label="Loading arena…" />;
   } else if (!lobbyOpen) {
     action = <Badge tone="neutral">Lobby closed — arena in progress</Badge>;
   } else {
@@ -54,16 +50,14 @@ export function Cs2EntryCard() {
   }
 
   return (
-    <>
-      {arena && (
-        <div className="nb-hero__stats">
-          <Stat label="Entry" value={`${sol(arena.entryFeeLamports)} SOL`} />
-          <Stat label="Prize pool" value={`${sol(arena.prizePoolLamports)} SOL`} />
-          <Stat label="Players" value={String(arena.activePlayersCount)} />
-        </div>
-      )}
+    <div className="cs2-entry-card">
+      <div className="nb-hero__stats">
+        <Stat label="Entry" value={`${sol(arena.entryFeeLamports)} SOL`} />
+        <Stat label="Prize pool" value={`${sol(arena.prizePoolLamports)} SOL`} />
+        <Stat label="Players" value={String(arena.activePlayersCount)} />
+      </div>
       {action}
       {error && <Badge tone="eliminated">{error}</Badge>}
-    </>
+    </div>
   );
 }

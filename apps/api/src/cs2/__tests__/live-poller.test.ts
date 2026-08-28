@@ -1,11 +1,29 @@
 import { describe, expect, it, vi } from "vitest";
-import type { IsoDateTime, MatchSignal } from "@arena/contracts";
+import type { Cs2GameSnapshot, IsoDateTime, MatchSignal } from "@arena/contracts";
 import { MatchSignalBus } from "../../ingestion/event-bus.js";
-import { initialCs2TrackerState } from "../round-tracker.js";
-import { Cs2LivePoller, handleCs2LivePoll, type Cs2LivePollerTarget } from "../live-poller.js";
+import { initialCs2TrackerState, type Cs2TrackerState } from "../round-tracker.js";
+import {
+  Cs2LivePoller,
+  handleCs2LivePoll as handleNormalizedCs2LivePoll,
+  type Cs2LivePollerTarget,
+} from "../live-poller.js";
 import type { Cs2SeriesSnapshot } from "../series-snapshot.js";
+import { buildCs2TeamIdentityMap } from "../team-identity.js";
 
 const NOW: IsoDateTime = "2026-08-11T12:00:00.000Z";
+const TEAM_IDENTITIES = buildCs2TeamIdentityMap([
+  { gridTeamId: "grid-a", teamId: "00000000-0000-0000-0000-00000000000a", name: "A" },
+  { gridTeamId: "grid-b", teamId: "00000000-0000-0000-0000-00000000000b", name: "B" },
+]);
+
+function handleCs2LivePoll(
+  target: Cs2LivePollerTarget,
+  raw: unknown,
+  trackerState: Cs2TrackerState,
+  now: IsoDateTime,
+) {
+  return handleNormalizedCs2LivePoll(target, raw, trackerState, now, TEAM_IDENTITIES);
+}
 
 function rawWithGame(teams: unknown[], clock: unknown = { ticking: true, currentSeconds: 90 }) {
   return {
@@ -14,8 +32,8 @@ function rawWithGame(teams: unknown[], clock: unknown = { ticking: true, current
         format: "best-of-3",
         finished: false,
         teams: [
-          { name: "A", score: 0, won: false },
-          { name: "B", score: 0, won: false },
+          { id: "grid-a", name: "A", score: 0, won: false },
+          { id: "grid-b", name: "B", score: 0, won: false },
         ],
         games: [{ clock, teams }],
       },
@@ -25,8 +43,8 @@ function rawWithGame(teams: unknown[], clock: unknown = { ticking: true, current
 
 function liveTeams(a: number, b: number) {
   return [
-    { name: "A", score: a, deaths: 0, weaponKills: [], players: [] },
-    { name: "B", score: b, deaths: 0, weaponKills: [], players: [] },
+    { id: "grid-a", name: "A", score: a, deaths: 0, weaponKills: [], players: [] },
+    { id: "grid-b", name: "B", score: b, deaths: 0, weaponKills: [], players: [] },
   ];
 }
 
@@ -42,6 +60,10 @@ class FakeTarget implements Cs2LivePollerTarget {
   currentBus(): MatchSignalBus | undefined {
     this.currentBusCallOrder.push("currentBus");
     return this.useB ? this.busB : this.busA;
+  }
+
+  async updateLiveScore(_snapshot: Cs2GameSnapshot): Promise<void> {
+    this.currentBusCallOrder.push("updateLiveScore");
   }
 
   async poll(snapshot: Cs2SeriesSnapshot | undefined, now: IsoDateTime): Promise<void> {
@@ -64,7 +86,7 @@ describe("handleCs2LivePoll — ordering", () => {
     const raw = rawWithGame(liveTeams(0, 0));
     await handleCs2LivePoll(target, raw, initialCs2TrackerState(), NOW);
 
-    expect(target.currentBusCallOrder).toEqual(["currentBus", "poll"]);
+    expect(target.currentBusCallOrder).toEqual(["currentBus", "updateLiveScore", "poll"]);
     expect(receivedOnA.some((s) => s.kind === "cs2_snapshot")).toBe(true);
     expect(receivedOnB).toEqual([]);
   });
@@ -103,8 +125,8 @@ describe("handleCs2LivePoll — ordering", () => {
           format: "best-of-3",
           finished: false,
           teams: [
-            { name: "A", score: 0, won: false },
-            { name: "B", score: 0, won: false },
+            { id: "grid-a", name: "A", score: 0, won: false },
+            { id: "grid-b", name: "B", score: 0, won: false },
           ],
           // Omitted games are malformed, not explicit evidence that the map ended.
         },
@@ -143,6 +165,7 @@ describe("handleCs2LivePoll — ordering", () => {
   it("publishes nothing when no arena is currently open (currentBus() returns undefined)", async () => {
     const target: Cs2LivePollerTarget = {
       currentBus: () => undefined,
+      updateLiveScore: vi.fn().mockResolvedValue(undefined),
       poll: vi.fn().mockResolvedValue(undefined),
     };
     const raw = rawWithGame(liveTeams(0, 0));
@@ -174,7 +197,7 @@ describe("Cs2LivePoller — error backoff", () => {
         return { data: rawWithGame(liveTeams(0, 0)), status: 200 };
       });
 
-      const poller = new Cs2LivePoller({ target, fetchSeriesState, pollIntervalMs: 10_000 });
+      const poller = new Cs2LivePoller({ target, fetchSeriesState, pollIntervalMs: 10_000, teamIdentities: TEAM_IDENTITIES });
       poller.start();
 
       await vi.advanceTimersByTimeAsync(1_000);
@@ -192,7 +215,7 @@ describe("Cs2LivePoller — error backoff", () => {
   it("shutdown() stops the loop and awaits the in-flight iteration", async () => {
     const target = new FakeTarget();
     const fetchSeriesState = vi.fn().mockResolvedValue({ data: rawWithGame(liveTeams(0, 0)), status: 200 });
-    const poller = new Cs2LivePoller({ target, fetchSeriesState, pollIntervalMs: 100_000 });
+    const poller = new Cs2LivePoller({ target, fetchSeriesState, pollIntervalMs: 100_000, teamIdentities: TEAM_IDENTITIES });
 
     poller.start();
     await Promise.resolve();

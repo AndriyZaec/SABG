@@ -4,8 +4,26 @@ import path from "node:path";
 import type { Cs2MatchSignal, IsoDateTime } from "@arena/contracts";
 import { parseSnapshot } from "./snapshot.js";
 import { initialCs2TrackerState, trackCs2Poll, type Cs2TrackerState } from "./round-tracker.js";
+import { buildCs2TeamIdentityMap } from "./team-identity.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+export const defaultCs2FixtureTeamIdentities = buildCs2TeamIdentityMap([
+  {
+    gridTeamId: "fixture-team-1",
+    teamId: "00000000-0000-0000-0000-0000000000a1",
+    name: "CS2-1",
+  },
+  {
+    gridTeamId: "fixture-team-2",
+    teamId: "00000000-0000-0000-0000-0000000000b2",
+    name: "CS2-2",
+  },
+]);
+
+export function parseFixtureSnapshot(raw: unknown) {
+  return parseSnapshot(raw, defaultCs2FixtureTeamIdentities);
+}
 
 export interface Cs2FixtureEntry {
   receivedAt: IsoDateTime;
@@ -29,7 +47,7 @@ export function replayCs2Fixture(
   const signals: Cs2MatchSignal[] = [];
 
   for (const entry of entries) {
-    const snapshot = parseSnapshot(entry.raw);
+    const snapshot = parseFixtureSnapshot(entry.raw);
     const result = trackCs2Poll(state, snapshot, entry.receivedAt);
     state = result.state;
     signals.push(...result.signals);

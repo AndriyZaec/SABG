@@ -65,9 +65,8 @@ read_staged_caddy_image() {
   return 1
 }
 
-inspect_deploy_arena() {
-  inspected_fixture=$1
-  compose up -d --wait --wait-timeout 60 postgres \
+inspect_active_cs2_arenas() {
+  compose up -d --wait --wait-timeout 60 postgres >/dev/null \
     || fail "could not start PostgreSQL to verify current arena status"
   # Variables in the command string expand inside the container's shell.
   # shellcheck disable=SC2016
@@ -75,33 +74,18 @@ inspect_deploy_arena() {
     'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At --command="SELECT to_regclass(\$\$public.arena\$\$)"') \
     || fail "could not verify current arena status"
   if [ -n "$arena_table" ]; then
-    # Variables in the command string expand inside the container's shell.
-    # shellcheck disable=SC2016
-    compose exec -T -e "INSPECTED_FIXTURE=$inspected_fixture" postgres sh -ec \
-      'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At --command="SELECT concat(count(*), '\''|'\'', count(*) FILTER (WHERE a.active_players_count <> 0 OR a.onchain_arena_id IS NOT NULL), '\''|'\'', count(*) FILTER (WHERE a.status <> '\''lobby'\'')) FROM arena a JOIN \"match\" m ON m.id = a.match_id WHERE m.txodds_fixture_id = $INSPECTED_FIXTURE"' \
+    compose exec -T postgres sh -ec \
+      'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At --command="SELECT count(*) FROM arena a JOIN \"match\" m ON m.id = a.match_id WHERE m.discipline = '\''cs2'\'' AND a.status NOT IN ('\''finished'\'', '\''cancelled'\'')"' \
       || fail "could not verify current arena status"
   fi
 }
 
-assert_empty_offchain_arena() {
-  arena_state=$1
-  arena_count=0
-  unsafe_arenas=0
-  non_lobby_arenas=0
-  [ -n "$arena_state" ] || return 0
-  arena_count=${arena_state%%|*}
-  arena_details=${arena_state#*|}
-  unsafe_arenas=${arena_details%%|*}
-  non_lobby_arenas=${arena_details#*|}
-  case "$arena_count:$unsafe_arenas:$non_lobby_arenas" in
-    *[!0-9:]*) fail "arena safety query returned an invalid result" ;;
+assert_no_active_cs2_arenas() {
+  active_arenas=${1:-0}
+  case "$active_arenas" in
+    *[!0-9]*|'') fail "CS2 arena safety query returned an invalid result" ;;
   esac
-  [ "$arena_count" = 0 ] && return 0
-  [ "$unsafe_arenas" = 0 ] \
-    || fail "$unsafe_arenas arena(s) have active players or on-chain state; deploy refused"
-  if [ "$non_lobby_arenas" != 0 ] && [ "$game_source" != replay ]; then
-    fail "$non_lobby_arenas live arena(s) are outside the lobby; deploy refused"
-  fi
+  [ "$active_arenas" = 0 ] || fail "$active_arenas unfinished CS2 arena(s) exist; deploy refused"
 }
 
 staging_dir="$deploy_path/.deploy-$revision"
@@ -110,8 +94,10 @@ mkdir -p "$staging_dir"
 succeeded=false
 rollback_needed=false
 migration_may_have_started=false
-game_source=
-live_fixture_id=
+runtime_mode=
+runtime_mode_configured=false
+grid_series_id=
+scheduled_start_time=
 had_compose=false
 had_caddyfile=false
 had_init_script=false
@@ -183,52 +169,39 @@ done
 
 while IFS='=' read -r key value; do
   case "$key" in
-    GAME_SOURCE) game_source=$value ;;
-    TXODDS_LIVE_FIXTURE_ID) live_fixture_id=$value ;;
+    CS2_RUNTIME_MODE) runtime_mode=$value; runtime_mode_configured=true ;;
+    GRID_SERIES_ID) grid_series_id=$value ;;
+    CS2_SCHEDULED_START_TIME) scheduled_start_time=$value ;;
   esac
 done < "$deploy_path/deploy/app.env"
-case "$game_source" in
-  replay) ;;
+[ "$runtime_mode_configured" = true ] || runtime_mode=catalog
+case "$runtime_mode" in
+  catalog) ;;
   live)
-    case "$live_fixture_id" in
-      ''|*[!0-9]*) fail "TXODDS_LIVE_FIXTURE_ID must be set to a positive integer for live deploys" ;;
-    esac
-    [ "$live_fixture_id" -gt 0 ] || fail "TXODDS_LIVE_FIXTURE_ID must be positive"
+    [ -n "$grid_series_id" ] || fail "GRID_SERIES_ID is required for live deploys"
+    [ -n "$scheduled_start_time" ] || fail "CS2_SCHEDULED_START_TIME is required for live deploys"
     export COMPOSE_PROFILES=live
     ;;
-  *) fail "GAME_SOURCE must be replay or live" ;;
+  *) fail "CS2_RUNTIME_MODE must be catalog or live" ;;
 esac
 
 current_image=
 current_revision=
 deployed_revision=
-fixture_id=18241006
 if [ -f "$deploy_path/.env" ]; then
   while IFS='=' read -r key value; do
     case "$key" in
       SABG_IMAGE) current_image=$value ;;
       SABG_VCS_REF) current_revision=$value ;;
-      GATEWAY_REPLAY_FIXTURE_ID) fixture_id=$value ;;
     esac
   done < "$deploy_path/.env"
 fi
 if [ -f "$deploy_path/.deployed-revision" ]; then
   IFS= read -r deployed_revision < "$deploy_path/.deployed-revision"
 fi
-case "$fixture_id" in
-  18179764|18241006) ;;
-  *) fail "stored fixture is not allowlisted" ;;
-esac
-if [ "$game_source" = live ]; then
-  inspected_fixture_id=$live_fixture_id
-else
-  inspected_fixture_id=$fixture_id
-fi
-
-# Validate the staged proxy configuration before any runtime mutation, then reject games that have
-# players or on-chain state. An empty replay can be reset safely after its runtime is stopped.
+# Validate the staged proxy configuration before any runtime mutation, then reject deploys while a
+# CS2 Arena is unfinished. A live runtime must remain active through settlement or explicit refund.
 SABG_IMAGE="$image" SABG_PLATFORM=linux/amd64 SABG_VCS_REF="$revision" \
-  GATEWAY_REPLAY_FIXTURE_ID="$fixture_id" \
   SABG_APP_ENV_FILE="$deploy_path/deploy/app.env" \
   SABG_POSTGRES_ENV_FILE="$deploy_path/deploy/postgres.env" \
   SABG_MONGO_ENV_FILE="$deploy_path/deploy/mongo.env" \
@@ -251,8 +224,8 @@ docker run --rm --network none --read-only --tmpfs /tmp --tmpfs /data --tmpfs /c
   --mount "type=bind,src=$staging_dir/deploy/Caddyfile,dst=/tmp/sabg-caddyfile,readonly" \
   "$caddy_image" caddy validate --config /tmp/sabg-caddyfile --adapter caddyfile
 if [ -f "$deploy_path/compose.yml" ]; then
-  arena_state=$(inspect_deploy_arena "$inspected_fixture_id")
-  assert_empty_offchain_arena "$arena_state"
+  active_cs2_arenas=$(inspect_active_cs2_arenas)
+  assert_no_active_cs2_arenas "$active_cs2_arenas"
 fi
 
 docker pull "$image"
@@ -286,17 +259,8 @@ fi
 rollback_needed=true
 if [ "$had_compose" = true ]; then
   compose stop --timeout 60 app
-  arena_state=$(inspect_deploy_arena "$inspected_fixture_id")
-  assert_empty_offchain_arena "$arena_state"
-  if [ "$non_lobby_arenas" != 0 ]; then
-    SABG_IMAGE="$image" docker compose --project-directory "$deploy_path" \
-      -f "$deploy_path/compose.yml" run --rm --no-deps --interactive=false --no-TTY app \
-      node dist/db/seeds/reset-replay.js "$fixture_id" --force \
-      --require-empty-offchain --confirm-database=postgres:5432/arena \
-      || fail "guarded replay reset refused during deploy"
-    printf 'Reset %s empty replay arena(s) for fixture %s before deploy.\n' \
-      "$non_lobby_arenas" "$fixture_id"
-  fi
+  active_cs2_arenas=$(inspect_active_cs2_arenas)
+  assert_no_active_cs2_arenas "$active_cs2_arenas"
 fi
 install -m 0644 "$staging_dir/compose.yml" "$deploy_path/compose.yml"
 install -m 0644 "$staging_dir/deploy/Caddyfile" "$deploy_path/deploy/Caddyfile"
@@ -309,7 +273,6 @@ umask 077
   printf 'SABG_IMAGE=%s\n' "$image"
   printf 'SABG_PLATFORM=linux/amd64\n'
   printf 'SABG_VCS_REF=%s\n' "$revision"
-  printf 'GATEWAY_REPLAY_FIXTURE_ID=%s\n' "$fixture_id"
 } > "$deploy_path/.env.tmp"
 mv "$deploy_path/.env.tmp" "$deploy_path/.env"
 
@@ -321,7 +284,7 @@ if [ -n "$current_image" ] && [ "$current_image" != "$image" ] \
   } > "$deploy_path/.previous-image.tmp"
   mv "$deploy_path/.previous-image.tmp" "$deploy_path/.previous-image"
 fi
-if [ "$game_source" = live ]; then
+if [ "$runtime_mode" = live ]; then
   compose up -d --wait --wait-timeout 120 mongo
   compose up --abort-on-container-exit --exit-code-from mongo-init mongo-init
 fi
@@ -331,7 +294,7 @@ compose exec -T app node -e \
   "fetch('http://127.0.0.1:4000/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))" \
   || fail "application health check failed"
 compose up -d --force-recreate --wait --wait-timeout 60 caddy
-if [ "$game_source" = replay ]; then
+if [ "$runtime_mode" = catalog ]; then
   compose_with_live_profile stop mongo mongo-init >/dev/null 2>&1 || true
 fi
 if [ "$had_compose" = true ]; then

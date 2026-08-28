@@ -4,15 +4,15 @@ import { initialCs2TrackerState, trackCs2Poll } from "../round-tracker.js";
 import { defaultCs2FixturePath, loadCs2Fixture, replayCs2Fixture } from "../fixture.js";
 
 function snapshot(
-  homeScore: number,
-  awayScore: number,
+  firstScore: number,
+  secondScore: number,
   clock: Cs2GameSnapshot["clock"] = { ticking: false, currentSeconds: 18 },
   overrides: Partial<Cs2GameSnapshot["teams"][0]> = {},
 ): Cs2GameSnapshot {
   return {
     teams: [
-      { name: "Home", score: homeScore, deaths: 0, weaponKills: [], players: [], ...overrides },
-      { name: "Away", score: awayScore, deaths: 0, weaponKills: [], players: [] },
+      { teamId: "team-a", name: "Team A", score: firstScore, deaths: 0, weaponKills: [], players: [], ...overrides },
+      { teamId: "team-b", name: "Team B", score: secondScore, deaths: 0, weaponKills: [], players: [] },
     ],
     clock,
   };
@@ -56,7 +56,7 @@ describe("trackCs2Poll — synthetic sequences", () => {
     const { state, signals } = trackCs2Poll(lockedR1.state, scoreChanged, "t2");
     expect(signals).toEqual([
       { kind: "cs2_snapshot", snapshot: scoreChanged, timestamp: "t2" },
-      { kind: "cs2_round_end", roundNumber: 1, winner: "home", snapshot: scoreChanged, timestamp: "t2" },
+      { kind: "cs2_round_end", roundNumber: 1, snapshot: scoreChanged, timestamp: "t2" },
     ]);
     expect(state.roundInProgress).toBe(2);
     expect(state.lockedRound).toBe(1);
@@ -67,14 +67,6 @@ describe("trackCs2Poll — synthetic sequences", () => {
       { kind: "cs2_snapshot", snapshot: reset, timestamp: "t3" },
       { kind: "cs2_round_lock", roundNumber: 2, timestamp: "t3" },
     ]);
-  });
-
-  it("attributes the win to away when away's score advances", () => {
-    const warmup = trackCs2Poll(initialCs2TrackerState(), snapshot(0, 0, { ticking: false, currentSeconds: 18 }), "t0");
-    const lockedR1 = trackCs2Poll(warmup.state, snapshot(0, 0, { ticking: true, currentSeconds: 105 }), "t1");
-    const { signals } = trackCs2Poll(lockedR1.state, snapshot(0, 1, { ticking: true, currentSeconds: 20 }), "t2");
-    const roundEnd = signals.find((s) => s.kind === "cs2_round_end");
-    expect(roundEnd).toMatchObject({ winner: "away" });
   });
 
   it("does not invent a round result when a polling gap skips multiple score changes", () => {
@@ -101,6 +93,42 @@ describe("trackCs2Poll — synthetic sequences", () => {
 
     const locked = trackCs2Poll(ended.state, snapshot(1, 0, { ticking: true, currentSeconds: 106 }), "t2");
     expect(locked.signals.some((s) => s.kind === "cs2_round_lock" && s.roundNumber === 2)).toBe(true);
+  });
+
+  it("tracks the same teams when GRID changes their array order", () => {
+    const warmup = trackCs2Poll(initialCs2TrackerState(), snapshot(0, 0, { ticking: false, currentSeconds: 18 }), "t0");
+    const locked = trackCs2Poll(warmup.state, snapshot(0, 0, { ticking: true, currentSeconds: 105 }), "t1");
+    const reordered: Cs2GameSnapshot = {
+      teams: [
+        { teamId: "team-b", name: "Team B", score: 0, deaths: 0, weaponKills: [], players: [] },
+        { teamId: "team-a", name: "Team A", score: 1, deaths: 0, weaponKills: [], players: [] },
+      ],
+      clock: { ticking: true, currentSeconds: 20 },
+    };
+
+    const result = trackCs2Poll(locked.state, reordered, "t2");
+
+    expect(result.signals).toContainEqual({
+      kind: "cs2_round_end",
+      roundNumber: 1,
+      snapshot: reordered,
+      timestamp: "t2",
+    });
+  });
+
+  it("resets its baseline when a snapshot contains different team identities", () => {
+    const opened = trackCs2Poll(initialCs2TrackerState(), snapshot(0, 0), "t0");
+    const changed = snapshot(1, 0, { ticking: true, currentSeconds: 20 }, { teamId: "team-c", name: "Team C" });
+
+    const result = trackCs2Poll(opened.state, changed, "t1");
+
+    expect(result.signals).toEqual([{ kind: "cs2_snapshot", snapshot: changed, timestamp: "t1" }]);
+    expect(result.state).toEqual({
+      lastSnapshot: changed,
+      roundInProgress: 2,
+      lockSnapshot: undefined,
+      lockedRound: undefined,
+    });
   });
 
   it("emits cs2_match_end and resets state once the live game disappears", () => {
@@ -140,10 +168,4 @@ describe("trackCs2Poll — recorded fixture (cs2_series_28, one Bo3 map)", () =>
     );
   });
 
-  it("round 1's winner is the home side (observed score 0-0 -> 1-0)", () => {
-    const entries = loadCs2Fixture(defaultCs2FixturePath());
-    const { signals } = replayCs2Fixture(entries);
-    const round1End = signals.find((s) => s.kind === "cs2_round_end" && s.roundNumber === 1);
-    expect(round1End).toMatchObject({ winner: "home" });
-  });
 });

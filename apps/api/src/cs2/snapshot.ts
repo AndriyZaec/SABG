@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Cs2Clock, Cs2GameSnapshot, Cs2TeamStats } from "@arena/contracts";
+import type { Cs2TeamIdentityMap } from "./team-identity.js";
 
 const WeaponKillSchema = z.object({
   weaponName: z.string(),
@@ -12,6 +13,7 @@ const PlayerSchema = z.object({
 });
 
 const GameTeamSchema = z.object({
+  id: z.string().min(1),
   name: z.string(),
   score: z.number(),
   deaths: z.number(),
@@ -54,7 +56,7 @@ export type Cs2SnapshotObservation =
   | { kind: "invalid" };
 
 /** Only an explicit empty game list is evidence that a live map ended. */
-export function observeSnapshot(raw: unknown): Cs2SnapshotObservation {
+export function observeSnapshot(raw: unknown, identities: Cs2TeamIdentityMap): Cs2SnapshotObservation {
   const parsed = RawResponseSchema.safeParse(raw);
   if (!parsed.success) return { kind: "invalid" };
 
@@ -70,20 +72,34 @@ export function observeSnapshot(raw: unknown): Cs2SnapshotObservation {
 
   const [a, b] = game.teams;
   if (a === undefined || b === undefined) return { kind: "invalid" };
+  if (a.id === b.id) return { kind: "invalid" };
 
-  const toTeamStats = (t: (typeof game.teams)[number]): Cs2TeamStats => ({
-    name: t.name,
+  const firstIdentity = identities.get(a.id);
+  const secondIdentity = identities.get(b.id);
+  if (firstIdentity === undefined || secondIdentity === undefined || firstIdentity.teamId === secondIdentity.teamId) {
+    return { kind: "invalid" };
+  }
+
+  const toTeamStats = (
+    t: (typeof game.teams)[number],
+    identity: typeof firstIdentity,
+  ): Cs2TeamStats => ({
+    teamId: identity.teamId,
+    name: identity.name,
     score: t.score,
     deaths: t.deaths,
     weaponKills: t.weaponKills,
     players: t.players,
   });
 
-  return { kind: "live", snapshot: { teams: [toTeamStats(a), toTeamStats(b)], clock: game.clock } };
+  return {
+    kind: "live",
+    snapshot: { teams: [toTeamStats(a, firstIdentity), toTeamStats(b, secondIdentity)], clock: game.clock },
+  };
 }
 
-export function parseSnapshot(raw: unknown): Cs2GameSnapshot | undefined {
-  const observation = observeSnapshot(raw);
+export function parseSnapshot(raw: unknown, identities: Cs2TeamIdentityMap): Cs2GameSnapshot | undefined {
+  const observation = observeSnapshot(raw, identities);
   return observation.kind === "live" ? observation.snapshot : undefined;
 }
 

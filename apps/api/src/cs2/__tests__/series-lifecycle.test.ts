@@ -16,8 +16,8 @@ function snapshot(opts: { format?: number; teams?: [number, number]; hasLiveGame
     finished: opts.finished ?? false,
     hasLiveGame: opts.hasLiveGame ?? false,
     teams: [
-      { name: "A", score: a, won: false },
-      { name: "B", score: b, won: false },
+      { teamId: "team-a", name: "A", score: a, won: false },
+      { teamId: "team-b", name: "B", score: b, won: false },
     ],
   };
 }

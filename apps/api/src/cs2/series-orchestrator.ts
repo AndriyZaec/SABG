@@ -18,7 +18,7 @@ import {
   refundArenaEntryOnchain,
 } from "../onchain/index.js";
 import { payoutService } from "../payout/index.js";
-import type { Arena, IsoDateTime, Match, PredictionRound, Series, Uuid } from "@arena/contracts";
+import type { Arena, Cs2GameSnapshot, Cs2Match, IsoDateTime, PredictionRound, Series, Uuid } from "@arena/contracts";
 import { Cs2ArenaRuntime, type Cs2ArenaPersistence } from "./arena-runtime.js";
 import {
   initialCs2SeriesLifecycleState,
@@ -67,15 +67,15 @@ export class Cs2SeriesOrchestrator {
   }
 
   private async restore(): Promise<void> {
-    await matchRepository.ensureSeriesMatchIndexes(this.series.id);
-    const existingMatches = await matchRepository.listBySeriesId(this.series.id);
-    if (existingMatches.length === 0) return;
-    if (existingMatches.some((match) => match.seriesMatchIndex === undefined)) {
-      throw new Error(`Series ${this.series.id} has CS2 matches without a series match index`);
+    const storedMatches = await matchRepository.listBySeriesId(this.series.id);
+    if (storedMatches.some((match) => match.discipline !== "cs2")) {
+      throw new Error(`Series ${this.series.id} contains a non-CS2 match`);
     }
+    const existingMatches = storedMatches.filter((match): match is Cs2Match => match.discipline === "cs2");
+    if (existingMatches.length === 0) return;
 
     const latestMatch = existingMatches[existingMatches.length - 1]!;
-    const matchIndex = latestMatch.seriesMatchIndex!;
+    const matchIndex = latestMatch.seriesMatchIndex;
     if (this.series.status !== "active") {
       this.lifecycleState = { ...this.lifecycleState, openedThrough: matchIndex };
       const terminalArena = await arenaRepository.findByMatchId(latestMatch.id);
@@ -134,6 +134,13 @@ export class Cs2SeriesOrchestrator {
     return this.arenasByMatchIndex.get(Math.max(...indices))?.bus;
   }
 
+  async updateLiveScore(snapshot: Cs2GameSnapshot): Promise<void> {
+    const indices = [...this.arenasByMatchIndex.keys()];
+    const opened = indices.length === 0 ? undefined : this.arenasByMatchIndex.get(Math.max(...indices));
+    if (opened === undefined) return;
+    await matchRepository.updateCs2TeamScores(opened.matchId, snapshot.teams);
+  }
+
   async poll(snapshot: Cs2SeriesSnapshot | undefined, now: IsoDateTime): Promise<void> {
     if (this.pendingCancellation !== undefined) {
       await this.cancelArena(this.pendingCancellation.matchIndex, this.pendingCancellation.reason);
@@ -158,6 +165,7 @@ export class Cs2SeriesOrchestrator {
         await this.matchLiveDetected(action.matchIndex, now);
         return;
       case "match_ended":
+        await this.markMatchFinished(action.matchIndex);
         return;
       case "series_decided":
         await seriesRepository.setStatus(this.series.id, "decided");
@@ -169,10 +177,9 @@ export class Cs2SeriesOrchestrator {
   }
 
   private async openArena(matchIndex: number, snapshot: Cs2SeriesSnapshot | undefined, now: IsoDateTime): Promise<void> {
-    const teamNames = snapshot ? { home: snapshot.teams[0].name, away: snapshot.teams[1].name } : undefined;
+    if (snapshot === undefined) throw new Error(`Cannot open CS2 Arena ${matchIndex} without team identities`);
     const match = await matchRepository.upsertForSeriesMap(this.series.id, matchIndex, {
-      homeTeam: teamNames?.home ?? "Home",
-      awayTeam: teamNames?.away ?? "Away",
+      teams: snapshot.teams,
       startTime: new Date(now),
     });
     const arena = await arenaRepository.upsertForMatch(match.id, {
@@ -183,11 +190,11 @@ export class Cs2SeriesOrchestrator {
     const opened = await this.createRuntime(match, arena, [], false);
     this.arenasByMatchIndex.set(matchIndex, opened);
     this.options.onArenaOpened?.(arena.id, opened.runtime);
-    opened.runtime.openRoundOne(now);
+    opened.runtime.openRoundOne(now, snapshot.teams);
   }
 
   private async createRuntime(
-    match: Match,
+    match: Cs2Match,
     arena: Arena,
     initialRounds: PredictionRound[],
     restoring: boolean,
@@ -229,9 +236,12 @@ export class Cs2SeriesOrchestrator {
       arenaPlayerStore,
       roster,
       persistence,
+      teams: match.teamScores.map(({ teamId, name }) => ({ teamId, name })) as [
+        { teamId: Uuid; name: string },
+        { teamId: Uuid; name: string },
+      ],
       initialRounds,
       ...(this.options.broadcaster !== undefined ? { broadcaster: this.options.broadcaster } : {}),
-      teamNames: { home: match.homeTeam, away: match.awayTeam },
     });
 
     return { matchId: match.id, arenaId: arena.id, runtime, bus };
@@ -241,8 +251,14 @@ export class Cs2SeriesOrchestrator {
     const opened = this.arenasByMatchIndex.get(matchIndex);
     if (opened === undefined) return;
     opened.runtime.onMatchLiveDetected(now);
+    await matchRepository.setStatus(opened.matchId, "live");
     await closeEntrySubmissions(opened.arenaId);
     await arenaRepository.setStatus(opened.arenaId, "live");
+  }
+
+  private async markMatchFinished(matchIndex: number): Promise<void> {
+    const opened = this.arenasByMatchIndex.get(matchIndex);
+    if (opened !== undefined) await matchRepository.setStatus(opened.matchId, "finished");
   }
 
   private async cancelArena(matchIndex: number, reason: "no_show" | "series_decided"): Promise<void> {
