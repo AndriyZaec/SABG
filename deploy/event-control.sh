@@ -244,7 +244,7 @@ read_menu_key() {
   local key rest=""
   IFS= read -rsn1 key || return 1
   if [[ "$key" == $'\e' ]]; then
-    IFS= read -rsn2 -t 0.1 rest || true
+    IFS= read -rsn2 -t 1 rest || true
     case "$rest" in
       '[A') printf 'up' ;;
       '[B') printf 'down' ;;
