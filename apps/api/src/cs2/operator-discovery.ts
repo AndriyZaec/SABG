@@ -24,6 +24,17 @@ export function selectOperatorSeries(series: readonly GridCatalogSeries[], gridS
   return selected;
 }
 
+export function selectOperatorTournament(
+  series: readonly GridCatalogSeries[],
+  gridTournamentId: string,
+): GridCatalogSeries[] {
+  const selected = series.filter((item) => item.competition.gridTournamentId === gridTournamentId);
+  if (selected.length === 0) {
+    throw new Error(`GRID tournament ${gridTournamentId} was not found in the operator discovery window`);
+  }
+  return selected;
+}
+
 export function buildDiscoveryWindow(now: Date, lookbackHours: number, lookaheadDays: number): GridCatalogWindow {
   return {
     from: new Date(now.getTime() - lookbackHours * 60 * 60 * 1_000),
