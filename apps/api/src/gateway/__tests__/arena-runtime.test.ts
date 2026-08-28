@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Answer, ArenaPlayerStatus, ServerMessage, Uuid } from "@arena/contracts";
 import { MatchSignalBus } from "../../ingestion/event-bus.js";
 import { replayFixture, loadFixture, defaultFixturePath, FIXTURE_MATCH_ID } from "../../ingestion/replay.js";
@@ -10,6 +10,8 @@ const ARENA_ID = "00000000-0000-0000-0000-0000000000aa";
 const PLAYER_ANSWERS_YES: Uuid = "00000000-0000-0000-0000-000000000001";
 const PLAYER_ANSWERS_NO: Uuid = "00000000-0000-0000-0000-000000000002";
 const PLAYER_NEVER_ANSWERS: Uuid = "00000000-0000-0000-0000-000000000003";
+
+afterEach(() => vi.restoreAllMocks());
 
 function createRecordingBroadcaster(scriptAnswers: (roundId: Uuid) => void): {
   broadcaster: GatewayBroadcaster;
@@ -183,6 +185,7 @@ describe("ArenaRuntime broadcast integration", () => {
   });
 
   it("pendingPredictionsFor: shows a locked-but-unsettled round the player answered, drops it once settled, and never includes a round they didn't answer", () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
     const bus = new MatchSignalBus();
     const { predictionStore, arenaPlayerStore } = createInMemoryRuntimeStores(ARENA_ID, [
       PLAYER_ANSWERS_YES,
