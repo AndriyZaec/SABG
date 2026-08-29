@@ -131,4 +131,44 @@ describe("GridCentralDataClient", () => {
     });
     expect(request.mock.calls[1]?.[1]).not.toHaveProperty("filter.tournamentIds");
   });
+
+  it("limits operator browsing to one page even when GRID has another cursor", async () => {
+    const request = vi.fn()
+      .mockResolvedValueOnce(response({ data: { titles: [
+        { id: "title-cs2", name: "Counter-Strike 2", nameShortened: "CS2" },
+      ] } }))
+      .mockResolvedValueOnce(response({ data: { allSeries: {
+        edges: [{ node: seriesNode() }],
+        pageInfo: { endCursor: "cursor-1", hasNextPage: true },
+      } } }));
+    const client = new GridCentralDataClient({ request } as GridGraphqlRequester);
+
+    await expect(
+      client.discoverSeriesPage({ from: new Date("2026-09-01"), to: new Date("2026-10-01") }),
+    ).resolves.toMatchObject([{ gridSeriesId: "series-1" }]);
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(request.mock.calls[1]?.[1]).toMatchObject({ after: null, first: 50 });
+  });
+
+  it("fetches one Series directly without title discovery or pagination", async () => {
+    const request = vi.fn().mockResolvedValueOnce(response({ data: { series: seriesNode() } }));
+    const client = new GridCentralDataClient({ request } as GridGraphqlRequester);
+
+    await expect(client.fetchSeriesById("series-1")).resolves.toMatchObject({
+      gridSeriesId: "series-1",
+      competition: { gridTournamentId: "tournament-1" },
+    });
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request.mock.calls[0]?.[1]).toEqual({ id: "series-1" });
+  });
+
+  it("surfaces GraphQL rate limits instead of reporting malformed data", async () => {
+    const request = vi.fn().mockResolvedValueOnce(response({
+      data: null,
+      errors: [{ message: "You have exceeded your rate limit, please try again later" }],
+    }));
+    const client = new GridCentralDataClient({ request } as GridGraphqlRequester);
+
+    await expect(client.fetchSeriesById("series-1")).rejects.toThrow("exceeded your rate limit");
+  });
 });

@@ -40,11 +40,27 @@ const SERIES_QUERY = `
   }
 `;
 
+const SERIES_BY_ID_QUERY = `
+  query Cs2SeriesById($id: ID!) {
+    series(id: $id) {
+      id
+      format { name nameShortened }
+      private
+      productServiceLevels { productName serviceLevel }
+      startTimeScheduled
+      teams {
+        baseInfo { id logoUrl name nameShortened }
+      }
+      tournament { id logoUrl name nameShortened }
+    }
+  }
+`;
+
 const GraphqlErrorSchema = z.object({ message: z.string() });
 const TitlesResponseSchema = z.object({
   data: z.object({
     titles: z.array(z.object({ id: z.string().min(1), name: z.string(), nameShortened: z.string() })),
-  }).optional(),
+  }).nullable().optional(),
   errors: z.array(GraphqlErrorSchema).optional(),
 });
 const SeriesNodeSchema = z.object({
@@ -77,7 +93,11 @@ const SeriesPageResponseSchema = z.object({
       edges: z.array(z.object({ node: SeriesNodeSchema })),
       pageInfo: z.object({ endCursor: z.string().nullable(), hasNextPage: z.boolean() }),
     }),
-  }).optional(),
+  }).nullable().optional(),
+  errors: z.array(GraphqlErrorSchema).optional(),
+});
+const SeriesByIdResponseSchema = z.object({
+  data: z.object({ series: SeriesNodeSchema.nullable() }).nullable().optional(),
   errors: z.array(GraphqlErrorSchema).optional(),
 });
 
@@ -116,7 +136,9 @@ function graphqlData<T extends { data?: unknown; errors?: { message: string }[] 
   if (parsed.errors?.length) {
     throw new UpstreamApiError(`GRID Central Data ${operation} failed: ${parsed.errors.map((error) => error.message).join("; ")}`);
   }
-  if (parsed.data === undefined) throw new UpstreamApiError(`GRID Central Data ${operation} returned no data`);
+  if (parsed.data === undefined || parsed.data === null) {
+    throw new UpstreamApiError(`GRID Central Data ${operation} returned no data`);
+  }
   return parsed.data as NonNullable<T["data"]>;
 }
 
@@ -234,6 +256,54 @@ export class GridCentralDataClient {
   async discoverSeries(window: GridCatalogWindow, signal?: AbortSignal): Promise<GridCatalogSeries[]> {
     validateCatalogWindow(window);
     return this.fetchMatchingSeries(window, undefined, signal);
+  }
+
+  async discoverSeriesPage(
+    window: GridCatalogWindow,
+    first = 50,
+    signal?: AbortSignal,
+  ): Promise<GridCatalogSeries[]> {
+    validateCatalogWindow(window);
+    if (!Number.isInteger(first) || first < 1 || first > 50) throw new Error("GRID discovery page size must be 1-50");
+    const titleId = await this.resolveCs2TitleId(signal);
+    const response = await this.graphql.request(
+      SERIES_QUERY,
+      {
+        after: null,
+        first,
+        filter: {
+          titleId,
+          startTimeScheduled: { gte: window.from.toISOString(), lte: window.to.toISOString() },
+          types: ["ESPORTS"],
+          workflowStatuses: ["PUBLISHED"],
+        },
+      },
+      signal,
+      { operation: "allSeries", after: null },
+    );
+    const parsed = SeriesPageResponseSchema.safeParse(response.data);
+    if (!parsed.success) {
+      throw new UpstreamApiError("GRID Central Data allSeries response is malformed", response.status, parsed.error);
+    }
+    return graphqlData(parsed.data, "allSeries").allSeries.edges
+      .map(({ node }) => normalizeSeries(node))
+      .filter((series): series is GridCatalogSeries => series !== undefined);
+  }
+
+  async fetchSeriesById(gridSeriesId: string, signal?: AbortSignal): Promise<GridCatalogSeries | undefined> {
+    if (gridSeriesId.trim() === "") throw new Error("GRID Series ID is required");
+    const response = await this.graphql.request(
+      SERIES_BY_ID_QUERY,
+      { id: gridSeriesId },
+      signal,
+      { operation: "series", gridSeriesId },
+    );
+    const parsed = SeriesByIdResponseSchema.safeParse(response.data);
+    if (!parsed.success) {
+      throw new UpstreamApiError("GRID Central Data series response is malformed", response.status, parsed.error);
+    }
+    const node = graphqlData(parsed.data, "series").series;
+    return node === null ? undefined : normalizeSeries(node);
   }
 
   private async fetchMatchingSeries(
