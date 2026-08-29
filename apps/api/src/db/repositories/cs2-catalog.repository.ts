@@ -26,6 +26,10 @@ export interface Cs2CatalogTeamInput {
   logoUrl?: string;
 }
 
+export type Cs2CatalogParticipantInput =
+  | { state: "tbd"; displayOrder: 1 | 2 }
+  | { state: "known"; displayOrder: 1 | 2; team: Cs2CatalogTeamInput };
+
 export interface Cs2CatalogSeriesInput {
   gridSeriesId: string;
   competition: Cs2CatalogCompetitionInput;
@@ -33,7 +37,7 @@ export interface Cs2CatalogSeriesInput {
   scheduledStartTime: Date;
   lifecycle: Cs2SeriesLifecycle;
   isSupported: boolean;
-  teams: readonly Cs2CatalogTeamInput[];
+  participants: readonly [Cs2CatalogParticipantInput, Cs2CatalogParticipantInput];
 }
 
 function validateInput(input: Cs2CatalogSeriesInput): void {
@@ -44,9 +48,13 @@ function validateInput(input: Cs2CatalogSeriesInput): void {
     input.format < 1 ||
     input.format > 7 ||
     Number.isNaN(input.scheduledStartTime.getTime()) ||
-    input.teams.length > 2 ||
-    input.teams.some((team) => team.gridTeamId.trim() === "" || team.name.trim() === "") ||
-    new Set(input.teams.map((team) => team.gridTeamId)).size !== input.teams.length
+    input.participants[0].displayOrder !== 1 ||
+    input.participants[1].displayOrder !== 2 ||
+    input.participants.some((slot) => slot.state === "known" && (
+      slot.team.gridTeamId.trim() === "" || slot.team.name.trim() === ""
+    )) ||
+    new Set(input.participants.flatMap((slot) => slot.state === "known" ? [slot.team.gridTeamId] : [])).size !==
+      input.participants.filter((slot) => slot.state === "known").length
   ) {
     throw new Error(`CS2 catalog series ${input.gridSeriesId || "<unknown>"} is invalid`);
   }
@@ -220,6 +228,7 @@ export const cs2CatalogRepository = {
 
   async synchronizeSeries(input: Cs2CatalogSeriesInput): Promise<{ seriesId: Uuid; participantCount: number }> {
     validateInput(input);
+    const assignments = input.participants.flatMap((slot) => slot.state === "known" ? [{ ...slot.team, displayOrder: slot.displayOrder }] : []);
 
     return db.transaction(async (tx) => {
       const now = new Date();
@@ -281,12 +290,12 @@ export const cs2CatalogRepository = {
         .where(eq(cs2SeriesParticipants.seriesId, persistedSeries.id));
       if (existing.length > 2) throw new Error(`CS2 series ${persistedSeries.id} has too many participants`);
 
-      const allGridTeamIds = new Set([...existing.map((team) => team.gridTeamId), ...input.teams.map((team) => team.gridTeamId)]);
+      const allGridTeamIds = new Set([...existing.map((team) => team.gridTeamId), ...assignments.map((team) => team.gridTeamId)]);
       if (allGridTeamIds.size > 2) throw new Error(`CS2 series ${persistedSeries.id} team identities changed`);
 
       const existingByGridTeamId = new Map(existing.map((team) => [team.gridTeamId, team.displayOrder]));
       const usedOrders = new Set(existing.map((team) => team.displayOrder));
-      for (const [index, team] of input.teams.entries()) {
+      for (const team of assignments) {
         const [persistedTeam] = await tx
           .insert(cs2Teams)
           .values({
@@ -308,7 +317,7 @@ export const cs2CatalogRepository = {
         if (persistedTeam === undefined) throw new Error(`Failed to persist GRID team ${team.gridTeamId}`);
 
         if (existingByGridTeamId.has(team.gridTeamId)) continue;
-        const preferredOrder = index + 1;
+        const preferredOrder = team.displayOrder;
         const displayOrder = (!usedOrders.has(preferredOrder) ? preferredOrder : [1, 2].find((order) => !usedOrders.has(order))) as
           | 1
           | 2

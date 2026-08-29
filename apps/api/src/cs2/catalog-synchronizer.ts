@@ -56,11 +56,11 @@ export async function synchronizeCs2Catalog(
       scheduledStartTime: series.scheduledStartTime,
       lifecycle: catalogLifecycle(series, now),
       isSupported: series.hasFullLiveData,
-      teams: series.teams,
+      participants: series.participants,
     });
     persisted += 1;
     if (series.hasFullLiveData) supported += 1;
-    if (series.teams.length < 2) incompleteParticipants += 1;
+    if (series.participants.some((slot) => slot.state === "tbd")) incompleteParticipants += 1;
   }
 
   return { discovered: discovered.length, persisted, supported, incompleteParticipants };

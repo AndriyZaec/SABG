@@ -11,7 +11,9 @@ type OperatorSeriesSelection =
   | { state: "disabled"; reason: "PARTICIPANTS_INCOMPLETE" | "FULL_LIVE_DATA_UNAVAILABLE" };
 
 export function selectionFor(series: GridCatalogSeries): OperatorSeriesSelection {
-  if (series.teams.length !== 2) return { state: "disabled", reason: "PARTICIPANTS_INCOMPLETE" };
+  if (series.participants.some((slot) => slot.state === "tbd")) {
+    return { state: "disabled", reason: "PARTICIPANTS_INCOMPLETE" };
+  }
   if (!series.hasFullLiveData) return { state: "disabled", reason: "FULL_LIVE_DATA_UNAVAILABLE" };
   return { state: "selectable" };
 }
@@ -44,7 +46,7 @@ export function buildOperatorDiscoveryPayload(window: GridCatalogWindow, series:
       format: item.format,
       scheduledStartTime: item.scheduledStartTime.toISOString(),
       competition: item.competition,
-      teams: item.teams,
+      teams: item.participants.flatMap((slot) => slot.state === "known" ? [slot.team] : []),
       liveDataServiceLevel: item.hasFullLiveData ? "FULL" : "UNAVAILABLE",
       selection: selectionFor(item),
     })),

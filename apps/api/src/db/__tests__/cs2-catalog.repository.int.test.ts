@@ -52,7 +52,10 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
     };
     const first = await repository.synchronizeSeries({
       ...base,
-      teams: [{ gridTeamId: firstGridTeamId, name: "Team A" }],
+      participants: [
+        { state: "known", displayOrder: 1, team: { gridTeamId: firstGridTeamId, name: "Team A" } },
+        { state: "tbd", displayOrder: 2 },
+      ],
     });
     expect(first.participantCount).toBe(1);
     await expect(repository.findSupportedById(first.seriesId, [gridTournamentId], gridSeriesId)).resolves.toMatchObject({
@@ -79,9 +82,9 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
     const completed = await repository.synchronizeSeries({
       ...base,
       competition: { gridTournamentId, name: "Major Renamed", shortName: "MR" },
-      teams: [
-        { gridTeamId: secondGridTeamId, name: "Team B" },
-        { gridTeamId: firstGridTeamId, name: "Team A Renamed" },
+      participants: [
+        { state: "known", displayOrder: 1, team: { gridTeamId: secondGridTeamId, name: "Team B" } },
+        { state: "known", displayOrder: 2, team: { gridTeamId: firstGridTeamId, name: "Team A Renamed" } },
       ],
     });
     expect(completed).toEqual({ seriesId: first.seriesId, participantCount: 2 });
@@ -160,7 +163,7 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
       ...base,
       gridSeriesId: unsupportedGridSeriesId,
       isSupported: false,
-      teams: [],
+      participants: [{ state: "tbd", displayOrder: 1 }, { state: "tbd", displayOrder: 2 }],
     });
     await expect(repository.findSupportedById(unsupported.seriesId, [gridTournamentId])).resolves.toBeUndefined();
     await expect(repository.findSupportedById(first.seriesId, ["other-tournament"])).resolves.toBeUndefined();

@@ -58,7 +58,10 @@ describe("GridCentralDataClient", () => {
       format: 3,
       hasFullLiveData: true,
       competition: { gridTournamentId: "tournament-1", name: "Major" },
-      teams: [{ gridTeamId: "team-a", name: "Team A" }, { gridTeamId: "team-b", name: "Team B" }],
+      participants: [
+        { state: "known", displayOrder: 1, team: { gridTeamId: "team-a", name: "Team A" } },
+        { state: "known", displayOrder: 2, team: { gridTeamId: "team-b", name: "Team B" } },
+      ],
     });
     expect(request.mock.calls[1]?.[1]).toMatchObject({
       first: 50,
@@ -160,6 +163,20 @@ describe("GridCentralDataClient", () => {
     });
     expect(request).toHaveBeenCalledTimes(1);
     expect(request.mock.calls[0]?.[1]).toEqual({ id: "series-1" });
+  });
+
+  it("maps GRID placeholder teams to unresolved participant slots", async () => {
+    const request = vi.fn().mockResolvedValueOnce(response({ data: { series: seriesNode({
+      teams: [
+        { baseInfo: { id: "placeholder-1", logoUrl: "", name: "TBD-1", nameShortened: "TBD" } },
+        { baseInfo: { id: "placeholder-2", logoUrl: "", name: "TBD-2", nameShortened: "TBD" } },
+      ],
+    }) } }));
+    const client = new GridCentralDataClient({ request } as GridGraphqlRequester);
+
+    await expect(client.fetchSeriesById("series-1")).resolves.toMatchObject({
+      participants: [{ state: "tbd", displayOrder: 1 }, { state: "tbd", displayOrder: 2 }],
+    });
   });
 
   it("surfaces GraphQL rate limits instead of reporting malformed data", async () => {

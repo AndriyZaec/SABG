@@ -8,9 +8,9 @@ function series(overrides: Partial<GridCatalogSeries> = {}): GridCatalogSeries {
     format: 3,
     scheduledStartTime: new Date("2026-09-02T12:00:00.000Z"),
     competition: { gridTournamentId: "tournament-1", name: "Major" },
-    teams: [
-      { gridTeamId: "team-a", name: "Team A" },
-      { gridTeamId: "team-b", name: "Team B" },
+    participants: [
+      { state: "known", displayOrder: 1, team: { gridTeamId: "team-a", name: "Team A" } },
+      { state: "known", displayOrder: 2, team: { gridTeamId: "team-b", name: "Team B" } },
     ],
     hasFullLiveData: true,
     ...overrides,
@@ -30,7 +30,10 @@ describe("CS2 operator discovery", () => {
       { from: new Date("2026-09-01T00:00:00.000Z"), to: new Date("2026-10-02T00:00:00.000Z") },
       [
         series(),
-        series({ gridSeriesId: "series-tbd", teams: [] }),
+        series({
+          gridSeriesId: "series-tbd",
+          participants: [{ state: "tbd", displayOrder: 1 }, { state: "tbd", displayOrder: 2 }],
+        }),
         series({ gridSeriesId: "series-limited", hasFullLiveData: false }),
       ],
     );
@@ -47,7 +50,9 @@ describe("CS2 operator discovery", () => {
     const selectable = series();
 
     expect(selectOperatorSeries([selectable], selectable.gridSeriesId)).toBe(selectable);
-    expect(() => selectOperatorSeries([series({ teams: [] })], "series-1")).toThrow("PARTICIPANTS_INCOMPLETE");
+    expect(() => selectOperatorSeries([
+      series({ participants: [{ state: "tbd", displayOrder: 1 }, { state: "tbd", displayOrder: 2 }] }),
+    ], "series-1")).toThrow("PARTICIPANTS_INCOMPLETE");
     expect(() => selectOperatorSeries([], "missing-series")).toThrow("was not found");
   });
 });

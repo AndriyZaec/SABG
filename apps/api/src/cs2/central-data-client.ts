@@ -115,12 +115,16 @@ export interface GridCatalogTeam {
   logoUrl?: string;
 }
 
+export type GridCatalogParticipantSlot =
+  | { state: "tbd"; displayOrder: 1 | 2 }
+  | { state: "known"; displayOrder: 1 | 2; team: GridCatalogTeam };
+
 export interface GridCatalogSeries {
   gridSeriesId: string;
   format: number;
   scheduledStartTime: Date;
   competition: GridCatalogCompetition;
-  teams: readonly GridCatalogTeam[];
+  participants: readonly [GridCatalogParticipantSlot, GridCatalogParticipantSlot];
   hasFullLiveData: boolean;
 }
 
@@ -160,6 +164,10 @@ function optionalText(value: string | null | undefined): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
+function isGridPlaceholderTeam(name: string): boolean {
+  return /^tbd\d*$/u.test(normalizedName(name));
+}
+
 function normalizeSeries(node: z.infer<typeof SeriesNodeSchema>): GridCatalogSeries | undefined {
   if (node.private || node.teams.length > 2) return undefined;
   const format = parseFormat(node.format.nameShortened, node.format.name);
@@ -173,17 +181,25 @@ function normalizeSeries(node: z.infer<typeof SeriesNodeSchema>): GridCatalogSer
     return undefined;
   }
 
-  const teams = node.teams.map(({ baseInfo }) => {
+  const participants = ([0, 1] as const).map((index): GridCatalogParticipantSlot => {
+    const baseInfo = node.teams[index]?.baseInfo;
+    const displayOrder = (index + 1) as 1 | 2;
+    if (baseInfo === undefined || isGridPlaceholderTeam(baseInfo.name)) return { state: "tbd", displayOrder };
     const shortName = optionalText(baseInfo.nameShortened);
     const logoUrl = optionalText(baseInfo.logoUrl);
     return {
-      gridTeamId: baseInfo.id,
-      name: baseInfo.name.trim(),
-      ...(shortName !== undefined ? { shortName } : {}),
-      ...(logoUrl !== undefined ? { logoUrl } : {}),
+      state: "known",
+      displayOrder,
+      team: {
+        gridTeamId: baseInfo.id,
+        name: baseInfo.name.trim(),
+        ...(shortName !== undefined ? { shortName } : {}),
+        ...(logoUrl !== undefined ? { logoUrl } : {}),
+      },
     };
-  });
-  if (new Set(teams.map((team) => team.gridTeamId)).size !== teams.length) return undefined;
+  }) as [GridCatalogParticipantSlot, GridCatalogParticipantSlot];
+  const knownTeamIds = participants.flatMap((slot) => slot.state === "known" ? [slot.team.gridTeamId] : []);
+  if (new Set(knownTeamIds).size !== knownTeamIds.length) return undefined;
   const competitionShortName = optionalText(node.tournament.nameShortened);
   const competitionLogoUrl = optionalText(node.tournament.logoUrl);
 
@@ -197,7 +213,7 @@ function normalizeSeries(node: z.infer<typeof SeriesNodeSchema>): GridCatalogSer
       ...(competitionShortName !== undefined ? { shortName: competitionShortName } : {}),
       ...(competitionLogoUrl !== undefined ? { logoUrl: competitionLogoUrl } : {}),
     },
-    teams,
+    participants,
     hasFullLiveData: node.productServiceLevels.some(
       (level) => ["livedata", "livedatafeed"].includes(normalizedName(level.productName)) && level.serviceLevel === "FULL",
     ),
