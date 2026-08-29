@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { createReadStream } from "node:fs";
 import { readFile } from "node:fs/promises";
+import type { Cs2OperatorDiscoveryPayload } from "@arena/contracts";
 
 export type RemoteCommand = "status" | "discover-cs2" | "inspect-cs2" | "publish-cs2" | "start-cs2" | "stop-cs2" | "logs";
 
@@ -151,7 +152,10 @@ export function parseDiscoverySeries(output: string): DiscoveredSeries[] {
   const marker = output.split(/\r?\n/u).find((line) => line.startsWith("SABG_CS2_DISCOVERY="));
   if (marker === undefined) throw new Error("GRID discovery did not return a CS2 payload");
   const encoded = marker.slice("SABG_CS2_DISCOVERY=".length);
-  const payload = object(JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")), "Discovery payload");
+  const payload = object(
+    JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")),
+    "Discovery payload",
+  ) as unknown as Partial<Cs2OperatorDiscoveryPayload>;
   if (!Array.isArray(payload.series)) throw new Error("Discovery payload has no Series array");
 
   const series: DiscoveredSeries[] = [];
@@ -159,7 +163,10 @@ export function parseDiscoverySeries(output: string): DiscoveredSeries[] {
     const source = object(value, "Discovered Series");
     const competition = object(source.competition, "Series competition");
     const selection = object(source.selection, "Series selection");
-    const teams = Array.isArray(source.teams) ? source.teams.map((team) => object(team, "Series team")) : [];
+    const participants = Array.isArray(source.participants)
+      ? source.participants.map((participant) => object(participant, "Series participant"))
+      : [];
+    if (participants.length !== 2) throw new Error(`GRID Series ${String(source.gridSeriesId)} has invalid participant slots`);
     const tournamentId = gridId(competition.gridTournamentId, "GRID tournament ID");
     const seriesId = gridId(source.gridSeriesId, "GRID Series ID");
     const scheduledStartTime = clean(source.scheduledStartTime, "");
@@ -168,7 +175,11 @@ export function parseDiscoverySeries(output: string): DiscoveredSeries[] {
       id: seriesId,
       tournamentId,
       tournamentName: clean(competition.name),
-      teams: `${clean(teams[0]?.shortName ?? teams[0]?.name, "TBD")} vs ${clean(teams[1]?.shortName ?? teams[1]?.name, "TBD")}`,
+      teams: participants.map((participant) => {
+        if (participant.state !== "known") return "TBD";
+        const team = object(participant.team, "Series participant team");
+        return clean(team.shortName ?? team.name, "TBD");
+      }).join(" vs "),
       scheduledStartTime,
       format: Number(source.format),
       serviceLevel: clean(source.liveDataServiceLevel, "UNAVAILABLE"),

@@ -3,6 +3,7 @@ import type { Cs2Match, Cs2TeamIdentity, Match, MatchPeriod, Score, SoccerMatch,
 import { db } from "../client.js";
 import { cs2MatchTeamScores, cs2SeriesParticipants, cs2Teams, matches } from "../schema.js";
 import { matchRowToEntity } from "../mappers.js";
+import { lockSeriesParticipantsForMatch } from "./cs2-participant-lifecycle.repository.js";
 
 type MatchRow = typeof matches.$inferSelect;
 
@@ -122,14 +123,7 @@ export const matchRepository = {
     }
 
     const matchId = await db.transaction(async (tx) => {
-      const participants = await tx
-        .select({ teamId: cs2SeriesParticipants.teamId })
-        .from(cs2SeriesParticipants)
-        .where(eq(cs2SeriesParticipants.seriesId, seriesId));
-      const participantIds = new Set(participants.map((participant) => participant.teamId));
-      if (participants.length !== 2 || input.teams.some((team) => !participantIds.has(team.teamId))) {
-        throw new Error(`CS2 match teams do not match series ${seriesId} participants`);
-      }
+      await lockSeriesParticipantsForMatch(tx, seriesId, [input.teams[0].teamId, input.teams[1].teamId]);
 
       const [inserted] = await tx
         .insert(matches)
@@ -156,10 +150,18 @@ export const matchRepository = {
         throw new Error(`upsertForSeriesMap(${seriesId}, ${matchIndex}) found no row after conflict`);
       }
 
-      await tx
-        .insert(cs2MatchTeamScores)
-        .values(input.teams.map((team) => ({ matchId: existing.id, teamId: team.teamId, score: 0 })))
-        .onConflictDoNothing({ target: [cs2MatchTeamScores.matchId, cs2MatchTeamScores.teamId] });
+      const persistedScores = await tx
+        .select({ teamId: cs2MatchTeamScores.teamId })
+        .from(cs2MatchTeamScores)
+        .where(eq(cs2MatchTeamScores.matchId, existing.id));
+      const persistedScoreIds = new Set(persistedScores.map((team) => team.teamId));
+      if (persistedScores.length === 0) {
+        await tx.insert(cs2MatchTeamScores).values(
+          input.teams.map((team) => ({ matchId: existing.id, teamId: team.teamId, score: 0 })),
+        );
+      } else if (persistedScores.length !== 2 || input.teams.some((team) => !persistedScoreIds.has(team.teamId))) {
+        throw new Error(`CS2 match ${existing.id} team identities changed`);
+      }
       return existing.id;
     });
 

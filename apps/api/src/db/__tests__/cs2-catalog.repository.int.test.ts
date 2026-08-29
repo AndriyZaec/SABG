@@ -18,9 +18,12 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
   const runId = randomUUID();
   const gridSeriesId = `catalog-series-${runId}`;
   const unsupportedGridSeriesId = `catalog-unsupported-series-${runId}`;
+  const legacyGridSeriesId = `catalog-legacy-series-${runId}`;
   const gridTournamentId = `catalog-tournament-${runId}`;
   const firstGridTeamId = `catalog-team-a-${runId}`;
   const secondGridTeamId = `catalog-team-b-${runId}`;
+  const firstPlaceholderId = `catalog-placeholder-a-${runId}`;
+  const secondPlaceholderId = `catalog-placeholder-b-${runId}`;
 
   beforeAll(async () => {
     ({ db } = await import("../client.js"));
@@ -36,8 +39,13 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
       await db.delete(schema.arenas).where(inArray(schema.arenas.matchId, seriesMatchIds));
       await db.delete(schema.matches).where(inArray(schema.matches.id, seriesMatchIds));
     }
-    await db.delete(schema.series).where(inArray(schema.series.gridSeriesId, [gridSeriesId, unsupportedGridSeriesId]));
-    await db.delete(schema.cs2Teams).where(inArray(schema.cs2Teams.gridTeamId, [firstGridTeamId, secondGridTeamId]));
+    await db.delete(schema.series).where(inArray(schema.series.gridSeriesId, [gridSeriesId, unsupportedGridSeriesId, legacyGridSeriesId]));
+    await db.delete(schema.cs2Teams).where(inArray(schema.cs2Teams.gridTeamId, [
+      firstGridTeamId,
+      secondGridTeamId,
+      firstPlaceholderId,
+      secondPlaceholderId,
+    ]));
     await db.delete(schema.cs2Competitions).where(eq(schema.cs2Competitions.gridTournamentId, gridTournamentId));
   });
 
@@ -52,7 +60,10 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
     };
     const first = await repository.synchronizeSeries({
       ...base,
-      teams: [{ gridTeamId: firstGridTeamId, name: "Team A" }],
+      participants: [
+        { state: "known", displayOrder: 1, team: { gridTeamId: firstGridTeamId, name: "Team A" } },
+        { state: "tbd", displayOrder: 2 },
+      ],
     });
     expect(first.participantCount).toBe(1);
     await expect(repository.findSupportedById(first.seriesId, [gridTournamentId], gridSeriesId)).resolves.toMatchObject({
@@ -79,9 +90,9 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
     const completed = await repository.synchronizeSeries({
       ...base,
       competition: { gridTournamentId, name: "Major Renamed", shortName: "MR" },
-      teams: [
-        { gridTeamId: secondGridTeamId, name: "Team B" },
-        { gridTeamId: firstGridTeamId, name: "Team A Renamed" },
+      participants: [
+        { state: "known", displayOrder: 1, team: { gridTeamId: secondGridTeamId, name: "Team B" } },
+        { state: "known", displayOrder: 2, team: { gridTeamId: firstGridTeamId, name: "Team A Renamed" } },
       ],
     });
     expect(completed).toEqual({ seriesId: first.seriesId, participantCount: 2 });
@@ -102,6 +113,20 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
       { teamId: expect.any(String), gridTeamId: firstGridTeamId, name: "Team A Renamed", displayOrder: 1, score: 2 },
       { teamId: expect.any(String), gridTeamId: secondGridTeamId, name: "Team B", displayOrder: 2, score: 0 },
     ]);
+
+    await repository.synchronizeSeries({
+      ...base,
+      competition: { gridTournamentId, name: "Major Renamed", shortName: "MR" },
+      participants: [{ state: "tbd", displayOrder: 1 }, { state: "tbd", displayOrder: 2 }],
+    });
+    const afterIncompleteObservation = await db
+      .select({ gridTeamId: schema.cs2Teams.gridTeamId })
+      .from(schema.cs2SeriesParticipants)
+      .innerJoin(schema.cs2Teams, eq(schema.cs2SeriesParticipants.teamId, schema.cs2Teams.id))
+      .where(eq(schema.cs2SeriesParticipants.seriesId, first.seriesId));
+    expect(afterIncompleteObservation.map((team) => team.gridTeamId).sort()).toEqual(
+      [firstGridTeamId, secondGridTeamId].sort(),
+    );
 
     const [competition] = await db
       .select({ name: schema.cs2Competitions.name, shortName: schema.cs2Competitions.shortName })
@@ -160,12 +185,45 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
       ...base,
       gridSeriesId: unsupportedGridSeriesId,
       isSupported: false,
-      teams: [],
+      participants: [{ state: "tbd", displayOrder: 1 }, { state: "tbd", displayOrder: 2 }],
     });
     await expect(repository.findSupportedById(unsupported.seriesId, [gridTournamentId])).resolves.toBeUndefined();
     await expect(repository.findSupportedById(first.seriesId, ["other-tournament"])).resolves.toBeUndefined();
     await expect(repository.listSupported([gridTournamentId])).resolves.not.toContainEqual(
       expect.objectContaining({ id: unsupported.seriesId }),
     );
+  });
+
+  it("replaces a legacy placeholder pair before any Match exists", async () => {
+    const base = {
+      gridSeriesId: legacyGridSeriesId,
+      competition: { gridTournamentId, name: "Major" },
+      format: 3,
+      scheduledStartTime: new Date("2026-09-02T12:00:00.000Z"),
+      lifecycle: "upcoming" as const,
+      isSupported: true,
+    };
+    const legacy = await repository.synchronizeSeries({
+      ...base,
+      participants: [
+        { state: "known", displayOrder: 1 as const, team: { gridTeamId: firstPlaceholderId, name: "TBD-1" } },
+        { state: "known", displayOrder: 2 as const, team: { gridTeamId: secondPlaceholderId, name: "TBD-2" } },
+      ],
+    });
+
+    await repository.synchronizeSeries({
+      ...base,
+      participants: [
+        { state: "known", displayOrder: 1 as const, team: { gridTeamId: firstGridTeamId, name: "Team A" } },
+        { state: "known", displayOrder: 2 as const, team: { gridTeamId: secondGridTeamId, name: "Team B" } },
+      ],
+    });
+
+    const participants = await db
+      .select({ gridTeamId: schema.cs2Teams.gridTeamId })
+      .from(schema.cs2SeriesParticipants)
+      .innerJoin(schema.cs2Teams, eq(schema.cs2SeriesParticipants.teamId, schema.cs2Teams.id))
+      .where(eq(schema.cs2SeriesParticipants.seriesId, legacy.seriesId));
+    expect(participants.map((team) => team.gridTeamId).sort()).toEqual([firstGridTeamId, secondGridTeamId].sort());
   });
 });

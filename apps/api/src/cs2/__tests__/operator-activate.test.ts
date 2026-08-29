@@ -7,9 +7,9 @@ const selected: GridCatalogSeries = {
   format: 3,
   scheduledStartTime: new Date("2026-09-02T12:00:00.000Z"),
   competition: { gridTournamentId: "tournament-1", name: "Major" },
-  teams: [
-    { gridTeamId: "team-a", name: "Team A" },
-    { gridTeamId: "team-b", name: "Team B" },
+  participants: [
+    { state: "known", displayOrder: 1, team: { gridTeamId: "team-a", name: "Team A" } },
+    { state: "known", displayOrder: 2, team: { gridTeamId: "team-b", name: "Team B" } },
   ],
   hasFullLiveData: true,
 };

@@ -12,7 +12,10 @@ describe("synchronizeCs2Catalog", () => {
         format: 3,
         scheduledStartTime: new Date("2026-09-02T12:00:00.000Z"),
         competition,
-        teams: [{ gridTeamId: "team-a", name: "A" }],
+        participants: [
+          { state: "known", displayOrder: 1, team: { gridTeamId: "team-a", name: "A" } },
+          { state: "tbd", displayOrder: 2 },
+        ],
         hasFullLiveData: true,
       },
       {
@@ -20,7 +23,7 @@ describe("synchronizeCs2Catalog", () => {
         format: 1,
         scheduledStartTime: new Date("2026-09-01T06:00:00.000Z"),
         competition,
-        teams: [],
+        participants: [{ state: "tbd", displayOrder: 1 }, { state: "tbd", displayOrder: 2 }],
         hasFullLiveData: false,
       },
     ]);
@@ -37,13 +40,16 @@ describe("synchronizeCs2Catalog", () => {
       gridSeriesId: "future",
       lifecycle: "upcoming",
       isSupported: true,
-      teams: [{ gridTeamId: "team-a" }],
+      participants: [
+        { state: "known", displayOrder: 1, team: { gridTeamId: "team-a", name: "A" } },
+        { state: "tbd", displayOrder: 2 },
+      ],
     });
     expect(synchronizeSeries.mock.calls[1]?.[0]).toMatchObject({
       gridSeriesId: "past",
       lifecycle: "unknown",
       isSupported: false,
-      teams: [],
+      participants: [{ state: "tbd", displayOrder: 1 }, { state: "tbd", displayOrder: 2 }],
     });
     expect(result).toEqual({ discovered: 2, persisted: 2, supported: 1, incompleteParticipants: 2 });
   });
@@ -54,7 +60,7 @@ describe("synchronizeCs2Catalog", () => {
       format: 3,
       scheduledStartTime: new Date("2026-09-02"),
       competition,
-      teams: [],
+      participants: [{ state: "tbd", displayOrder: 1 }, { state: "tbd", displayOrder: 2 }],
       hasFullLiveData: true,
     };
     const synchronizeSeries = vi.fn().mockResolvedValue({ seriesId: "id", participantCount: 0 });
@@ -77,7 +83,7 @@ describe("synchronizeCs2Catalog", () => {
         format: 3,
         scheduledStartTime: new Date("2026-09-02"),
         competition: { gridTournamentId: "tournament-2", name: "Other" },
-        teams: [],
+        participants: [{ state: "tbd", displayOrder: 1 }, { state: "tbd", displayOrder: 2 }],
         hasFullLiveData: true,
       },
     ]);

@@ -26,7 +26,10 @@ function item(id: number, tournamentId: number, start: string): object {
     format: 3,
     liveDataServiceLevel: "FULL",
     competition: { gridTournamentId: String(tournamentId), name: `Tournament ${tournamentId}` },
-    teams: [{ shortName: "A" }, { shortName: "B" }],
+    participants: [
+      { state: "known", displayOrder: 1, team: { shortName: "A" } },
+      { state: "known", displayOrder: 2, team: { shortName: "B" } },
+    ],
     selection: { state: "selectable" },
   };
 }
@@ -113,4 +116,12 @@ describe("operator discovery", () => {
     });
   });
 
+  it("preserves TBD participant slot order in labels", () => {
+    const source = item(42, 9, "2026-09-02T12:00:00.000Z") as {
+      participants: [{ state: string; displayOrder: number; team?: unknown }, { state: string; displayOrder: number; team?: unknown }];
+    };
+    source.participants[0] = { state: "tbd", displayOrder: 1 };
+
+    expect(parseDiscoverySeries(discovery([source]))[0]?.teams).toBe("TBD vs B");
+  });
 });
