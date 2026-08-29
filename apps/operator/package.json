@@ -1,0 +1,24 @@
+{
+  "name": "@arena/operator",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Local CS2 deployment operator TUI.",
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/run.tsx",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "ink": "^5.2.1",
+    "ink-text-input": "^6.0.0",
+    "react": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.0",
+    "@types/react": "^18.3.31",
+    "tsx": "^4.23.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.7"
+  }
+}

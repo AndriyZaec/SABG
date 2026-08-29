@@ -78,6 +78,17 @@ assert_no_unfinished_cs2_arenas() {
   [ "$count" = 0 ] || fail "$count unfinished CS2 Arena(s) exist; operation refused"
 }
 
+inspect_unfinished_cs2_arenas() {
+  postgres_id=$(compose ps -q postgres 2>/dev/null || true)
+  [ -n "$postgres_id" ] || { printf 'unknown\n'; return; }
+  postgres_running=$(docker inspect --format '{{.State.Running}}' "$postgres_id" 2>/dev/null || printf 'false')
+  [ "$postgres_running" = true ] || { printf 'unknown\n'; return; }
+  # shellcheck disable=SC2016
+  compose exec -T postgres sh -ec \
+    'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At --command="SELECT count(*) FROM arena a JOIN \"match\" m ON m.id = a.match_id WHERE m.discipline = '\''cs2'\'' AND a.status NOT IN ('\''finished'\'', '\''cancelled'\'')"' \
+    2>/dev/null || printf 'unknown\n'
+}
+
 write_app_runtime() {
   mode=$1
   tournament_id=${2:-}
@@ -131,12 +142,14 @@ print_status() {
   if [ -n "$container_id" ]; then
     app_health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_id" 2>/dev/null || printf 'unknown')
   fi
+  unfinished_arenas=$(inspect_unfinished_cs2_arenas)
   printf 'MODE=%s\n' "$mode"
   printf 'TOURNAMENT_ID=%s\n' "$tournament_id"
   printf 'SERIES_ID=%s\n' "$series_id"
   printf 'SCHEDULED_START_TIME=%s\n' "$scheduled_start_time"
   printf 'REVISION=%s\n' "$revision"
   printf 'APP_HEALTH=%s\n' "$app_health"
+  printf 'UNFINISHED_ARENAS=%s\n' "$unfinished_arenas"
 }
 
 case "$command_name" in
@@ -145,6 +158,10 @@ case "$command_name" in
     ;;
   discover-cs2)
     compose run --rm --no-deps app node dist/cs2/operator-discovery.js
+    ;;
+  inspect-cs2)
+    assert_safe_grid_id "$argument" "GRID Series ID"
+    compose run --rm --no-deps -e "CS2_OPERATOR_SERIES_ID=$argument" app node dist/cs2/operator-discovery.js
     ;;
   publish-cs2)
     assert_safe_grid_id "$argument" "GRID Series ID"
