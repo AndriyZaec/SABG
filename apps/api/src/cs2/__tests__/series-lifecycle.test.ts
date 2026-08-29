@@ -147,6 +147,18 @@ describe("processCs2SeriesPoll — Arena #1 no-show", () => {
     const { actions } = poll(state, snapshot({ hasLiveGame: false }), 59);
     expect(actions).toEqual([]);
   });
+
+  it("accepts live-game evidence when the runtime starts after the no-show deadline", () => {
+    const state = initialCs2SeriesLifecycleState(START);
+    const { state: after, actions } = poll(state, snapshot({ hasLiveGame: true }), 61);
+
+    expect(actions).toEqual([
+      { type: "open_arena", matchIndex: 1 },
+      { type: "match_live_detected", matchIndex: 1 },
+    ]);
+    expect(after.invalid).toBe(false);
+    expect(after.matchLiveDetected).toBe(true);
+  });
 });
 
 describe("processCs2SeriesPoll — terminal states ignore further polls", () => {

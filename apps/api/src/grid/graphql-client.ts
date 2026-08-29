@@ -26,6 +26,32 @@ export interface GridGraphqlRequester {
   ): Promise<GridFetchResult>;
 }
 
+function graphqlRateLimitDelay(data: unknown): number | undefined {
+  if (typeof data !== "object" || data === null) return undefined;
+  const errors = (data as { errors?: unknown }).errors;
+  if (!Array.isArray(errors)) return undefined;
+  for (const error of errors) {
+    if (typeof error !== "object" || error === null) continue;
+    const message = (error as { message?: unknown }).message;
+    const extensions = (error as { extensions?: unknown }).extensions;
+    const detail = typeof extensions === "object" && extensions !== null
+      ? (extensions as { errorDetail?: unknown }).errorDetail
+      : undefined;
+    if (detail !== "ENHANCE_YOUR_CALM" && (
+      typeof message !== "string" || !message.toLowerCase().includes("exceeded your rate limit")
+    )) continue;
+    if (typeof extensions !== "object" || extensions === null) return 0;
+    const reset = (extensions as { rateLimitResetsIn?: unknown }).rateLimitResetsIn;
+    if (typeof reset !== "string") return 0;
+    const match = /^PT(?:(\d+(?:\.\d+)?)H)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)S)?$/u.exec(reset);
+    if (match === null) return 0;
+    return Math.ceil(
+      (Number(match[1] ?? 0) * 60 * 60 + Number(match[2] ?? 0) * 60 + Number(match[3] ?? 0)) * 1_000,
+    );
+  }
+  return undefined;
+}
+
 export class GridGraphqlClient implements GridGraphqlRequester {
   private readonly http: AxiosInstance;
 
@@ -69,6 +95,22 @@ export class GridGraphqlClient implements GridGraphqlRequester {
           "grid: rate limited (429) — waiting and retrying",
         );
         await sleep(this.options.rateLimitRetryMs, signal);
+        continue;
+      }
+
+      const graphqlRetryMs = graphqlRateLimitDelay(response.data);
+      if (graphqlRetryMs !== undefined) {
+        if (attempt > this.options.maxRateLimitRetries) {
+          throw new RateLimitExhaustedError(
+            `Grid.gg rate limit retries exhausted (${this.options.maxRateLimitRetries} consecutive GraphQL rate limits)`,
+          );
+        }
+        const retryAfterMs = Math.max(this.options.rateLimitRetryMs, graphqlRetryMs);
+        logger.warn(
+          { attempt, max: this.options.maxRateLimitRetries, retryAfterMs },
+          "grid: GraphQL rate limited — waiting",
+        );
+        await sleep(retryAfterMs, signal);
         continue;
       }
 

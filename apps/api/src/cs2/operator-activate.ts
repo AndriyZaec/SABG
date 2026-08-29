@@ -6,26 +6,44 @@ import { operatorDiscoveryWindow, selectOperatorSeries } from "./operator-discov
 
 const SafeGridIdSchema = z.string().min(1).max(200).regex(/^[A-Za-z0-9._:-]+$/);
 
-async function main(): Promise<void> {
-  const requestedSeriesId = SafeGridIdSchema.parse(process.env["CS2_OPERATOR_SERIES_ID"]);
-  const now = new Date();
+export async function activateCs2Series(
+  requestedSeriesId: string,
+  options: {
+    now?: Date;
+    client?: Pick<GridCentralDataClient, "fetchSeries" | "fetchSeriesById">;
+    synchronize?: typeof synchronizeCs2Catalog;
+  } = {},
+): Promise<{ tournamentId: string; seriesId: string; scheduledStartTime: Date; syncedSeries: number }> {
+  const safeSeriesId = SafeGridIdSchema.parse(requestedSeriesId);
+  const now = options.now ?? new Date();
   const window = operatorDiscoveryWindow(now);
-  const client = new GridCentralDataClient();
-  const discovered = await client.discoverSeries(window);
-  const selected = selectOperatorSeries(discovered, requestedSeriesId);
-  const tournamentId = SafeGridIdSchema.parse(selected.competition.gridTournamentId);
-  const tournamentSeries = discovered.filter((series) => series.competition.gridTournamentId === tournamentId);
-  const result = await synchronizeCs2Catalog(window, {
+  const client = options.client ?? new GridCentralDataClient();
+  const requested = await client.fetchSeriesById(safeSeriesId);
+  if (requested === undefined) throw new Error(`GRID Series ${safeSeriesId} was not found`);
+  const tournamentId = SafeGridIdSchema.parse(requested.competition.gridTournamentId);
+  const tournamentSeries = await client.fetchSeries(window, [tournamentId]);
+  const selected = selectOperatorSeries(tournamentSeries, safeSeriesId);
+  const result = await (options.synchronize ?? synchronizeCs2Catalog)(window, {
     now,
     tournamentIds: [tournamentId],
     source: { fetchSeries: async () => tournamentSeries },
   });
   if (result.persisted === 0) throw new Error(`GRID tournament ${tournamentId} had no Series to synchronize`);
 
-  process.stdout.write(`SABG_CS2_TOURNAMENT_ID=${tournamentId}\n`);
-  process.stdout.write(`SABG_CS2_SERIES_ID=${selected.gridSeriesId}\n`);
-  process.stdout.write(`SABG_CS2_SCHEDULED_START_TIME=${selected.scheduledStartTime.toISOString()}\n`);
-  process.stdout.write(`SABG_CS2_SYNCED_SERIES=${result.persisted}\n`);
+  return {
+    tournamentId,
+    seriesId: selected.gridSeriesId,
+    scheduledStartTime: selected.scheduledStartTime,
+    syncedSeries: result.persisted,
+  };
+}
+
+async function main(): Promise<void> {
+  const activation = await activateCs2Series(SafeGridIdSchema.parse(process.env["CS2_OPERATOR_SERIES_ID"]));
+  process.stdout.write(`SABG_CS2_TOURNAMENT_ID=${activation.tournamentId}\n`);
+  process.stdout.write(`SABG_CS2_SERIES_ID=${activation.seriesId}\n`);
+  process.stdout.write(`SABG_CS2_SCHEDULED_START_TIME=${activation.scheduledStartTime.toISOString()}\n`);
+  process.stdout.write(`SABG_CS2_SYNCED_SERIES=${activation.syncedSeries}\n`);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
