@@ -44,6 +44,10 @@ describe("CS2 operator discovery", () => {
       { state: "disabled", reason: "FULL_LIVE_DATA_UNAVAILABLE" },
     ]);
     expect(payload.series.map((item) => item.liveDataServiceLevel)).toEqual(["FULL", "FULL", "UNAVAILABLE"]);
+    expect(payload.series[1]?.participants).toEqual([
+      { state: "tbd", displayOrder: 1 },
+      { state: "tbd", displayOrder: 2 },
+    ]);
   });
 
   it("selects only a discovered Series with complete participants and FULL Live Data", () => {

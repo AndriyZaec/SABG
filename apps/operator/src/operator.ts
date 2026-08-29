@@ -159,7 +159,10 @@ export function parseDiscoverySeries(output: string): DiscoveredSeries[] {
     const source = object(value, "Discovered Series");
     const competition = object(source.competition, "Series competition");
     const selection = object(source.selection, "Series selection");
-    const teams = Array.isArray(source.teams) ? source.teams.map((team) => object(team, "Series team")) : [];
+    const participants = Array.isArray(source.participants)
+      ? source.participants.map((participant) => object(participant, "Series participant"))
+      : [];
+    if (participants.length !== 2) throw new Error(`GRID Series ${String(source.gridSeriesId)} has invalid participant slots`);
     const tournamentId = gridId(competition.gridTournamentId, "GRID tournament ID");
     const seriesId = gridId(source.gridSeriesId, "GRID Series ID");
     const scheduledStartTime = clean(source.scheduledStartTime, "");
@@ -168,7 +171,11 @@ export function parseDiscoverySeries(output: string): DiscoveredSeries[] {
       id: seriesId,
       tournamentId,
       tournamentName: clean(competition.name),
-      teams: `${clean(teams[0]?.shortName ?? teams[0]?.name, "TBD")} vs ${clean(teams[1]?.shortName ?? teams[1]?.name, "TBD")}`,
+      teams: participants.map((participant) => {
+        if (participant.state !== "known") return "TBD";
+        const team = object(participant.team, "Series participant team");
+        return clean(team.shortName ?? team.name, "TBD");
+      }).join(" vs "),
       scheduledStartTime,
       format: Number(source.format),
       serviceLevel: clean(source.liveDataServiceLevel, "UNAVAILABLE"),

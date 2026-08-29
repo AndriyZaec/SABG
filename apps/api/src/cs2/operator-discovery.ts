@@ -46,7 +46,7 @@ export function buildOperatorDiscoveryPayload(window: GridCatalogWindow, series:
       format: item.format,
       scheduledStartTime: item.scheduledStartTime.toISOString(),
       competition: item.competition,
-      teams: item.participants.flatMap((slot) => slot.state === "known" ? [slot.team] : []),
+      participants: item.participants,
       liveDataServiceLevel: item.hasFullLiveData ? "FULL" : "UNAVAILABLE",
       selection: selectionFor(item),
     })),
