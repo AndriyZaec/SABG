@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { createReadStream } from "node:fs";
 import { readFile } from "node:fs/promises";
+import type { Cs2OperatorDiscoveryPayload } from "@arena/contracts";
 
 export type RemoteCommand = "status" | "discover-cs2" | "inspect-cs2" | "publish-cs2" | "start-cs2" | "stop-cs2" | "logs";
 
@@ -151,7 +152,10 @@ export function parseDiscoverySeries(output: string): DiscoveredSeries[] {
   const marker = output.split(/\r?\n/u).find((line) => line.startsWith("SABG_CS2_DISCOVERY="));
   if (marker === undefined) throw new Error("GRID discovery did not return a CS2 payload");
   const encoded = marker.slice("SABG_CS2_DISCOVERY=".length);
-  const payload = object(JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")), "Discovery payload");
+  const payload = object(
+    JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")),
+    "Discovery payload",
+  ) as unknown as Partial<Cs2OperatorDiscoveryPayload>;
   if (!Array.isArray(payload.series)) throw new Error("Discovery payload has no Series array");
 
   const series: DiscoveredSeries[] = [];

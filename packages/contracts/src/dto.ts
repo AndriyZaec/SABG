@@ -138,6 +138,44 @@ export interface Cs2SeriesDetailResponse {
   series: Cs2SeriesDetail;
 }
 
+export interface Cs2OperatorTeam {
+  gridTeamId: string;
+  name: string;
+  shortName?: string;
+  logoUrl?: string;
+}
+
+export type Cs2OperatorParticipantSlot =
+  | { state: "known"; displayOrder: 1 | 2; team: Cs2OperatorTeam }
+  | { state: "tbd"; displayOrder: 1 | 2 };
+
+export type Cs2OperatorSeriesSelection =
+  | { state: "selectable" }
+  | {
+      state: "disabled";
+      reason: "PARTICIPANTS_INCOMPLETE" | "PARTICIPANTS_INVALID" | "FULL_LIVE_DATA_UNAVAILABLE";
+    };
+
+export interface Cs2OperatorDiscoverySeries {
+  gridSeriesId: string;
+  format: number;
+  scheduledStartTime: IsoDateTime;
+  competition: {
+    gridTournamentId: string;
+    name: string;
+    shortName?: string;
+    logoUrl?: string;
+  };
+  participants: [Cs2OperatorParticipantSlot, Cs2OperatorParticipantSlot];
+  liveDataServiceLevel: "FULL" | "UNAVAILABLE";
+  selection: Cs2OperatorSeriesSelection;
+}
+
+export interface Cs2OperatorDiscoveryPayload {
+  window: { from: IsoDateTime; to: IsoDateTime };
+  series: Cs2OperatorDiscoverySeries[];
+}
+
 /** GET /arenas?matchId= — list the arena(s) running against a match (lobby discovery). */
 export interface ArenaListResponse {
   arenas: Arena[];

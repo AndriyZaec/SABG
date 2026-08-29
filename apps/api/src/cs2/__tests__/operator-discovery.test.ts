@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { GridCatalogSeries } from "../central-data-client.js";
-import { buildDiscoveryWindow, buildOperatorDiscoveryPayload, selectOperatorSeries } from "../operator-discovery.js";
+import {
+  buildDiscoveryWindow,
+  buildOperatorDiscoveryPayload,
+  selectionFor,
+  selectOperatorSeries,
+} from "../operator-discovery.js";
 
 function series(overrides: Partial<GridCatalogSeries> = {}): GridCatalogSeries {
   return {
@@ -57,6 +62,12 @@ describe("CS2 operator discovery", () => {
     expect(() => selectOperatorSeries([
       series({ participants: [{ state: "tbd", displayOrder: 1 }, { state: "tbd", displayOrder: 2 }] }),
     ], "series-1")).toThrow("PARTICIPANTS_INCOMPLETE");
+    expect(selectionFor(series({
+      participants: [
+        { state: "known", displayOrder: 1, team: { gridTeamId: "duplicate", name: "A" } },
+        { state: "known", displayOrder: 2, team: { gridTeamId: "duplicate", name: "A" } },
+      ],
+    }))).toEqual({ state: "disabled", reason: "PARTICIPANTS_INVALID" });
     expect(() => selectOperatorSeries([], "missing-series")).toThrow("was not found");
   });
 });

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { Cs2OperatorDiscoveryPayload, Cs2OperatorSeriesSelection } from "@arena/contracts";
 import { GridCentralDataClient, type GridCatalogSeries, type GridCatalogWindow } from "./central-data-client.js";
 
 const DiscoveryConfigSchema = z.object({
@@ -6,14 +7,12 @@ const DiscoveryConfigSchema = z.object({
   CS2_DISCOVERY_LOOKAHEAD_DAYS: z.coerce.number().int().positive().max(90).default(30),
 });
 
-type OperatorSeriesSelection =
-  | { state: "selectable" }
-  | { state: "disabled"; reason: "PARTICIPANTS_INCOMPLETE" | "FULL_LIVE_DATA_UNAVAILABLE" };
-
-export function selectionFor(series: GridCatalogSeries): OperatorSeriesSelection {
+export function selectionFor(series: GridCatalogSeries): Cs2OperatorSeriesSelection {
   if (series.participants.some((slot) => slot.state === "tbd")) {
     return { state: "disabled", reason: "PARTICIPANTS_INCOMPLETE" };
   }
+  const teamIds = series.participants.map((slot) => slot.state === "known" ? slot.team.gridTeamId : "");
+  if (new Set(teamIds).size !== 2) return { state: "disabled", reason: "PARTICIPANTS_INVALID" };
   if (!series.hasFullLiveData) return { state: "disabled", reason: "FULL_LIVE_DATA_UNAVAILABLE" };
   return { state: "selectable" };
 }
@@ -38,7 +37,10 @@ export function operatorDiscoveryWindow(now: Date, env: NodeJS.ProcessEnv = proc
   return buildDiscoveryWindow(now, config.CS2_DISCOVERY_LOOKBACK_HOURS, config.CS2_DISCOVERY_LOOKAHEAD_DAYS);
 }
 
-export function buildOperatorDiscoveryPayload(window: GridCatalogWindow, series: readonly GridCatalogSeries[]) {
+export function buildOperatorDiscoveryPayload(
+  window: GridCatalogWindow,
+  series: readonly GridCatalogSeries[],
+): Cs2OperatorDiscoveryPayload {
   return {
     window: { from: window.from.toISOString(), to: window.to.toISOString() },
     series: series.map((item) => ({
@@ -46,7 +48,7 @@ export function buildOperatorDiscoveryPayload(window: GridCatalogWindow, series:
       format: item.format,
       scheduledStartTime: item.scheduledStartTime.toISOString(),
       competition: item.competition,
-      participants: item.participants,
+      participants: [...item.participants],
       liveDataServiceLevel: item.hasFullLiveData ? "FULL" : "UNAVAILABLE",
       selection: selectionFor(item),
     })),
