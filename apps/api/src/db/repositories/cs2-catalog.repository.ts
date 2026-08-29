@@ -11,6 +11,7 @@ import { cs2CatalogConfig } from "../../cs2/catalog-config.js";
 import { db } from "../client.js";
 import { arenas, cs2Competitions, cs2SeriesParticipants, cs2Teams, series } from "../schema.js";
 import { matchRepository } from "./match.repository.js";
+import { reconcileSeriesParticipants } from "./cs2-participant-lifecycle.repository.js";
 
 export interface Cs2CatalogCompetitionInput {
   gridTournamentId: string;
@@ -280,59 +281,8 @@ export const cs2CatalogRepository = {
         .returning({ id: series.id });
       if (persistedSeries === undefined) throw new Error(`Failed to persist GRID series ${input.gridSeriesId}`);
 
-      const existing = await tx
-        .select({
-          gridTeamId: cs2Teams.gridTeamId,
-          displayOrder: cs2SeriesParticipants.displayOrder,
-        })
-        .from(cs2SeriesParticipants)
-        .innerJoin(cs2Teams, eq(cs2SeriesParticipants.teamId, cs2Teams.id))
-        .where(eq(cs2SeriesParticipants.seriesId, persistedSeries.id));
-      if (existing.length > 2) throw new Error(`CS2 series ${persistedSeries.id} has too many participants`);
-
-      const allGridTeamIds = new Set([...existing.map((team) => team.gridTeamId), ...assignments.map((team) => team.gridTeamId)]);
-      if (allGridTeamIds.size > 2) throw new Error(`CS2 series ${persistedSeries.id} team identities changed`);
-
-      const existingByGridTeamId = new Map(existing.map((team) => [team.gridTeamId, team.displayOrder]));
-      const usedOrders = new Set(existing.map((team) => team.displayOrder));
-      for (const team of assignments) {
-        const [persistedTeam] = await tx
-          .insert(cs2Teams)
-          .values({
-            gridTeamId: team.gridTeamId,
-            name: team.name,
-            shortName: team.shortName ?? null,
-            logoUrl: team.logoUrl ?? null,
-          })
-          .onConflictDoUpdate({
-            target: cs2Teams.gridTeamId,
-            set: {
-              name: team.name,
-              shortName: team.shortName ?? null,
-              logoUrl: team.logoUrl ?? null,
-              updatedAt: now,
-            },
-          })
-          .returning({ id: cs2Teams.id });
-        if (persistedTeam === undefined) throw new Error(`Failed to persist GRID team ${team.gridTeamId}`);
-
-        if (existingByGridTeamId.has(team.gridTeamId)) continue;
-        const preferredOrder = team.displayOrder;
-        const displayOrder = (!usedOrders.has(preferredOrder) ? preferredOrder : [1, 2].find((order) => !usedOrders.has(order))) as
-          | 1
-          | 2
-          | undefined;
-        if (displayOrder === undefined) throw new Error(`CS2 series ${persistedSeries.id} has no free participant slot`);
-        await tx.insert(cs2SeriesParticipants).values({
-          seriesId: persistedSeries.id,
-          teamId: persistedTeam.id,
-          displayOrder,
-          score: 0,
-        });
-        usedOrders.add(displayOrder);
-      }
-
-      return { seriesId: persistedSeries.id, participantCount: allGridTeamIds.size };
+      const participants = await reconcileSeriesParticipants(tx, persistedSeries.id, assignments);
+      return { seriesId: persistedSeries.id, participantCount: participants.length };
     });
   },
 };

@@ -19,6 +19,7 @@ const CS2_SERIES_RUNTIME_LOCK_NAMESPACE = 1_397_315_408;
 export type ReleaseFixtureRuntimeLock = () => Promise<void>;
 
 export const db = drizzle(queryClient, { schema });
+export type DatabaseTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 export async function checkDatabaseConnection(): Promise<void> {
   await queryClient`select 1`;
