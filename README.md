@@ -132,9 +132,10 @@ SABG/
 ## CS2 beta event deployment
 
 The internal devnet event stack starts in catalog-only mode, where the website and CS2 schedule are
-available without polling a GRID Series. An operator runs `deploy/event-control.sh` to discover
-published tournaments, select one eligible Series, start its single-Series runtime, inspect status
-and logs, or return the site to catalog-only mode.
+available without polling a GRID Series. An operator runs `pnpm event-control` (or the compatibility
+launcher `deploy/event-control.sh`) to open the local keyboard-driven TUI. It displays the nearest
+25 tournaments, publishes one to the catalog without starting a match, starts a selected or exact-ID
+Series, inspects status and logs, or returns the site to catalog-only mode.
 
 The deployment and control scripts are intentionally committed as operational documentation. They
 contain no credentials. VPS connection settings stay in gitignored `deploy/event-control.env`, and

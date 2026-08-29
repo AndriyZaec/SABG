@@ -52,8 +52,14 @@ export function buildOperatorDiscoveryPayload(window: GridCatalogWindow, series:
 }
 
 async function main(): Promise<void> {
-  const window = operatorDiscoveryWindow(new Date());
-  const series = await new GridCentralDataClient().discoverSeries(window);
+  const now = new Date();
+  const configuredWindow = operatorDiscoveryWindow(now);
+  const requestedSeriesId = process.env["CS2_OPERATOR_SERIES_ID"];
+  const client = new GridCentralDataClient();
+  const window = requestedSeriesId === undefined ? { from: now, to: configuredWindow.to } : configuredWindow;
+  const series = requestedSeriesId === undefined
+    ? await client.discoverSeriesPage(window)
+    : [await client.fetchSeriesById(requestedSeriesId)].filter((item) => item !== undefined);
   const payload = Buffer.from(JSON.stringify(buildOperatorDiscoveryPayload(window, series)), "utf8").toString("base64url");
   process.stdout.write(`SABG_CS2_DISCOVERY=${payload}\n`);
 }

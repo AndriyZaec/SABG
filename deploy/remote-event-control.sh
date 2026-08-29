@@ -78,6 +78,17 @@ assert_no_unfinished_cs2_arenas() {
   [ "$count" = 0 ] || fail "$count unfinished CS2 Arena(s) exist; operation refused"
 }
 
+inspect_unfinished_cs2_arenas() {
+  postgres_id=$(compose ps -q postgres 2>/dev/null || true)
+  [ -n "$postgres_id" ] || { printf 'unknown\n'; return; }
+  postgres_running=$(docker inspect --format '{{.State.Running}}' "$postgres_id" 2>/dev/null || printf 'false')
+  [ "$postgres_running" = true ] || { printf 'unknown\n'; return; }
+  # shellcheck disable=SC2016
+  compose exec -T postgres sh -ec \
+    'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At --command="SELECT count(*) FROM arena a JOIN \"match\" m ON m.id = a.match_id WHERE m.discipline = '\''cs2'\'' AND a.status NOT IN ('\''finished'\'', '\''cancelled'\'')"' \
+    2>/dev/null || printf 'unknown\n'
+}
+
 write_app_runtime() {
   mode=$1
   tournament_id=${2:-}
@@ -131,12 +142,14 @@ print_status() {
   if [ -n "$container_id" ]; then
     app_health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_id" 2>/dev/null || printf 'unknown')
   fi
+  unfinished_arenas=$(inspect_unfinished_cs2_arenas)
   printf 'MODE=%s\n' "$mode"
   printf 'TOURNAMENT_ID=%s\n' "$tournament_id"
   printf 'SERIES_ID=%s\n' "$series_id"
   printf 'SCHEDULED_START_TIME=%s\n' "$scheduled_start_time"
   printf 'REVISION=%s\n' "$revision"
   printf 'APP_HEALTH=%s\n' "$app_health"
+  printf 'UNFINISHED_ARENAS=%s\n' "$unfinished_arenas"
 }
 
 case "$command_name" in
@@ -145,6 +158,73 @@ case "$command_name" in
     ;;
   discover-cs2)
     compose run --rm --no-deps app node dist/cs2/operator-discovery.js
+    ;;
+  inspect-cs2)
+    assert_safe_grid_id "$argument" "GRID Series ID"
+    compose run --rm --no-deps -e "CS2_OPERATOR_SERIES_ID=$argument" app node dist/cs2/operator-discovery.js
+    ;;
+  publish-cs2)
+    assert_safe_grid_id "$argument" "GRID Series ID"
+    tournament_id=${confirmation#PUBLISH CS2 }
+    assert_safe_grid_id "$tournament_id" "GRID tournament ID"
+    [ "$confirmation" = "PUBLISH CS2 $tournament_id" ] \
+      || fail "confirmation must exactly match PUBLISH CS2 $tournament_id"
+    exec 9>"$deploy_path/.operation.lock"
+    flock -n 9 || fail "another event operation is running"
+    [ "$(read_runtime_mode)" = catalog ] || fail "stop the active CS2 Series before publishing another tournament"
+    assert_no_unfinished_cs2_arenas
+
+    publication_file="$deploy_path/.cs2-publication.$$"
+    backup_file="$deploy_path/deploy/app.env.before-publish"
+    switched=false
+    backup_created=false
+    cleanup_publish() {
+      exit_code=$?
+      trap - EXIT HUP INT TERM
+      set +e
+      rm -f "$publication_file"
+      if [ "$switched" = true ]; then
+        rm -f "$backup_file"
+      elif [ "$backup_created" = true ]; then
+        compose stop --timeout 60 app >/dev/null 2>&1 || true
+        mv "$backup_file" "$deploy_path/deploy/app.env"
+        compose up -d --force-recreate --wait --wait-timeout 180 app caddy >/dev/null 2>&1 \
+          || printf 'Previous catalog runtime could not be restored automatically.\n' >&2
+      fi
+      exit "$exit_code"
+    }
+    trap cleanup_publish EXIT HUP INT TERM
+
+    umask 077
+    compose run --rm --no-deps -e "CS2_OPERATOR_SERIES_ID=$argument" app \
+      node dist/cs2/operator-activate.js > "$publication_file"
+    validated_tournament_id=
+    series_id=
+    synced_series=
+    while IFS='=' read -r key value; do
+      case "$key" in
+        SABG_CS2_TOURNAMENT_ID) validated_tournament_id=$value ;;
+        SABG_CS2_SERIES_ID) series_id=$value ;;
+        SABG_CS2_SYNCED_SERIES) synced_series=$value ;;
+      esac
+    done < "$publication_file"
+    [ "$validated_tournament_id" = "$tournament_id" ] || fail "remote validation returned a different GRID tournament"
+    [ "$series_id" = "$argument" ] || fail "remote validation returned a different GRID Series"
+    case "$synced_series" in
+      ''|*[!0-9]*) fail "remote validation returned an invalid synchronization count" ;;
+    esac
+    [ "$synced_series" -gt 0 ] || fail "remote validation synchronized no Series"
+
+    cp "$deploy_path/deploy/app.env" "$backup_file"
+    backup_created=true
+    compose stop --timeout 60 app
+    assert_no_unfinished_cs2_arenas
+    write_app_runtime catalog "$tournament_id"
+    compose up -d --force-recreate --wait --wait-timeout 180 app caddy
+    assert_app_healthy
+    switched=true
+    printf 'Published CS2 tournament %s (%s synchronized); catalog remains online\n' \
+      "$tournament_id" "$synced_series"
     ;;
   start-cs2)
     assert_safe_grid_id "$argument" "GRID Series ID"
