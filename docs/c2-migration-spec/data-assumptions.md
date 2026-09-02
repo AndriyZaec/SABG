@@ -32,9 +32,9 @@ replaced it).
 | 8 | `teams[0]` is a stable index for "home", `teams[1]` for "away", consistent snapshot-to-snapshot within one map | Convention adopted in settle.ts; GRID has no inherent home/away concept | Every team-targeted question (round_winner, team_ace, multikill, survivors_team) could resolve mirrored | confirmed on 2 series (within-map stability only — `teams[0].name` never changed across 127 live snapshots in series 2985953 map 1 either). Still not cross-checked against an external scoreboard to confirm which *physical* side occupies index 0 |
 | 9 | `weaponName` string values match the whitelist exactly (`awp`, `ak47`, `usp_silencer`, `deagle`, `molotov`, `glock`, `tec9`, `hegrenade`) | 1 fixture | `weapon_kill` questions silently always settle "no" if GRID's naming differs (e.g. casing, `usp-s` vs `usp_silencer`) | confirmed on 2 series for the 7 whitelist weapons that appeared (`hegrenade` still unseen — inconclusive, not disproven). Also found 5 real, correctly-spelled weapon names GRID reports that we deliberately don't ask about: `elite`, `galilar`, `m4a1`, `m4a1_silencer`, `mp9` — not a bug, just a note for a future whitelist-expansion decision |
 | 10 | `players[]` always has exactly 5 entries per team, and each player's `id` stays stable across all snapshots of one map | 1 fixture | `team_ace`/`multikill` settlement (killDeltas matches by id) silently drops players whose id changes mid-map, or miscounts a roster with != 5 | confirmed on 2 series (series 2985953 map 1: exactly 5 distinct ids per team across all 127 live snapshots) |
-| 11 | Base YES-probability per catalog topic (spec §10 difficulty calibration) | No data yet — this is what step 6 exists to collect | Round difficulty stays uncalibrated (uniform random pick, no weighting) | not verified — needs ≥2-3 full recorded series |
+| 11 | Base YES-probability per catalog topic (spec §10 difficulty calibration) | 6 series / 7 maps / 110 rounds, `sabg_raw` — see "Step 6 — provisional difficulty coefficients" below | Round difficulty stays uncalibrated (uniform random pick, no weighting) | provisional on 6 series (below sample target of ≥2-3 *full* series' worth of stable data — user cannot record more test data right now, so this is being used as the working prior). **Wired into code as of the step-6 implementation** (`apps/api/src/cs2/weights.ts`) — a future data refresh means editing that file, not just this doc |
 | 12 | A forfeited map (technical loss, e.g. a team late to Match 2/3) never produces a `games[]` entry at all — no warmup, no Match Live Detected, nothing per-map to poll. The forfeit only ever surfaces as a discontinuous jump in the **series-level** envelope: `teams[].score` jumps by more than one increment (here `1→2`, skipping the normal "win the next map" step), `finished` flips to `true`, the winning team's `won` flips to `true` — and this update lags the map it "replaces" by some real delay (~2 min observed here), not instantaneous | 1 series (2985953: ICP vs ENCE, EPL S6 — ICP won map 1 ~13-1, ENCE forfeited map 2, confirmed via GRID request/response logs the user captured directly, since the poller itself wasn't running against this series at the time) | Series-lifecycle code (step 4) that only watches per-map `hasLiveGame()`/`games[]` will never notice a forfeit — it needs to also poll the top-level `seriesState.teams[].score`/`finished`/`won` fields directly | confirmed on 1 series |
-| 13 | The gap between Match Live Detected (first live snapshot) and Round 1's own lock (clock reset) is a fixed, generous window (spec §7 п.1 implicitly assumes this — "Round 1 opens at MLD", framed as if that gives comfortable answer time) | 2 series, wildly different results: fixture 1 (test server) showed a ~2m40s gap with 12 visible `paused:true` warmup polls; series 2985953 map 1 (real match) showed only **~10 seconds** — one poll interval — with **zero** `paused:true` polls observed at all. The poller had almost certainly been running well before this (recorder started ahead of the 13:35Z scheduled time), so this isn't a "we joined late" artifact — GRID itself didn't expose the game object until freezetime was already nearly over | **disproven as stated** — the gap is not reliably generous. In the worst observed case, Round 1's real answer window could be as short as a single 10s poll interval, not the multi-minute window spec §7 п.1 seems to assume. Affects step 4 UX planning (push notification timing, spec §6) and possibly argues for a minimum synthetic answer window for Round 1 specifically, unlike every other round | disproven on 1 of 2 series — the "generous window" case is now the outlier, not the default; needs a 3rd data point to tell which is actually typical |
+| 13 | The gap between Match Live Detected and Round 1's own lock was assumed generous enough to serve as Round 1's answer window (spec §7 п.1) | Two recorded series showed this gap is not reliably generous | **resolved** — Round 1 no longer depends on this gap at all; its question now opens at Arena creation instead of at MLD | resolved, no longer load-bearing |
 
 ## Design gaps surfaced by real data
 
@@ -54,22 +54,6 @@ exposed — flag these when step 4 (Series + Arena lifecycle) gets planned:
   `seriesState` continuously and cancel/refund Arena #k+1 immediately once the Series is observed
   decided while that Arena is still in `lobby` — (b) is tighter (a 2-minute gap, not 60), and
   directly uses the #12 finding instead of just falling back to a timeout.
-
-- **Round 1 answer-window fix (from #13).** Per #13, the gap between Match Live Detected and
-  Round 1's own lock is not reliably generous — it can be as short as one poll interval (~10s).
-  The *lock* itself must stay pinned to the real clock reset (spec §2 integrity: locking any
-  later would let players act on live game state). The fix is on the *open* side instead: open
-  `Q(R1)` at Arena creation (lobby start, spec §4 п.1 — up to 10 min before
-  `scheduledStartTime`), not at Match Live Detected as currently implemented
-  (`Cs2RoundEngine.onMatchLiveDetected()`). Round 1's question content doesn't depend on live
-  match state (`pickCs2Candidate()` needs no snapshot), so nothing blocks opening it early.
-  Consequence: `onMatchLiveDetected()` stops being the thing that opens Round 1 — Round 1 opens
-  from the lobby-creation code path instead, and MLD's remaining job is purely the join-gate
-  (spec §5) and letting the lock-cascade begin normally via `cs2_round_lock`. Trade-off: Round
-  1's answer window becomes asymmetrically longer than every other round's (potentially 10+
-  minutes vs. the ~60-100s typical of rounds 2+) — consistent with spec §6 ("no minimum/fixed
-  window for CS2 by design"), just unusual, and worth flagging in step 4's plan rather than
-  treating as an oversight.
 
 - **[FIXED] CS2 never surfaces "awaiting result" for a locked-but-unsettled round (found in
   manual live testing, series 2991032, 2026-08-12).** `Cs2RoundEngine` opens Round N+1's question
@@ -178,6 +162,115 @@ exposed — flag these when step 4 (Series + Arena lifecycle) gets planned:
   survive reload — the endpoint deliberately omits predictions for open/locked rounds (privacy).
   The locked case is covered by `pendingPredictionsFor`; an *open* round's own prior pick still
   resets to unpicked, same gap noted above.
+
+## Step 6 — provisional difficulty coefficients (2026-08-26)
+
+Computed from 6 series / 7 recorded maps / 110 rounds in `sabg_raw`, replaying the real production
+pipeline (`parseSnapshot` → `round-tracker.ts` → `settle.ts` → `catalog.ts`), not an approximation.
+**Explicitly provisional** — user cannot record more test data right now, so this is the working
+prior until more series get recorded (re-run and replace when they do; see "How to re-check").
+
+**Formula**: `difficulty = 1 - 2·|P(yes) − 0.5|` (0 = near-certain outcome, easiest; 1 = true
+50/50, hardest), with Laplace smoothing `P(yes) = (yes+1)/(n+2)` on the raw counts to keep
+near-zero/near-one rates from being over-confident at this sample size.
+
+**Excluded from calibration** (per-map variance traced to team-strength, not sample size — more
+data alone won't fix it; see per-map breakdown analysis this session): `round_winner`,
+`survivors_team` (all `y`, both sides). Stay on flat/uniform selection until a team-strength
+normalization signal exists (deferred future step, not step 6).
+
+**Fixed by round number, not part of the curve**: `pistol_round` (Round 13), `ot_score`
+(Round 24) — spec §10's stated exception.
+
+**Hard eligibility filter, independent of difficulty**: `ak47`, `awp`, `molotov`, `hegrenade`
+excluded as candidate topics on rounds 1-2 and 13-14 of each half (both teams) — too expensive
+for pistol/eco-round economy. `ak47`/`awp` confirmed with user 2026-08-26. `molotov`/`hegrenade`
+added 2026-08-26 after the pistol-round split below showed 0/12 positive on pistol rounds,
+matching the ak47/awp pattern (thin absolute counts — 3-8 events over 98 non-pistol rounds — so
+treat as provisional pending more data, per the finding note below). Pistols
+(`glock`/`usp_silencer`/`deagle`/`tec9`) stay eligible on pistol rounds — see conditional
+treatment below.
+
+**Pistol-weapon kills need a round-type-conditional coefficient, not one pooled number
+(found 2026-08-26, confirmed with user):** pooling `glock`/`usp_silencer` P(yes) across all 110
+rounds masks a near-bimodal mixture — pistol-round split gave P(yes)=0.917 [n=12] on pistol
+rounds vs 0.031–0.061 [n=98] on non-pistol rounds (deltas of +0.86/+0.89). These two topics get
+**two entries below** (pistol-round variant and non-pistol variant) instead of one pooled row.
+`deagle`/`tec9` were also split as a sanity check and showed the **opposite, unexpected**
+pattern — 0/12 on pistol rounds vs a real non-zero rate elsewhere (0.184/0.082) — the reverse of
+"pistol-economy weapon → likely in pistol rounds". Not enough pistol-round samples (n=12, all
+misses) to trust this inversion yet; `deagle`/`tec9` are left as single pooled rows below,
+unconditioned, pending more data — do not read the inversion as settled.
+
+| Difficulty | Topic (topic, params) | P(yes) smoothed |
+|---|---|---|
+| 0.018 | team_ace home | 0.009 |
+| 0.018 | multikill home y=5 | 0.009 |
+| 0.036 | team_ace away | 0.018 |
+| 0.036 | multikill away y=5 | 0.018 |
+| 0.036 | survivors_round y=0 | 0.982 |
+| 0.054 | survivors_round y=5 | 0.027 |
+| 0.071 | hegrenade *(eligibility-filtered R1-2/13-14)* | 0.036 |
+| 0.107 | multikill home y=4 | 0.054 |
+| 0.125 | multikill away y=4 | 0.063 |
+| 0.161 | survivors_round y=1 | 0.920 |
+| 0.080 | glock, non-pistol rounds | 0.040 |
+| 0.140 | usp_silencer, non-pistol rounds | 0.070 |
+| 0.161 | molotov *(eligibility-filtered R1-2/13-14)* | 0.080 |
+| 0.161 | tec9 *(pooled — pistol/non-pistol split unconfirmed, see above)* | 0.080 |
+| **0.286** | **glock, pistol rounds (R1/13)** | **0.857** |
+| **0.286** | **usp_silencer, pistol rounds (R1/13)** | **0.857** |
+| 0.321 | survivors_round y=4 | 0.161 |
+| 0.339 | deagle *(pooled — pistol/non-pistol split unconfirmed, see above)* | 0.170 |
+| 0.339 | multikill away y=3 | 0.170 |
+| 0.464 | multikill home y=3 | 0.232 |
+| 0.500 | ak47 *(eligibility-filtered R1-2/13-14)* | 0.750 |
+| 0.589 | multikill home y=2 | 0.705 |
+| 0.679 | survivors_round y=2 | 0.661 |
+| 0.804 | survivors_round y=3 | 0.402 |
+| 0.839 | awp *(eligibility-filtered R1-2/13-14)* | 0.420 |
+| 0.929 | multikill away y=2 | 0.536 |
+
+Suggested tiers for the round-position curve: **Easy (0–0.2)** eligible from Round 1; **Medium
+(0.2–0.5)** from mid-Arena; **Hard (0.5+)** late rounds only.
+
+**Selection mechanics within a tier (confirmed with user 2026-08-26):** picking the single
+lowest-difficulty topic deterministically for a given round position would make every Arena's
+Round 1 identical (`team_ace home`, the global minimum) — found by dry-running the NaVi vs Monte
+test list above. Fix: for a given round's tier, draw **uniformly at random** among all
+tier-eligible topics (not weighted further by exact coefficient within the tier) — simplest
+option, guarantees variety across Arenas. Also: **no immediate repeat** — the same
+`(topic, params)` may not be picked two rounds in a row within one Arena (simple pool-minus-last
+filter, no broader dedup logic beyond that).
+
+**Pre-existing grammar bug found while dry-running a full 24-round test question list (NaVi vs
+Monte, 2026-08-26, not a step-6 regression):** `renderCs2Question`'s `survivors_round`/
+`survivors_team` templates (`apps/api/src/cs2/catalog.ts:70-72`) always render "more than {y}
+players" regardless of `y`, so `y=1` reads "Will more than 1 players survive this round in
+total?" — ungrammatical singular/plural. Noted only, not fixed — out of scope for step 6.
+
+**Ambiguous wording found the same way (2026-08-26):** `multikill`'s template (`catalog.ts:68`)
+— `"Will Team {team} get a {y}-kill this round?"` — reads naturally as "will the team's *combined*
+kill count reach {y} this round", but the actual settlement logic (`settle.ts:58-63`) checks
+whether **any single player** on that team got ≥{y} kills in the round (a personal multi-kill,
+e.g. a double/triple kill), not a team total. Confirmed against `settle.ts`. Noted only, not
+fixed — out of scope for step 6.
+
+**Idea floated, deliberately not adopted now (2026-08-26):** rename `multikill`'s rendered wording
+by `y` to CS jargon — `y=2` doublekill, `y=3` triplekill, `y=4` quadrokill, `y=5` ace (one player
+getting 5 kills — distinct from `team_ace`, which is every player on the team getting ≥1 kill
+each; user confirmed this is the intended distinction). User declined to make this change now —
+risk of complicating the template's sentence-structure logic for no immediate need. Revisit later
+if wording gets reworked; if so, keep `multikill y=5`'s "ace" and `team_ace`'s copy visibly
+distinct in the UI to avoid the collision.
+
+**Open concerns, not yet resolved:**
+- Some "easy" topics (team_ace, multikill y=5) are so skewed (~0.01) the question may be
+  practically trivial/unengaging rather than just "safe" — a product question, not a statistical
+  one. Revisit before finalizing the curve.
+- `multikill away y=2` (0.929) sits suspiciously close to 0.5 while `multikill home y=2` (0.589)
+  doesn't — plausibly the same home/away team-strength confound found in `round_winner`, not a
+  real structural asymmetry. Don't trust this specific home/away split without more series.
 
 ## How to re-check
 

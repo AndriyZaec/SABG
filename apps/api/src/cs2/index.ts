@@ -1,6 +1,7 @@
 export * from "./snapshot.js";
 export * from "./round-tracker.js";
 export * from "./catalog.js";
+export * from "./weights.js";
 export * from "./settle.js";
 export * from "./question-provider.js";
 export * from "./round-engine.js";
