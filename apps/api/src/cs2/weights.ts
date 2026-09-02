@@ -1,6 +1,3 @@
-// Provisional weights derived from 6 GRID series / 110 rounds — see docs/c2-migration-spec/question-weights.md.
-// Keyed by team slot (0/1, raw GRID team-array order) rather than team identity — see that doc's
-// "Data source" section for why the calibration itself is only meaningful per array position.
 import type { Cs2Weapon } from "@arena/contracts";
 import type { Cs2Candidate } from "./catalog.js";
 
