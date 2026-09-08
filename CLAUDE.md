@@ -96,6 +96,11 @@ SABG/
   multiple packages; make such changes intentional and self-consistent across the repo.
 - **Keep changes scoped.** Touch only what the task needs; typecheck the affected package(s)
   before considering the change done.
+- **No over-engineering.** Don't add abstractions, config options, feature flags, or generic
+  layers for hypothetical future needs — solve the task in front of you. Duplication across a
+  couple of call sites beats a premature abstraction; a one-off script doesn't need a
+  framework. If a genuine architectural need shows up, raise it and decide deliberately rather
+  than building it in ahead of time.
 - **Don't run tests to "verify" unless asked** — write correct code first; test runs are a
   separate, explicit step.
 - **Ask when a decision is genuinely yours to make** (a product/architecture fork), otherwise

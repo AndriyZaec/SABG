@@ -41,4 +41,11 @@ progress.md
 
 .agents
 .claude
-skill-lock.json
+skills-lock.json
+
+# SDD artifacts (ideas/ADRs/plans/specs) — internal-only, not for the public repo.
+# Share a one-off generated .md with another dev when needed instead of syncing via git.
+docs/ideas/
+docs/adr/
+plans/
+specs/
