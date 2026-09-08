@@ -186,6 +186,7 @@ export class Cs2SeriesOrchestrator {
       entryFeeLamports: this.options.entryFeeLamports,
       prizePoolLamports: 0,
     });
+    await seriesRepository.setCatalogLifecycle(this.series.id, "live");
 
     const opened = await this.createRuntime(match, arena, [], false);
     this.arenasByMatchIndex.set(matchIndex, opened);
