@@ -86,6 +86,7 @@ export const series = pgTable("series", {
   status: seriesStatusEnum("status").notNull(),
   catalogLifecycle: cs2SeriesLifecycleEnum("catalog_lifecycle").notNull().default("unknown"),
   isSupported: boolean("is_supported").notNull().default(false),
+  mapNames: text("map_names").array(),
   ...timestamps,
 }, (t) => [
   index("series_competition_id_idx").on(t.competitionId),
