@@ -16,14 +16,14 @@ function clockFrom(anchorIso: string): (offsetMinutes: number) => string {
 
 function snapshot(
   teamIds: readonly [string, string],
-  opts: { teams?: [number, number]; hasLiveGame?: boolean; finished?: boolean },
+  opts: { teams?: [number, number]; hasLiveGame?: boolean; finished?: boolean; mapNames?: string[] },
 ): Cs2SeriesSnapshot {
   const [a, b] = opts.teams ?? [0, 0];
   return {
     format: 3,
     finished: opts.finished ?? false,
     hasLiveGame: opts.hasLiveGame ?? false,
-    mapNames: [],
+    mapNames: opts.mapNames ?? [],
     teams: [
       { teamId: teamIds[0], name: "Team A", score: a, won: false },
       { teamId: teamIds[1], name: "Team B", score: b, won: false },
@@ -239,5 +239,31 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     expect(restoredRuntime!.statusFor(user.id)).toBe("active");
     expect(restoredRuntime!.answerFor(user.id, originalRound.id)).toBe("yes");
     expect(await matchRepository.listBySeriesId(series.id)).toHaveLength(1);
+  });
+
+  it("persists map names from a poll's snapshot onto the Series", async () => {
+    const at = clockFrom(new Date(Date.now() + 9 * 60 * MIN).toISOString());
+    const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
+      format: 3,
+      scheduledStartTime: new Date(at(0)),
+    });
+    seriesIds.push(series.id);
+    const matchTeamIds = await synchronizeTestTeams(series.id);
+
+    const writeQueue = new WriteQueue();
+    const orchestrator = await Cs2SeriesOrchestrator.create(series, { writeQueue, entryFeeLamports: 1000 });
+
+    await orchestrator.poll(snapshot(matchTeamIds, { mapNames: ["mirage"] }), at(-10));
+    const match1 = (await matchRepository.listBySeriesId(series.id))[0]!;
+    matchIds.push(match1.id);
+    const arena1 = (await arenaRepository.findByMatchId(match1.id))!;
+    arenaIds.push(arena1.id);
+    expect((await seriesRepository.findById(series.id))).toBeDefined();
+    const [afterFirstPoll] = await db.select({ mapNames: schema.series.mapNames }).from(schema.series).where(eq(schema.series.id, series.id));
+    expect(afterFirstPoll?.mapNames).toEqual(["mirage"]);
+
+    await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: true, mapNames: ["mirage", "inferno"] }), at(0));
+    const [afterSecondPoll] = await db.select({ mapNames: schema.series.mapNames }).from(schema.series).where(eq(schema.series.id, series.id));
+    expect(afterSecondPoll?.mapNames).toEqual(["mirage", "inferno"]);
   });
 });
