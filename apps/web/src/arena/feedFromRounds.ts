@@ -51,3 +51,18 @@ export function feedFromRounds(rounds: RoundWithPredictions[], myUserId?: string
 
   return items.reverse().slice(0, 20);
 }
+
+function isRoundDerivedFeedId(id: string): boolean {
+  if (id === "me-winner") return false;
+  return id.startsWith("settle-") || id.startsWith("void-") || id.startsWith("me-");
+}
+
+export function mergeFeedFromRounds(
+  feed: FeedItem[],
+  rounds: RoundWithPredictions[],
+  myUserId?: string,
+): FeedItem[] {
+  const base = feedFromRounds(rounds, myUserId);
+  const extras = feed.filter((item) => !isRoundDerivedFeedId(item.id));
+  return [...extras, ...base].slice(0, 20);
+}

@@ -7,6 +7,7 @@ import {
   ELIMINATED_TEXT,
   feedFromRounds,
   formatSettleText,
+  mergeFeedFromRounds,
   prependFeedItem,
   settleFeedId,
   SURVIVED_TEXT,
@@ -212,6 +213,7 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
     let disposed = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
     let reconnectAttempt = 0;
+    let hasConnectedBefore = false;
 
     const connect = () => {
       const ws = new WebSocket(buildCs2WsUrl(token));
@@ -220,6 +222,15 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
         reconnectAttempt = 0;
         setConnected(true);
         ws.send(JSON.stringify({ type: "subscribe", arenaId }));
+        if (hasConnectedBefore) {
+          void fetchCs2ArenaRounds(arenaId)
+            .then((rounds) => {
+              if (disposed) return;
+              setView((v) => (v ? { ...v, feed: mergeFeedFromRounds(v.feed, rounds.rounds, myUserId.current) } : v));
+            })
+            .catch(() => undefined);
+        }
+        hasConnectedBefore = true;
       };
       ws.onclose = (event) => {
         if (wsRef.current === ws) wsRef.current = null;
