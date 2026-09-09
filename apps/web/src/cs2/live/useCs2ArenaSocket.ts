@@ -118,7 +118,8 @@ function reduce(view: Cs2ArenaView, msg: ServerMessage, myUserId?: string): Cs2A
       if (msg.roundId === undefined && msg.status !== "winner") return next;
       const kind = msg.status === "eliminated" ? "eliminated" : "survived";
       const text = msg.status === "eliminated" ? ELIMINATED_TEXT : msg.status === "winner" ? "You won!" : SURVIVED_TEXT;
-      return { ...next, feed: prependFeedItem(view.feed, { id: `me-${Date.now()}`, kind, text }) };
+      const id = msg.status === "winner" ? "me-winner" : `me-${msg.roundId}`;
+      return { ...next, feed: prependFeedItem(view.feed, { id, kind, text }) };
     }
     case "arena.finished": {
       const iWon = myUserId != null && msg.winners.includes(myUserId);
