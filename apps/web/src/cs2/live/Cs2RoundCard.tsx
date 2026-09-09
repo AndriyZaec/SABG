@@ -35,7 +35,7 @@ export function Cs2RoundCard({
 
       <div className="nb-row" style={{ justifyContent: "space-between" }}>
         <span className="nb-label">
-          {round.status === "voided" ? "Voided" : round.status === "locked" ? "Locked" : "Open — no fixed lock time"}
+          {round.status === "voided" ? "Voided" : round.status === "locked" ? "Locked" : "Open"}
         </span>
       </div>
 

@@ -1,7 +1,7 @@
 import type { Arena } from "@arena/contracts";
 import type { ReactNode } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { useCs2ArenaEntry } from "./useCs2ArenaEntry.js";
+import type { Cs2ArenaEntry } from "./useCs2ArenaEntry.js";
 import { Button } from "../ui/Button.js";
 import { Badge } from "../ui/Badge.js";
 
@@ -16,13 +16,14 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 const sol = (lamports: number) => Number((lamports / 1_000_000_000).toFixed(3));
 
-export function Cs2EntryCard({ arena }: { arena: Arena }) {
+export function Cs2EntryCard({
+  arena,
+  entry: { status, info, error, hasEntry, entryRefunded, join },
+}: {
+  arena: Arena;
+  entry: Cs2ArenaEntry;
+}) {
   const { connected } = useWallet();
-  const { status, info, error, hasEntry, entryRefunded, join } = useCs2ArenaEntry({
-    ...(arena?.onchainArenaId != null ? { onchainArenaId: arena.onchainArenaId } : {}),
-    backendArenaId: arena.id,
-  });
-
   const busy = status === "working";
   const lobbyOpen = arena.status === "lobby";
 
@@ -36,7 +37,7 @@ export function Cs2EntryCard({ arena }: { arena: Arena }) {
       </Badge>
     );
   } else if (hasEntry) {
-    action = <div className="nb-hero__joined">✔ You&apos;re in — wait for kickoff</div>;
+    action = <div className="nb-hero__joined">✔ You&apos;re in — the lobby is warming up</div>;
   } else if (info?.state === "settled") {
     action = <Badge tone="neutral">Arena settled — see payout</Badge>;
   } else if (!lobbyOpen) {
