@@ -22,6 +22,7 @@ function rawSeries(opts: {
   finished?: boolean;
   teams?: unknown[];
   games?: unknown[];
+  draftActions?: unknown[];
 }) {
   return {
     data: {
@@ -33,8 +34,24 @@ function rawSeries(opts: {
           { id: "team-b", name: "B", score: 0, won: false },
         ],
         ...(opts.games !== undefined ? { games: opts.games } : {}),
+        ...(opts.draftActions !== undefined ? { draftActions: opts.draftActions } : {}),
       },
     },
+  };
+}
+
+function draftAction(opts: {
+  type: string;
+  sequenceNumber: string;
+  draftableType: string;
+  draftableName: string;
+}) {
+  return {
+    id: `draft-action-${opts.sequenceNumber}`,
+    type: opts.type,
+    sequenceNumber: opts.sequenceNumber,
+    drafter: { id: "49554", type: "team" },
+    draftable: { id: opts.draftableName, type: opts.draftableType, name: opts.draftableName },
   };
 }
 
@@ -57,6 +74,7 @@ describe("parseSeriesSnapshot", () => {
         { teamId: ICP_ID, name: "ICP", score: 1, won: false },
         { teamId: ENCE_ID, name: "ENCE", score: 0, won: false },
       ],
+      mapNames: [],
     });
   });
 
@@ -88,6 +106,7 @@ describe("parseSeriesSnapshot", () => {
         { teamId: ICP_ID, name: "ICP", score: 2, won: true },
         { teamId: ENCE_ID, name: "ENCE", score: 0, won: false },
       ],
+      mapNames: [],
     });
   });
 
@@ -119,5 +138,27 @@ describe("parseSeriesSnapshot", () => {
     expect(parseSeriesSnapshot(null)).toBeUndefined();
     expect(parseSeriesSnapshot("not an object")).toBeUndefined();
     expect(parseSeriesSnapshot({ data: { seriesState: null } })).toBeUndefined();
+  });
+
+  it("orders picked map names by sequenceNumber, including a decider picked by the series", () => {
+    // Real bo3 veto shape: ban, ban, pick(map)+pick(side), pick(map)+pick(side), ban, ban, pick(map, decider).
+    const raw = rawSeries({
+      draftActions: [
+        draftAction({ type: "ban", sequenceNumber: "1", draftableType: "map", draftableName: "cache" }),
+        draftAction({ type: "ban", sequenceNumber: "2", draftableType: "map", draftableName: "ancient" }),
+        draftAction({ type: "pick", sequenceNumber: "3", draftableType: "map", draftableName: "mirage" }),
+        draftAction({ type: "pick", sequenceNumber: "4", draftableType: "side", draftableName: "counter-terrorists" }),
+        draftAction({ type: "pick", sequenceNumber: "5", draftableType: "map", draftableName: "inferno" }),
+        draftAction({ type: "pick", sequenceNumber: "6", draftableType: "side", draftableName: "counter-terrorists" }),
+        draftAction({ type: "ban", sequenceNumber: "7", draftableType: "map", draftableName: "anubis" }),
+        draftAction({ type: "ban", sequenceNumber: "8", draftableType: "map", draftableName: "nuke" }),
+        { ...draftAction({ type: "pick", sequenceNumber: "9", draftableType: "map", draftableName: "dust2" }), drafter: { id: "2988931", type: "series" } },
+      ],
+    });
+    expect(parseSeriesSnapshot(raw)?.mapNames).toEqual(["mirage", "inferno", "dust2"]);
+  });
+
+  it("returns an empty list when draftActions is absent", () => {
+    expect(parseSeriesSnapshot(rawSeries({}))?.mapNames).toEqual([]);
   });
 });

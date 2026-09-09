@@ -11,6 +11,20 @@ query GetLiveCsSeriesState {
       won
       score
     }
+    draftActions {
+      id
+      type
+      sequenceNumber
+      drafter {
+        id
+        type
+      }
+      draftable {
+        id
+        type
+        name
+      }
+    }
     games(filter: { started: true, finished: false }) {
       sequenceNumber
       map {

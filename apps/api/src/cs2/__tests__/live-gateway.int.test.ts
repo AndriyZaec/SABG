@@ -34,6 +34,7 @@ function snapshot(teamIds: readonly [string, string], hasLiveGame: boolean): Cs2
     format: 3,
     finished: false,
     hasLiveGame,
+    mapNames: [],
     teams: [
       { teamId: teamIds[0], name: "Team A", score: 0, won: false },
       { teamId: teamIds[1], name: "Team B", score: 0, won: false },
