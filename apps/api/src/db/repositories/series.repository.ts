@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import type { Series, SeriesStatus, Uuid } from "@arena/contracts";
+import type { Cs2SeriesLifecycle, Series, SeriesStatus, Uuid } from "@arena/contracts";
 import { db } from "../client.js";
 import { series } from "../schema.js";
 import { seriesRowToEntity } from "../mappers.js";
@@ -36,6 +36,15 @@ export const seriesRepository = {
   },
 
   async setStatus(id: Uuid, status: SeriesStatus): Promise<void> {
-    await db.update(series).set({ status }).where(eq(series.id, id));
+    // A series leaving "active" is terminal (decided/invalid); the catalog's "live" join
+    // window closes with it, regardless of which terminal status it lands on.
+    await db
+      .update(series)
+      .set({ status, ...(status !== "active" ? { catalogLifecycle: "completed" } : {}) })
+      .where(eq(series.id, id));
+  },
+
+  async setCatalogLifecycle(id: Uuid, catalogLifecycle: Cs2SeriesLifecycle): Promise<void> {
+    await db.update(series).set({ catalogLifecycle }).where(eq(series.id, id));
   },
 };

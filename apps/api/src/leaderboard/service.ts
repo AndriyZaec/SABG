@@ -46,6 +46,7 @@ export class LeaderboardService {
       missedCount: 0,
       joinedAt: player.joinedAt,
     });
+    this.options.onSnapshot?.(this.snapshot());
   }
 
   onPlayerResult(event: PlayerResultEvent): void {

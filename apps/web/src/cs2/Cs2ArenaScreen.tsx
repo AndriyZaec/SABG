@@ -1,4 +1,4 @@
-import type { Arena, Cs2Match, Cs2SeriesDetail } from "@arena/contracts";
+import type { Answer, Arena, Cs2Match, Cs2SeriesDetail } from "@arena/contracts";
 import { Link, useParams } from "react-router-dom";
 import { useCs2ArenaSocket } from "./live/useCs2ArenaSocket.js";
 import { SeriesHeader } from "./live/SeriesHeader.js";
@@ -6,6 +6,8 @@ import { Cs2RoundCard } from "./live/Cs2RoundCard.js";
 import { Cs2EntryCard } from "./Cs2EntryCard.js";
 import { TeamLogo } from "./TeamLogo.js";
 import { useCs2Series } from "./useCs2Catalog.js";
+import { useCs2ArenaEntry } from "./useCs2ArenaEntry.js";
+import type { Cs2AnswerSubmission, Cs2ArenaView } from "./cs2View.js";
 import { EliminationFeed } from "../arena/live/EliminationFeed.js";
 import { LeaderboardRail } from "../arena/live/LeaderboardRail.js";
 import { PendingPredictionsList } from "../arena/live/PendingPredictionsList.js";
@@ -26,10 +28,28 @@ function teamPresentation(team: Cs2Match["teamScores"][number], series?: Cs2Seri
   return { name: team.name.replace(/^Team\s+/i, ""), logoUrl: undefined };
 }
 
-function Cs2ArenaLobby({ arena, match }: { arena: Arena; match: Cs2Match }) {
+function Cs2ArenaLobby({
+  arena,
+  match,
+  view,
+  connected,
+  answerSubmission,
+  submitAnswer,
+}: {
+  arena: Arena;
+  match: Cs2Match;
+  view: Cs2ArenaView | null;
+  connected: boolean;
+  answerSubmission: Cs2AnswerSubmission;
+  submitAnswer: (answer: Answer) => void;
+}) {
   const [seriesResult] = useCs2Series(match.seriesId);
   const series = seriesResult.state === "ready" ? seriesResult.value : undefined;
   const teams = match.teamScores.map((team) => teamPresentation(team, series));
+  const entry = useCs2ArenaEntry({
+    ...(arena?.onchainArenaId != null ? { onchainArenaId: arena.onchainArenaId } : {}),
+    backendArenaId: arena.id,
+  });
 
   return (
     <div className="nb-container" style={{ display: "grid", gap: 22 }}>
@@ -44,8 +64,20 @@ function Cs2ArenaLobby({ arena, match }: { arena: Arena; match: Cs2Match }) {
           ))}
           <span className="cs2-arena-lobby__versus cs2-versus-badge">VS</span>
         </div>
-        <Cs2EntryCard arena={arena} />
+        <Cs2EntryCard arena={arena} entry={entry} />
       </Panel>
+      {/* Only a joined player should see the round — otherwise there's nothing prompting them to join. */}
+      {view?.round && entry.hasEntry && (
+        <Cs2RoundCard
+          key={view.round.roundId}
+          round={view.round}
+          onAnswer={submitAnswer}
+          submission={answerSubmission}
+          connected={connected}
+          eliminated={view.myStatus === "eliminated"}
+          participant
+        />
+      )}
     </div>
   );
 }
@@ -93,7 +125,16 @@ export function Cs2ArenaScreen() {
   }
 
   if (arena.status === "lobby") {
-    return <Cs2ArenaLobby arena={arena} match={match} />;
+    return (
+      <Cs2ArenaLobby
+        arena={arena}
+        match={match}
+        view={view}
+        connected={connected}
+        answerSubmission={answerSubmission}
+        submitAnswer={submitAnswer}
+      />
+    );
   }
 
   if (!view) {

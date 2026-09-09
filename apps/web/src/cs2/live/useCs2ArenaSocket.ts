@@ -7,6 +7,7 @@ import {
   ELIMINATED_TEXT,
   feedFromRounds,
   formatSettleText,
+  mergeFeedFromRounds,
   prependFeedItem,
   settleFeedId,
   SURVIVED_TEXT,
@@ -118,7 +119,8 @@ function reduce(view: Cs2ArenaView, msg: ServerMessage, myUserId?: string): Cs2A
       if (msg.roundId === undefined && msg.status !== "winner") return next;
       const kind = msg.status === "eliminated" ? "eliminated" : "survived";
       const text = msg.status === "eliminated" ? ELIMINATED_TEXT : msg.status === "winner" ? "You won!" : SURVIVED_TEXT;
-      return { ...next, feed: prependFeedItem(view.feed, { id: `me-${Date.now()}`, kind, text }) };
+      const id = msg.status === "winner" ? "me-winner" : `me-${msg.roundId}`;
+      return { ...next, feed: prependFeedItem(view.feed, { id, kind, text }) };
     }
     case "arena.finished": {
       const iWon = myUserId != null && msg.winners.includes(myUserId);
@@ -188,7 +190,15 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
           if (cancelled) return;
           setDetail(next);
           setLoadError(false);
-          setView((current) => current ?? initialView(next));
+          // round/feed/leaderboard/etc. are only ever set via WS; poll only refreshes counts/teams.
+          if (next.match.discipline !== "cs2") return;
+          const teams: readonly [string, string] = [next.match.teamScores[0].name, next.match.teamScores[1].name];
+          const { activePlayersCount } = next.arena;
+          setView((current) =>
+            current
+              ? { ...current, teams, survivors: activePlayersCount, totalPlayers: activePlayersCount }
+              : initialView(next),
+          );
         })
         .catch(() => undefined);
     }, 10_000);
@@ -203,6 +213,7 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
     let disposed = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
     let reconnectAttempt = 0;
+    let hasConnectedBefore = false;
 
     const connect = () => {
       const ws = new WebSocket(buildCs2WsUrl(token));
@@ -211,6 +222,15 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
         reconnectAttempt = 0;
         setConnected(true);
         ws.send(JSON.stringify({ type: "subscribe", arenaId }));
+        if (hasConnectedBefore) {
+          void fetchCs2ArenaRounds(arenaId)
+            .then((rounds) => {
+              if (disposed) return;
+              setView((v) => (v ? { ...v, feed: mergeFeedFromRounds(v.feed, rounds.rounds, myUserId.current) } : v));
+            })
+            .catch(() => undefined);
+        }
+        hasConnectedBefore = true;
       };
       ws.onclose = (event) => {
         if (wsRef.current === ws) wsRef.current = null;
