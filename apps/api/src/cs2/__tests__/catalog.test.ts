@@ -80,10 +80,10 @@ describe("eligibleCs2Candidates", () => {
     expect(hardWeapons.has("awp")).toBe(true);
   });
 
-  it("drops the previous round's exact candidate", () => {
+  it("drops every candidate sharing the previous round's topic", () => {
     const previousCandidate: Cs2Candidate = { topic: "survivors_round", params: { y: 2 } };
     const pool = eligibleCs2Candidates({ teams: TEAMS, roundNumber: 20, previousCandidate });
-    expect(pool).not.toContainEqual(previousCandidate);
+    expect(pool.some((c) => c.topic === "survivors_round")).toBe(false);
   });
 
   it("never returns an empty pool for any round 1-30", () => {

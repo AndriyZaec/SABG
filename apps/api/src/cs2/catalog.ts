@@ -48,13 +48,8 @@ export interface Cs2CandidatePickInput {
   previousCandidate: Cs2Candidate | undefined;
 }
 
-function sameCandidate(a: Cs2Candidate, b: Cs2Candidate): boolean {
-  return (
-    a.topic === b.topic &&
-    a.params.targetTeamId === b.params.targetTeamId &&
-    a.params.weapon === b.params.weapon &&
-    a.params.y === b.params.y
-  );
+function sameTopic(a: Cs2Candidate, b: Cs2Candidate): boolean {
+  return a.topic === b.topic;
 }
 
 function teamSlotOf(
@@ -82,7 +77,7 @@ export function eligibleCs2Candidates(input: Cs2CandidatePickInput): Cs2Candidat
     return cs2TierMatches(tier, difficulty);
   });
 
-  const varied = previousCandidate === undefined ? tierPool : tierPool.filter((c) => !sameCandidate(c, previousCandidate));
+  const varied = previousCandidate === undefined ? tierPool : tierPool.filter((c) => !sameTopic(c, previousCandidate));
   if (varied.length > 0) return varied;
   if (tierPool.length > 0) return tierPool;
   return nonBanned.length > 0 ? nonBanned : generalCandidates;
