@@ -299,7 +299,7 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     const arena1 = (await arenaRepository.findByMatchId(match1.id))!;
     arenaIds.push(arena1.id);
 
-    expect(pushMocks.sendPushToUser).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(pushMocks.sendPushToUser).toHaveBeenCalledTimes(1));
     expect(pushMocks.sendPushToUser).toHaveBeenCalledWith(
       follower.id,
       expect.objectContaining({ url: `/cs2/arena/${arena1.id}` }),

@@ -197,8 +197,8 @@ export class Cs2SeriesOrchestrator {
     const opened = await this.createRuntime(match, arena, [], false);
     this.arenasByMatchIndex.set(matchIndex, opened);
     this.options.onArenaOpened?.(arena.id, opened.runtime);
-    await this.notifyFollowersOfArenaOpen(arena.id);
     opened.runtime.openRoundOne(now, snapshot.teams);
+    void this.notifyFollowersOfArenaOpen(arena.id);
   }
 
   private async notifyFollowersOfArenaOpen(arenaId: Uuid): Promise<void> {
