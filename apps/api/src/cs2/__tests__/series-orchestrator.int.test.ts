@@ -1,13 +1,16 @@
 import { randomUUID } from "node:crypto";
 import dotenv from "dotenv";
 import { eq } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Cs2ArenaRuntime } from "../arena-runtime.js";
 import type { Cs2SeriesSnapshot } from "../series-snapshot.js";
 
 dotenv.config();
 
 const RUN = Boolean(process.env["DATABASE_URL"]);
+
+const pushMocks = vi.hoisted(() => ({ sendPushToUser: vi.fn() }));
+vi.mock("../../push/service.js", () => ({ sendPushToUser: pushMocks.sendPushToUser }));
 
 const MIN = 60_000;
 function clockFrom(anchorIso: string): (offsetMinutes: number) => string {
@@ -43,6 +46,7 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
   let WriteQueue: typeof import("../../gateway/stores/write-queue.js")["WriteQueue"];
   let Cs2SeriesOrchestrator: typeof import("../series-orchestrator.js")["Cs2SeriesOrchestrator"];
   let userRepository: typeof import("../../db/repositories/user.repository.js")["userRepository"];
+  let cs2SeriesFollowRepository: typeof import("../../db/repositories/cs2-series-follow.repository.js")["cs2SeriesFollowRepository"];
 
   const arenaIds: string[] = [];
   const matchIds: string[] = [];
@@ -62,6 +66,12 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     ({ WriteQueue } = await import("../../gateway/stores/write-queue.js"));
     ({ Cs2SeriesOrchestrator } = await import("../series-orchestrator.js"));
     ({ userRepository } = await import("../../db/repositories/user.repository.js"));
+    ({ cs2SeriesFollowRepository } = await import("../../db/repositories/cs2-series-follow.repository.js"));
+  });
+
+  beforeEach(() => {
+    pushMocks.sendPushToUser.mockReset();
+    pushMocks.sendPushToUser.mockResolvedValue(undefined);
   });
 
   afterAll(async () => {
@@ -265,5 +275,67 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: true, mapNames: ["mirage", "inferno"] }), at(0));
     const [afterSecondPoll] = await db.select({ mapNames: schema.series.mapNames }).from(schema.series).where(eq(schema.series.id, series.id));
     expect(afterSecondPoll?.mapNames).toEqual(["mirage", "inferno"]);
+  });
+
+  it("pushes every series follower when an arena opens, addressed to the arena that just opened — and sends nothing when there are no followers", async () => {
+    const at = clockFrom(new Date(Date.now() + 12 * 60 * MIN).toISOString());
+    const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
+      format: 3,
+      scheduledStartTime: new Date(at(0)),
+    });
+    seriesIds.push(series.id);
+    const matchTeamIds = await synchronizeTestTeams(series.id);
+
+    const follower = await userRepository.upsertByWallet(`int-test-wallet-${randomUUID()}`, "follower");
+    userIds.push(follower.id);
+    await cs2SeriesFollowRepository.follow(follower.id, series.id);
+
+    const writeQueue = new WriteQueue();
+    const orchestrator = await Cs2SeriesOrchestrator.create(series, { writeQueue, entryFeeLamports: 1000 });
+
+    await orchestrator.poll(snapshot(matchTeamIds, {}), at(-10));
+    const match1 = (await matchRepository.listBySeriesId(series.id))[0]!;
+    matchIds.push(match1.id);
+    const arena1 = (await arenaRepository.findByMatchId(match1.id))!;
+    arenaIds.push(arena1.id);
+
+    expect(pushMocks.sendPushToUser).toHaveBeenCalledTimes(1);
+    expect(pushMocks.sendPushToUser).toHaveBeenCalledWith(
+      follower.id,
+      expect.objectContaining({ url: `/cs2/arena/${arena1.id}` }),
+    );
+  });
+
+  it("does not block or fail arena opening when the push send throws", async () => {
+    const at = clockFrom(new Date(Date.now() + 15 * 60 * MIN).toISOString());
+    const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
+      format: 3,
+      scheduledStartTime: new Date(at(0)),
+    });
+    seriesIds.push(series.id);
+    const matchTeamIds = await synchronizeTestTeams(series.id);
+
+    const follower = await userRepository.upsertByWallet(`int-test-wallet-${randomUUID()}`, "follower");
+    userIds.push(follower.id);
+    await cs2SeriesFollowRepository.follow(follower.id, series.id);
+    pushMocks.sendPushToUser.mockRejectedValue(new Error("push provider unreachable"));
+
+    const writeQueue = new WriteQueue();
+    const openedArenas: { arenaId: string }[] = [];
+    const orchestrator = await Cs2SeriesOrchestrator.create(series, {
+      writeQueue,
+      entryFeeLamports: 1000,
+      onArenaOpened: (arenaId) => openedArenas.push({ arenaId }),
+    });
+
+    await orchestrator.poll(snapshot(matchTeamIds, {}), at(-10));
+
+    const match1 = (await matchRepository.listBySeriesId(series.id))[0]!;
+    matchIds.push(match1.id);
+    const arena1 = await arenaRepository.findByMatchId(match1.id);
+    expect(arena1).toBeDefined();
+    arenaIds.push(arena1!.id);
+    expect(arena1?.status).toBe("lobby");
+    expect(openedArenas).toEqual([{ arenaId: arena1!.id }]);
   });
 });
