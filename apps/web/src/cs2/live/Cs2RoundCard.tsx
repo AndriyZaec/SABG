@@ -11,6 +11,8 @@ export function Cs2RoundCard({
   connected,
   eliminated = false,
   participant = true,
+  muted,
+  onToggleMute,
 }: {
   round: Cs2RoundView;
   onAnswer?: (a: Answer) => void;
@@ -18,6 +20,8 @@ export function Cs2RoundCard({
   connected: boolean;
   eliminated?: boolean;
   participant?: boolean;
+  muted?: boolean;
+  onToggleMute?: () => void;
 }) {
   const isOpen = round.status === "open";
   const currentSubmission = "roundId" in submission && submission.roundId === round.roundId ? submission : undefined;
@@ -34,9 +38,16 @@ export function Cs2RoundCard({
       <h2 style={{ marginBottom: 14 }}>{round.question}</h2>
 
       <div className="nb-row" style={{ justifyContent: "space-between" }}>
-        <span className="nb-label">
-          {round.status === "voided" ? "Voided" : round.status === "locked" ? "Locked" : "Open"}
-        </span>
+        <div className="nb-row" style={{ gap: 10 }}>
+          {onToggleMute && (
+            <button type="button" className="nb-btn nb-btn--plain" onClick={onToggleMute}>
+              {muted ? "🔇" : "🔊"}
+            </button>
+          )}
+          <span className="nb-label">
+            {round.status === "voided" ? "Voided" : round.status === "locked" ? "Locked" : "Open"}
+          </span>
+        </div>
       </div>
 
       {isOpen && participant && !eliminated && (

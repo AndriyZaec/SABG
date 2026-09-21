@@ -15,6 +15,7 @@ import {
   VOID_FEED_TEXT,
 } from "../../arena/feedFromRounds.js";
 import type { Cs2AnswerSubmission, Cs2ArenaView, LeaderRow } from "../cs2View.js";
+import type { Cs2NewRoundSignal } from "./useCs2RoundAlerts.js";
 
 function buildCs2WsUrl(token: string | null): string {
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -143,6 +144,7 @@ export interface Cs2ArenaSocket {
   answerSubmission: Cs2AnswerSubmission;
   submitAnswer: (answer: Answer) => void;
   retry: () => void;
+  newRoundSignal: Cs2NewRoundSignal | null;
 }
 
 export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
@@ -153,8 +155,10 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
   const [view, setView] = useState<Cs2ArenaView | null>(null);
   const [connected, setConnected] = useState(false);
   const [answerSubmission, setAnswerSubmission] = useState<Cs2AnswerSubmission>({ status: "idle" });
+  const [newRoundSignal, setNewRoundSignal] = useState<Cs2NewRoundSignal | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const myUserId = useRef<string | undefined>(undefined);
+  const lastRoundId = useRef<string | undefined>(undefined);
   myUserId.current = user?.id;
 
   useEffect(() => {
@@ -162,6 +166,7 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
     setDetail(null);
     setLoadError(false);
     setView(null);
+    lastRoundId.current = undefined;
     void Promise.all([
       fetchCs2ArenaDetail(arenaId),
       fetchCs2Leaderboard(arenaId).catch(() => null),
@@ -170,6 +175,7 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
       .then(([detail, board, rounds]) => {
         if (cancelled) return;
         setDetail(detail);
+        lastRoundId.current = detail.currentRound?.id;
         const rows: LeaderRow[] = (board?.entries ?? []).map((e, i) => ({
           rank: e.rank ?? i + 1,
           name: e.username,
@@ -258,6 +264,10 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
               setAnswerSubmission((current) =>
                 "roundId" in current && current.roundId === msg.round.id ? current : { status: "idle" },
               );
+              if (lastRoundId.current !== msg.round.id) {
+                lastRoundId.current = msg.round.id;
+                setNewRoundSignal({ roundId: msg.round.id });
+              }
               break;
             case "answer.accepted":
               setAnswerSubmission({ status: "accepted", roundId: msg.roundId, answer: msg.answer });
@@ -325,5 +335,6 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
     answerSubmission,
     submitAnswer,
     retry: () => setLoadAttempt((current) => current + 1),
+    newRoundSignal,
   };
 }
