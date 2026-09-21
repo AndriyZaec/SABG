@@ -60,6 +60,27 @@ function teamSlotOf(
   return teams[0].teamId === targetTeamId ? 0 : teams[1].teamId === targetTeamId ? 1 : undefined;
 }
 
+function collapseFlatPoolTopics(
+  pool: readonly Cs2Candidate[],
+  isPistolRound: boolean,
+  teams: readonly [Cs2TeamIdentity, Cs2TeamIdentity],
+): Cs2Candidate[] {
+  const byTopic = new Map<Cs2Topic, Cs2Candidate[]>();
+  const calibrated: Cs2Candidate[] = [];
+  for (const c of pool) {
+    const difficulty = cs2Difficulty(c, isPistolRound, teamSlotOf(teams, c.params.targetTeamId));
+    if (difficulty !== undefined) {
+      calibrated.push(c);
+      continue;
+    }
+    const group = byTopic.get(c.topic) ?? [];
+    group.push(c);
+    byTopic.set(c.topic, group);
+  }
+  const collapsed = [...byTopic.values()].map((group) => group[Math.floor(Math.random() * group.length)]!);
+  return [...calibrated, ...collapsed];
+}
+
 export function eligibleCs2Candidates(input: Cs2CandidatePickInput): Cs2Candidate[] {
   const { teams, roundNumber, previousCandidate } = input;
   const isPistolRound = isCs2PistolRound(roundNumber);
@@ -76,10 +97,11 @@ export function eligibleCs2Candidates(input: Cs2CandidatePickInput): Cs2Candidat
     if (difficulty === undefined) return tier !== "easy";
     return cs2TierMatches(tier, difficulty);
   });
+  const weightedPool = collapseFlatPoolTopics(tierPool, isPistolRound, teams);
 
-  const varied = previousCandidate === undefined ? tierPool : tierPool.filter((c) => !sameTopic(c, previousCandidate));
+  const varied = previousCandidate === undefined ? weightedPool : weightedPool.filter((c) => !sameTopic(c, previousCandidate));
   if (varied.length > 0) return varied;
-  if (tierPool.length > 0) return tierPool;
+  if (weightedPool.length > 0) return weightedPool;
   return nonBanned.length > 0 ? nonBanned : generalCandidates;
 }
 

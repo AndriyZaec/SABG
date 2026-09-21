@@ -47,6 +47,15 @@ describe("eligibleCs2Candidates", () => {
     expect(hard.some((c) => c.topic === "survivors_team")).toBe(true);
   });
 
+  it("collapses flat-pool topics to at most one candidate each, instead of one per param combination", () => {
+    for (let i = 0; i < 20; i++) {
+      const medium = eligibleCs2Candidates({ teams: TEAMS, roundNumber: 10, previousCandidate: undefined });
+      const hard = eligibleCs2Candidates({ teams: TEAMS, roundNumber: 20, previousCandidate: undefined });
+      expect(medium.filter((c) => c.topic === "round_winner").length).toBeLessThanOrEqual(1);
+      expect(hard.filter((c) => c.topic === "survivors_team").length).toBeLessThanOrEqual(1);
+    }
+  });
+
   it("Round 1 allows glock/usp_silencer (pistol exception) but bans ak47/awp/molotov/hegrenade", () => {
     const pool = eligibleCs2Candidates({ teams: TEAMS, roundNumber: 1, previousCandidate: undefined });
     const weapons = new Set(pool.filter((c) => c.topic === "weapon_kill").map((c) => c.params.weapon));
