@@ -130,7 +130,7 @@ export function renderCs2Question(
     case "team_ace":
       return `Will every player on Team ${teamName(params, topic, teams)} get a kill this round?`;
     case "multikill":
-      return `Will Team ${teamName(params, topic, teams)} get a ${requireY(params, topic)}-kill this round?`;
+      return `Will a player on Team ${teamName(params, topic, teams)} get ${requireY(params, topic)} kills this round?`;
     case "survivors_team":
       return `Will Team ${teamName(params, topic, teams)} have more than ${requireY(params, topic)} survivors this round?`;
     case "survivors_round":
