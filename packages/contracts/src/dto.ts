@@ -261,6 +261,21 @@ export interface ArenaRoundsResponse {
   rounds: RoundWithPredictions[];
 }
 
+/** POST /push/subscribe — save a browser's Web Push subscription. */
+export interface PushSubscribeRequest {
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+}
+export interface PushSubscribeResponse {
+  subscribed: true;
+}
+
+/** POST /cs2/series/:id/follow — opt into arena-open push notifications for a series. */
+export interface Cs2SeriesFollowResponse {
+  followed: true;
+}
+
 export interface ApiError {
   error: string;
   message: string;

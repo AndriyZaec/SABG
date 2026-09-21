@@ -7,10 +7,13 @@ import type {
   ArenaRoundsResponse,
   BuyEntryRequest,
   BuyEntryResponse,
+  Cs2SeriesFollowResponse,
   LeaderboardResponse,
   MatchListResponse,
   PrepareEntryRequest,
   PrepareEntryResponse,
+  PushSubscribeRequest,
+  PushSubscribeResponse,
   RoundWithPredictions,
   SubmitAnswerRequest,
   SubmitAnswerResponse,
@@ -29,6 +32,9 @@ import { arenaPlayerRepository } from "../db/repositories/arena-player.repositor
 import { predictionRoundRepository } from "../db/repositories/prediction-round.repository.js";
 import { predictionRepository } from "../db/repositories/prediction.repository.js";
 import { entryPassRepository } from "../db/repositories/entry-pass.repository.js";
+import { pushSubscriptionRepository } from "../db/repositories/push-subscription.repository.js";
+import { cs2SeriesFollowRepository } from "../db/repositories/cs2-series-follow.repository.js";
+import { seriesRepository } from "../db/repositories/series.repository.js";
 import { issueToken, requireAuth, type AuthedRequest } from "./auth.js";
 import { issueNonce, consumeNonce } from "./nonce-store.js";
 import { beginEntrySubmission, stashPrepare, takePrepare } from "./entry-prepare-store.js";
@@ -398,6 +404,36 @@ export function createRestRouter(runtimeLookup: ArenaRuntimeLookup): RouterType 
     );
     res.json({ rounds: withPredictions });
   });
+
+  router.post<Record<string, never>, PushSubscribeResponse | ApiError, PushSubscribeRequest>(
+    "/push/subscribe",
+    requireAuth,
+    async (req, res) => {
+      const { endpoint, p256dh, auth } = req.body;
+      if (!endpoint || !p256dh || !auth) {
+        res.status(400).json({ error: "bad_request", message: "endpoint, p256dh and auth are required" });
+        return;
+      }
+      const userId = (req as unknown as AuthedRequest).userId;
+      await pushSubscriptionRepository.upsert(userId, { endpoint, p256dh, auth });
+      res.json({ subscribed: true });
+    },
+  );
+
+  router.post<{ id: string }, Cs2SeriesFollowResponse | ApiError>(
+    "/cs2/series/:id/follow",
+    requireAuth,
+    async (req, res) => {
+      const series = await seriesRepository.findById(req.params.id);
+      if (!series) {
+        notFound(res, "Series not found");
+        return;
+      }
+      const userId = (req as unknown as AuthedRequest).userId;
+      await cs2SeriesFollowRepository.follow(userId, req.params.id);
+      res.json({ followed: true });
+    },
+  );
 
   router.use((req, res) => {
     notFound(res, `No route for ${req.method} ${req.path}`);
