@@ -64,6 +64,20 @@ export const users = pgTable("user", {
   uniqueIndex("user_wallet_address_idx").on(t.walletAddress),
 ]);
 
+export const pushSubscriptions = pgTable("push_subscription", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id),
+  endpoint: text("endpoint").notNull(),
+  p256dh: text("p256dh").notNull(),
+  auth: text("auth").notNull(),
+  ...timestamps,
+}, (t) => [
+  uniqueIndex("push_subscription_endpoint_idx").on(t.endpoint),
+  index("push_subscription_user_id_idx").on(t.userId),
+]);
+
 export const cs2Competitions = pgTable("cs2_competition", {
   id: uuid("id").primaryKey().defaultRandom(),
   gridTournamentId: text("grid_tournament_id").notNull(),
@@ -92,6 +106,19 @@ export const series = pgTable("series", {
   index("series_competition_id_idx").on(t.competitionId),
   index("series_catalog_idx").on(t.isSupported, t.catalogLifecycle, t.scheduledStartTime),
   check("series_format_check", sql`${t.format} between 1 and 7`),
+]);
+
+export const cs2SeriesFollows = pgTable("cs2_series_follow", {
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id),
+  seriesId: uuid("series_id")
+    .notNull()
+    .references(() => series.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.userId, t.seriesId], name: "cs2_series_follow_pk" }),
+  index("cs2_series_follow_series_id_idx").on(t.seriesId),
 ]);
 
 export const cs2Teams = pgTable("cs2_team", {
