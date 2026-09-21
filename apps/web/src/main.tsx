@@ -7,6 +7,10 @@ import "./styles/theme.css";
 // Solana web3/wallet-adapter expect Node's Buffer in the browser.
 globalThis.Buffer = globalThis.Buffer ?? Buffer;
 
+if ("serviceWorker" in navigator) {
+  void navigator.serviceWorker.register("/sw.js");
+}
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <App />

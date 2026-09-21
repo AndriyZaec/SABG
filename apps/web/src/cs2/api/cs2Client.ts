@@ -2,10 +2,13 @@ import type {
   ArenaDetailResponse,
   ArenaRoundsResponse,
   Cs2SeriesDetailResponse,
+  Cs2SeriesFollowResponse,
   Cs2SeriesListResponse,
   LeaderboardResponse,
   PrepareEntryRequest,
   PrepareEntryResponse,
+  PushSubscribeRequest,
+  PushSubscribeResponse,
   SubmitEntryRequest,
   SubmitEntryResponse,
 } from "@arena/contracts";
@@ -63,4 +66,12 @@ export async function prepareCs2Entry(arenaId: string, walletAddress: string): P
 
 export async function submitCs2Entry(arenaId: string, prepareId: string, signedTx: string): Promise<SubmitEntryResponse> {
   return post<SubmitEntryRequest, SubmitEntryResponse>(`/arenas/${arenaId}/entry/submit`, { prepareId, signedTx });
+}
+
+export async function subscribeToPush(subscription: PushSubscribeRequest): Promise<PushSubscribeResponse> {
+  return post<PushSubscribeRequest, PushSubscribeResponse>("/push/subscribe", subscription, true);
+}
+
+export async function followCs2Series(seriesId: string): Promise<Cs2SeriesFollowResponse> {
+  return post<Record<string, never>, Cs2SeriesFollowResponse>(`/cs2/series/${seriesId}/follow`, {}, true);
 }
