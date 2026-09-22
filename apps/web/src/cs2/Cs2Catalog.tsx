@@ -32,7 +32,7 @@ function UpcomingQueueItem({ item, next }: { item: Cs2SeriesSummary; next: boole
   const content = (
     <>
       <div className="cs2-broadcast__queue-time-col">
-        <NotifyMeToggle seriesId={item.id} compact />
+        <NotifyMeToggle seriesId={item.id} />
         <time className="cs2-broadcast__queue-time">{eventTime.format(new Date(item.scheduledStartTime))}</time>
       </div>
       <div className="cs2-broadcast__queue-body">

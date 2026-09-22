@@ -2,7 +2,6 @@ import type { Cs2SeriesAvailability, Cs2SeriesMapSummary, Cs2SeriesParticipant }
 import { Link, useParams } from "react-router-dom";
 import { Badge } from "../ui/Badge.js";
 import { Loading } from "../ui/Loading.js";
-import { NotifyMeToggle } from "./NotifyMeToggle.js";
 import { TeamLogo } from "./TeamLogo.js";
 import { useCs2Series } from "./useCs2Catalog.js";
 
@@ -106,7 +105,6 @@ export function Cs2SeriesScreen() {
           <div><span className="nb-label">{series.competition.name}</span><strong>Best of {series.format}</strong></div>
           <Badge tone={series.lifecycle === "live" ? "live" : "neutral"}>{series.lifecycle}</Badge>
           {series.availability === "soon" && <span className="cs2-soon-label cs2-soon-label--detail">[SOON]</span>}
-          <NotifyMeToggle seriesId={series.id} />
         </div>
         <div className="cs2-match-hero__versus">
           {[first, second].map((participant, index) => (
