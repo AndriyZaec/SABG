@@ -8,6 +8,7 @@ import { TeamLogo } from "./TeamLogo.js";
 import { useCs2Series } from "./useCs2Catalog.js";
 import { useCs2ArenaEntry } from "./useCs2ArenaEntry.js";
 import { useCs2RoundAlerts, type Cs2NewRoundSignal } from "./live/useCs2RoundAlerts.js";
+import { useCs2VictoryAlert } from "./live/useCs2VictoryAlert.js";
 import type { Cs2AnswerSubmission, Cs2ArenaView } from "./cs2View.js";
 import { EliminationFeed } from "../arena/live/EliminationFeed.js";
 import { LeaderboardRail } from "../arena/live/LeaderboardRail.js";
@@ -105,7 +106,7 @@ function Cs2ArenaLobby({
 
 export function Cs2ArenaScreen() {
   const { arenaId = "" } = useParams();
-  const { detail, loadError, retry, view, connected, answerSubmission, submitAnswer, newRoundSignal } =
+  const { detail, loadError, retry, view, connected, answerSubmission, submitAnswer, newRoundSignal, victorySignal } =
     useCs2ArenaSocket(arenaId);
 
   if (!arenaId) {
@@ -175,6 +176,7 @@ export function Cs2ArenaScreen() {
       answerSubmission={answerSubmission}
       submitAnswer={submitAnswer}
       newRoundSignal={newRoundSignal}
+      victorySignal={victorySignal}
     />
   );
 }
@@ -185,16 +187,19 @@ function Cs2ArenaLive({
   answerSubmission,
   submitAnswer,
   newRoundSignal,
+  victorySignal,
 }: {
   view: Cs2ArenaView;
   connected: boolean;
   answerSubmission: Cs2AnswerSubmission;
   submitAnswer: (answer: Answer) => void;
   newRoundSignal: Cs2NewRoundSignal | null;
+  victorySignal: number;
 }) {
   const isParticipant = view.myStatus !== undefined;
   const pending = (view.pendingPredictions ?? []).filter((prediction) => prediction.roundId !== view.round?.roundId);
   const [muted, toggleMuted] = useCs2RoundAlerts(newRoundSignal, isParticipant);
+  useCs2VictoryAlert(victorySignal, muted);
 
   return (
     <div className="nb-container">

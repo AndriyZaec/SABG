@@ -145,6 +145,8 @@ export interface Cs2ArenaSocket {
   submitAnswer: (answer: Answer) => void;
   retry: () => void;
   newRoundSignal: Cs2NewRoundSignal | null;
+  /** Increments once, the first time this player's status genuinely becomes "winner". */
+  victorySignal: number;
 }
 
 export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
@@ -156,9 +158,13 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
   const [connected, setConnected] = useState(false);
   const [answerSubmission, setAnswerSubmission] = useState<Cs2AnswerSubmission>({ status: "idle" });
   const [newRoundSignal, setNewRoundSignal] = useState<Cs2NewRoundSignal | null>(null);
+  const [victorySignal, setVictorySignal] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
   const myUserId = useRef<string | undefined>(undefined);
   const lastRoundId = useRef<string | undefined>(undefined);
+  // Tracks whether we've already counted this player's win, so a duplicate signal for the same
+  // win (player.status AND arena.finished both arrive for one finish) doesn't double-fire.
+  const wasWinner = useRef(false);
   myUserId.current = user?.id;
 
   useEffect(() => {
@@ -167,6 +173,7 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
     setLoadError(false);
     setView(null);
     lastRoundId.current = undefined;
+    wasWinner.current = false;
     void Promise.all([
       fetchCs2ArenaDetail(arenaId),
       fetchCs2Leaderboard(arenaId).catch(() => null),
@@ -224,6 +231,10 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
     const connect = () => {
       const ws = new WebSocket(buildCs2WsUrl(token));
       wsRef.current = ws;
+      // The subscribe response always includes a personal-state resync as its first
+      // status-bearing message (apps/api/src/gateway/ws.ts's subscribe handler) — never a live
+      // transition. Skip it so reconnecting to an already-won arena doesn't replay the sound.
+      let restoredStatus = false;
       ws.onopen = () => {
         reconnectAttempt = 0;
         setConnected(true);
@@ -287,6 +298,26 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
                   : { status: "accepted", roundId: msg.roundId, answer: msg.answer },
               );
               break;
+            case "player.status":
+              if (!restoredStatus) {
+                restoredStatus = true;
+                if (msg.status === "winner") wasWinner.current = true;
+              } else if (msg.status === "winner" && !wasWinner.current) {
+                wasWinner.current = true;
+                setVictorySignal((n) => n + 1);
+              }
+              break;
+            case "arena.finished": {
+              const iWon = myUserId.current != null && msg.winners.includes(myUserId.current);
+              if (!restoredStatus) {
+                restoredStatus = true;
+                if (iWon) wasWinner.current = true;
+              } else if (iWon && !wasWinner.current) {
+                wasWinner.current = true;
+                setVictorySignal((n) => n + 1);
+              }
+              break;
+            }
           }
           setView((v) => (v ? reduce(v, msg, myUserId.current) : v));
         } catch {
@@ -336,5 +367,6 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
     submitAnswer,
     retry: () => setLoadAttempt((current) => current + 1),
     newRoundSignal,
+    victorySignal,
   };
 }
