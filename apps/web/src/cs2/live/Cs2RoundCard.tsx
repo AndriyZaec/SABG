@@ -33,21 +33,30 @@ export function Cs2RoundCard({
     onAnswer?.(a);
   };
 
+  const title = (
+    <div className="nb-row" style={{ justifyContent: "space-between", gap: 10 }}>
+      <span>Round {round.roundNumber}</span>
+      {onToggleMute && (
+        <button
+          type="button"
+          className="nb-btn nb-btn--plain"
+          style={{ padding: "4px 8px", fontSize: "0.8rem" }}
+          onClick={onToggleMute}
+        >
+          {muted ? "🔇" : "🔊"}
+        </button>
+      )}
+    </div>
+  );
+
   return (
-    <Panel title={`Round ${round.roundNumber}`} accent="blue" className="nb-rise">
+    <Panel title={title} accent="blue" className="nb-rise">
       <h2 style={{ marginBottom: 14 }}>{round.question}</h2>
 
       <div className="nb-row" style={{ justifyContent: "space-between" }}>
-        <div className="nb-row" style={{ gap: 10 }}>
-          {onToggleMute && (
-            <button type="button" className="nb-btn nb-btn--plain" onClick={onToggleMute}>
-              {muted ? "🔇" : "🔊"}
-            </button>
-          )}
-          <span className="nb-label">
-            {round.status === "voided" ? "Voided" : round.status === "locked" ? "Locked" : "Open"}
-          </span>
-        </div>
+        <span className="nb-label">
+          {round.status === "voided" ? "Voided" : round.status === "locked" ? "Locked" : "Open"}
+        </span>
       </div>
 
       {isOpen && participant && !eliminated && (

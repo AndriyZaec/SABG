@@ -659,10 +659,14 @@ a { color: var(--ink); text-decoration: none; }
 .cs2-broadcast__queue-day-head { position: sticky; z-index: 1; top: 0; border-bottom: 2px solid var(--ink); background: var(--paper); padding: 6px 12px; font-size: 0.58rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
 .cs2-broadcast__queue-item { position: relative; display: grid; grid-template-columns: 62px minmax(0, 1fr) 46px; align-items: center; gap: 12px; overflow: hidden; padding: 13px 12px; border-bottom: 2px solid var(--ink); }
 .cs2-broadcast__queue-item--next { box-shadow: inset 7px 0 0 var(--yellow); }
-.cs2-broadcast__queue-item--soon { cursor: not-allowed; opacity: 0.62; }
+.cs2-broadcast__queue-item--soon { cursor: not-allowed; }
+.cs2-broadcast__queue-item--soon .cs2-broadcast__queue-time,
+.cs2-broadcast__queue-item--soon .cs2-broadcast__queue-body,
+.cs2-broadcast__queue-item--soon .cs2-broadcast__queue-tags { opacity: 0.62; }
 .cs2-broadcast__queue-item:last-child { border-bottom: 0; }
 .cs2-broadcast__queue-item:not(.cs2-broadcast__queue-item--soon):hover { background: var(--yellow); }
-.cs2-broadcast__queue-time { align-self: stretch; display: grid; place-items: center; border-right: 2px solid var(--ink); padding-right: 10px; font: 1.25rem var(--font-display); }
+.cs2-broadcast__queue-time-col { align-self: stretch; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; border-right: 2px solid var(--ink); padding-right: 10px; }
+.cs2-broadcast__queue-time { font: 1.25rem var(--font-display); }
 .cs2-broadcast__queue-body { display: grid; gap: 9px; }
 .cs2-broadcast__queue-teams { display: grid; gap: 5px; }
 .cs2-broadcast__queue-teams > span { display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: center; gap: 8px; }
@@ -672,6 +676,8 @@ a { color: var(--ink); text-decoration: none; }
 .cs2-broadcast__queue-tags span { border: 2px solid var(--ink); background: var(--yellow); padding: 1px 4px; font-size: 0.5rem; font-weight: 700; text-transform: uppercase; }
 .cs2-broadcast__queue-tags b { font-size: 0.62rem; text-transform: uppercase; }
 .cs2-broadcast__queue-tags i { font: 1rem var(--font-mono); font-style: normal; }
+.cs2-notify-bell { border: 2px solid var(--ink); background: var(--white); padding: 3px 7px; font-size: 0.95rem; line-height: 1.4; cursor: pointer; }
+.cs2-notify-bell--on { background: var(--yellow); }
 .cs2-broadcast__queue-empty { min-height: 220px; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; padding: 26px 20px; }
 .cs2-broadcast__queue-empty strong { font: 2rem var(--font-display); text-transform: uppercase; }
 .cs2-broadcast__queue-empty p { max-width: 280px; margin: 8px 0 18px; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; }

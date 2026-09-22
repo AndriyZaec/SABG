@@ -1,31 +1,10 @@
 import type { Cs2SeriesAvailability, Cs2SeriesMapSummary, Cs2SeriesParticipant } from "@arena/contracts";
 import { Link, useParams } from "react-router-dom";
 import { Badge } from "../ui/Badge.js";
-import { Button } from "../ui/Button.js";
 import { Loading } from "../ui/Loading.js";
+import { NotifyMeToggle } from "./NotifyMeToggle.js";
 import { TeamLogo } from "./TeamLogo.js";
 import { useCs2Series } from "./useCs2Catalog.js";
-import { useCs2NotifyMe } from "./useCs2NotifyMe.js";
-
-function NotifyMeToggle({ seriesId }: { seriesId: string }) {
-  const { status, walletConnected, toggle } = useCs2NotifyMe(seriesId);
-
-  if (!walletConnected) {
-    return <span className="nb-label">Connect a wallet in the top bar to get notified.</span>;
-  }
-  if (status === "subscribed") {
-    return <Badge tone="survive">Notifications on</Badge>;
-  }
-  return (
-    <div>
-      <Button variant="plain" onClick={toggle} disabled={status === "working"}>
-        {status === "working" ? "Enabling…" : "Notify me"}
-      </Button>
-      {status === "denied" && <p className="nb-label">Notifications blocked — allow them in your browser settings.</p>}
-      {status === "error" && <p className="nb-label">Couldn&apos;t enable notifications — try again.</p>}
-    </div>
-  );
-}
 
 function participantName(participant: Cs2SeriesParticipant): string {
   return participant.state === "known" ? (participant.team.shortName ?? participant.team.name) : "TBD";
