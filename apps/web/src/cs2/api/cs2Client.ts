@@ -4,6 +4,7 @@ import type {
   Cs2SeriesDetailResponse,
   Cs2SeriesFollowResponse,
   Cs2SeriesFollowsResponse,
+  Cs2SeriesUnfollowResponse,
   Cs2SeriesListResponse,
   LeaderboardResponse,
   PrepareEntryRequest,
@@ -30,6 +31,16 @@ async function post<TReq, TRes>(path: string, body: TReq, authed = false): Promi
   const token = getAuthToken();
   if (authed && token) headers["authorization"] = `Bearer ${token}`;
   const res = await fetch(`/cs2-api${path}`, { method: "POST", headers, body: JSON.stringify(body) });
+  await reportEventAccessFailure(res);
+  if (!res.ok) throw new Error(`${path} failed (${res.status})`);
+  return (await res.json()) as TRes;
+}
+
+async function del<TRes>(path: string, authed = false): Promise<TRes> {
+  const headers: Record<string, string> = {};
+  const token = getAuthToken();
+  if (authed && token) headers["authorization"] = `Bearer ${token}`;
+  const res = await fetch(`/cs2-api${path}`, { method: "DELETE", headers });
   await reportEventAccessFailure(res);
   if (!res.ok) throw new Error(`${path} failed (${res.status})`);
   return (await res.json()) as TRes;
@@ -82,4 +93,8 @@ export async function subscribeToPush(subscription: PushSubscribeRequest): Promi
 
 export async function followCs2Series(seriesId: string): Promise<Cs2SeriesFollowResponse> {
   return post<Record<string, never>, Cs2SeriesFollowResponse>(`/cs2/series/${seriesId}/follow`, {}, true);
+}
+
+export async function unfollowCs2Series(seriesId: string): Promise<Cs2SeriesUnfollowResponse> {
+  return del<Cs2SeriesUnfollowResponse>(`/cs2/series/${seriesId}/follow`, true);
 }

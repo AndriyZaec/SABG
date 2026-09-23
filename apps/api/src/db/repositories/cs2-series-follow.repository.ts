@@ -8,6 +8,12 @@ export const cs2SeriesFollowRepository = {
     await db.insert(cs2SeriesFollows).values({ userId, seriesId }).onConflictDoNothing();
   },
 
+  async unfollow(userId: Uuid, seriesId: Uuid): Promise<void> {
+    await db
+      .delete(cs2SeriesFollows)
+      .where(and(eq(cs2SeriesFollows.userId, userId), eq(cs2SeriesFollows.seriesId, seriesId)));
+  },
+
   async listFollowerUserIds(seriesId: Uuid): Promise<Uuid[]> {
     const rows = await db
       .select({ userId: cs2SeriesFollows.userId })

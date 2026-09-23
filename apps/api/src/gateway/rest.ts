@@ -8,6 +8,7 @@ import type {
   BuyEntryRequest,
   BuyEntryResponse,
   Cs2SeriesFollowResponse,
+  Cs2SeriesUnfollowResponse,
   LeaderboardResponse,
   MatchListResponse,
   PrepareEntryRequest,
@@ -432,6 +433,21 @@ export function createRestRouter(runtimeLookup: ArenaRuntimeLookup): RouterType 
       const userId = (req as unknown as AuthedRequest).userId;
       await cs2SeriesFollowRepository.follow(userId, req.params.id);
       res.json({ followed: true });
+    },
+  );
+
+  router.delete<{ id: string }, Cs2SeriesUnfollowResponse | ApiError>(
+    "/cs2/series/:id/follow",
+    requireAuth,
+    async (req, res) => {
+      const series = await seriesRepository.findById(req.params.id);
+      if (!series) {
+        notFound(res, "Series not found");
+        return;
+      }
+      const userId = (req as unknown as AuthedRequest).userId;
+      await cs2SeriesFollowRepository.unfollow(userId, req.params.id);
+      res.json({ followed: false });
     },
   );
 

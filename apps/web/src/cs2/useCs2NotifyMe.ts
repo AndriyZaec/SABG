@@ -1,7 +1,7 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useAuth } from "../auth/AuthContext.js";
-import { followCs2Series, subscribeToPush } from "./api/cs2Client.js";
+import { followCs2Series, subscribeToPush, unfollowCs2Series } from "./api/cs2Client.js";
 
 type Status = "idle" | "working" | "subscribed" | "denied" | "error";
 
@@ -24,36 +24,53 @@ export function useCs2NotifyMe(seriesId: string, initiallyFollowing: boolean): C
   const { connected } = useWallet();
   const { token, signIn } = useAuth();
   const [status, setStatus] = useState<Status>(initiallyFollowing ? "subscribed" : "idle");
+  const busyRef = useRef(false);
 
   const toggle = useCallback(async () => {
-    const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
-    if (!vapidPublicKey || !("serviceWorker" in navigator) || !("PushManager" in window)) {
-      setStatus("error");
-      return;
-    }
-    setStatus("working");
+    if (busyRef.current) return;
+    busyRef.current = true;
     try {
-      if (!token) await signIn();
-      const permission = await Notification.requestPermission();
-      if (permission !== "granted") {
-        setStatus("denied");
+      if (status === "subscribed") {
+        setStatus("working");
+        try {
+          await unfollowCs2Series(seriesId);
+          setStatus("idle");
+        } catch {
+          setStatus("subscribed");
+        }
         return;
       }
-      const registration = await navigator.serviceWorker.ready;
-      const subscription =
-        (await registration.pushManager.getSubscription()) ??
-        (await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
-        }));
-      const { endpoint, keys } = subscription.toJSON() as { endpoint: string; keys: { p256dh: string; auth: string } };
-      await subscribeToPush({ endpoint, p256dh: keys.p256dh, auth: keys.auth });
-      await followCs2Series(seriesId);
-      setStatus("subscribed");
-    } catch {
-      setStatus("error");
+      const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
+      if (!vapidPublicKey || !("serviceWorker" in navigator) || !("PushManager" in window)) {
+        setStatus("error");
+        return;
+      }
+      setStatus("working");
+      try {
+        if (!token) await signIn();
+        const permission = await Notification.requestPermission();
+        if (permission !== "granted") {
+          setStatus("denied");
+          return;
+        }
+        const registration = await navigator.serviceWorker.ready;
+        const subscription =
+          (await registration.pushManager.getSubscription()) ??
+          (await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
+          }));
+        const { endpoint, keys } = subscription.toJSON() as { endpoint: string; keys: { p256dh: string; auth: string } };
+        await subscribeToPush({ endpoint, p256dh: keys.p256dh, auth: keys.auth });
+        await followCs2Series(seriesId);
+        setStatus("subscribed");
+      } catch {
+        setStatus("error");
+      }
+    } finally {
+      busyRef.current = false;
     }
-  }, [seriesId, token, signIn]);
+  }, [seriesId, status, token, signIn]);
 
   return { status, walletConnected: connected, toggle };
 }

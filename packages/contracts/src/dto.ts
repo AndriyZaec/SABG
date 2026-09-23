@@ -281,6 +281,11 @@ export interface Cs2SeriesFollowResponse {
   followed: true;
 }
 
+/** DELETE /cs2/series/:id/follow — opt out of arena-open push notifications for a series. */
+export interface Cs2SeriesUnfollowResponse {
+  followed: false;
+}
+
 export interface ApiError {
   error: string;
   message: string;

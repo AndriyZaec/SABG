@@ -13,7 +13,16 @@ export function NotifyMeToggle({ seriesId, initiallyFollowing }: { seriesId: str
   };
 
   if (status === "subscribed") {
-    return <span className="cs2-notify-bell cs2-notify-bell--on" title="Notifications on">🔔</span>;
+    return (
+      <button
+        type="button"
+        className="cs2-notify-bell cs2-notify-bell--on"
+        title="Notifications on — click to turn off"
+        onClick={onClick}
+      >
+        🔔
+      </button>
+    );
   }
   return (
     <button
