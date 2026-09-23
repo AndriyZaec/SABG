@@ -2,8 +2,8 @@ import type { MouseEvent } from "react";
 import { useCs2NotifyMe } from "./useCs2NotifyMe.js";
 
 /** Icon-only bell for the upcoming-series queue. Hidden until a wallet is connected. */
-export function NotifyMeToggle({ seriesId }: { seriesId: string }) {
-  const { status, walletConnected, toggle } = useCs2NotifyMe(seriesId);
+export function NotifyMeToggle({ seriesId, initiallyFollowing }: { seriesId: string; initiallyFollowing: boolean }) {
+  const { status, walletConnected, toggle } = useCs2NotifyMe(seriesId, initiallyFollowing);
   if (!walletConnected) return null;
 
   const onClick = (e: MouseEvent) => {

@@ -133,6 +133,11 @@ export interface Cs2SeriesListResponse {
   series: Cs2SeriesSummary[];
 }
 
+/** GET /series/follows?ids=... — which of the given series ids the authenticated user follows. */
+export interface Cs2SeriesFollowsResponse {
+  followedIds: Uuid[];
+}
+
 /** GET /series/:seriesId */
 export interface Cs2SeriesDetailResponse {
   series: Cs2SeriesDetail;

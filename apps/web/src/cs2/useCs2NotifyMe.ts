@@ -20,10 +20,10 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
   return output;
 }
 
-export function useCs2NotifyMe(seriesId: string): Cs2NotifyMe {
+export function useCs2NotifyMe(seriesId: string, initiallyFollowing: boolean): Cs2NotifyMe {
   const { connected } = useWallet();
   const { token, signIn } = useAuth();
-  const [status, setStatus] = useState<Status>("idle");
+  const [status, setStatus] = useState<Status>(initiallyFollowing ? "subscribed" : "idle");
 
   const toggle = useCallback(async () => {
     const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
