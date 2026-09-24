@@ -31,7 +31,7 @@ export type MatchStatus = (typeof MATCH_STATUSES)[number];
 export const ARENA_STATUSES = ["lobby", "live", "finished", "cancelled"] as const;
 export type ArenaStatus = (typeof ARENA_STATUSES)[number];
 
-export const ARENA_CANCELLED_REASONS = ["no_show", "series_decided"] as const;
+export const ARENA_CANCELLED_REASONS = ["no_show", "series_decided", "forfeit"] as const;
 export type ArenaCancelledReason = (typeof ARENA_CANCELLED_REASONS)[number];
 
 export const ARENA_PLAYER_STATUSES = ["active", "eliminated", "winner"] as const;
