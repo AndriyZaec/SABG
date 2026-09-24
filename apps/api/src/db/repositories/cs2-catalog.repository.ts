@@ -65,7 +65,7 @@ async function readSupportedSeries(
   tournamentIds: readonly string[],
   id?: Uuid,
   activeGridSeriesId: string | undefined = cs2CatalogConfig.activeGridSeriesId,
-): Promise<Cs2SeriesSummary[]> {
+): Promise<Array<Cs2SeriesSummary & { mapNames: string[] }>> {
   if (tournamentIds.length === 0) return [];
   const catalogRows = await db
     .select({
@@ -74,6 +74,7 @@ async function readSupportedSeries(
       format: series.format,
       scheduledStartTime: series.scheduledStartTime,
       lifecycle: series.catalogLifecycle,
+      mapNames: series.mapNames,
       competitionName: cs2Competitions.name,
       competitionShortName: cs2Competitions.shortName,
       competitionLogoUrl: cs2Competitions.logoUrl,
@@ -141,6 +142,7 @@ async function readSupportedSeries(
     format: row.format,
     scheduledStartTime: row.scheduledStartTime.toISOString(),
     lifecycle: row.lifecycle,
+    mapNames: row.mapNames ?? [],
   }));
 }
 
@@ -149,7 +151,8 @@ export const cs2CatalogRepository = {
     tournamentIds: readonly string[] = cs2CatalogConfig.tournamentIds,
     activeGridSeriesId: string | undefined = cs2CatalogConfig.activeGridSeriesId,
   ): Promise<Cs2SeriesSummary[]> {
-    return readSupportedSeries(tournamentIds, undefined, activeGridSeriesId);
+    const rows = await readSupportedSeries(tournamentIds, undefined, activeGridSeriesId);
+    return rows.map(({ mapNames: _mapNames, ...summary }) => summary);
   },
 
   async findSupportedById(
@@ -158,7 +161,9 @@ export const cs2CatalogRepository = {
     activeGridSeriesId: string | undefined = cs2CatalogConfig.activeGridSeriesId,
   ): Promise<Cs2SeriesSummary | undefined> {
     const [catalogSeries] = await readSupportedSeries(tournamentIds, id, activeGridSeriesId);
-    return catalogSeries;
+    if (catalogSeries === undefined) return undefined;
+    const { mapNames: _mapNames, ...summary } = catalogSeries;
+    return summary;
   },
 
   async findSupportedDetailById(
@@ -168,9 +173,7 @@ export const cs2CatalogRepository = {
   ): Promise<Cs2SeriesDetail | undefined> {
     const [catalogSeries] = await readSupportedSeries(tournamentIds, id, activeGridSeriesId);
     if (catalogSeries === undefined) return undefined;
-
-    const [mapNamesRow] = await db.select({ mapNames: series.mapNames }).from(series).where(eq(series.id, id));
-    const mapNames = mapNamesRow?.mapNames ?? [];
+    const { mapNames } = catalogSeries;
 
     const seriesMatches = await matchRepository.listBySeriesId(id);
     if (seriesMatches.some((match) => match.discipline !== "cs2")) {
