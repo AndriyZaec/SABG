@@ -203,15 +203,10 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
           if (cancelled) return;
           setDetail(next);
           setLoadError(false);
-          // round/feed/leaderboard/etc. are only ever set via WS; poll only refreshes counts/teams.
+          // round/feed/leaderboard/survivors/totalPlayers are only ever set via WS.
           if (next.match.discipline !== "cs2") return;
           const teams: readonly [string, string] = [next.match.teamScores[0].name, next.match.teamScores[1].name];
-          const { activePlayersCount } = next.arena;
-          setView((current) =>
-            current
-              ? { ...current, teams, survivors: activePlayersCount, totalPlayers: activePlayersCount }
-              : initialView(next),
-          );
+          setView((current) => (current ? { ...current, teams } : initialView(next)));
         })
         .catch(() => undefined);
     }, 10_000);
