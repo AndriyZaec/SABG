@@ -97,6 +97,7 @@ export class Cs2SeriesOrchestrator {
     this.lifecycleState = {
       ...this.lifecycleState,
       openedThrough: matchIndex,
+      openedThroughAt: latestMatch.startTime,
       matchLiveDetected: matchWasLive,
       lastHasLiveGame: matchWasLive,
     };
