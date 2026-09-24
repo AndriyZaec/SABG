@@ -49,7 +49,7 @@ export class Cs2SeriesOrchestrator {
   private lifecycleState: Cs2SeriesLifecycleState;
   private readonly arenasByMatchIndex = new Map<number, OpenedArena>();
   private reconcilingFinishedMatch = false;
-  private pendingCancellation: { matchIndex: number; reason: "no_show" | "series_decided" } | undefined;
+  private pendingCancellation: { matchIndex: number; reason: "no_show" | "series_decided" | "forfeit" } | undefined;
 
   constructor(
     private readonly series: Series,
@@ -109,10 +109,11 @@ export class Cs2SeriesOrchestrator {
       if (arena.cancelledReason === "no_show") {
         await seriesRepository.setStatus(this.series.id, "invalid");
         this.lifecycleState = { ...this.lifecycleState, invalid: true };
-      } else {
+      } else if (arena.cancelledReason === "series_decided") {
         await seriesRepository.setStatus(this.series.id, "decided");
         this.lifecycleState = { ...this.lifecycleState, decided: true };
       }
+      // A forfeit leaves the series active: the next polls re-detect it and open the next arena.
       return;
     }
     if (arena.status === "finished") {
@@ -286,35 +287,47 @@ export class Cs2SeriesOrchestrator {
     if (opened !== undefined) await matchRepository.setStatus(opened.matchId, "finished");
   }
 
-  private async cancelArena(matchIndex: number, reason: "no_show" | "series_decided"): Promise<void> {
+  private async cancelArena(matchIndex: number, reason: "no_show" | "series_decided" | "forfeit"): Promise<void> {
     this.pendingCancellation = { matchIndex, reason };
-    const opened = this.arenasByMatchIndex.get(matchIndex);
-    if (opened === undefined) throw new Error(`Cannot cancel unopened CS2 arena #${matchIndex}`);
+    // restore() creates no runtime for an already-cancelled arena, so fall back to the DB.
+    const arenaId =
+      this.arenasByMatchIndex.get(matchIndex)?.arenaId ?? (await this.findArenaIdByMatchIndex(matchIndex));
+    if (arenaId === undefined) throw new Error(`Cannot cancel unopened CS2 arena #${matchIndex}`);
 
-    await closeEntrySubmissions(opened.arenaId);
-    const current = await arenaRepository.findById(opened.arenaId);
+    await closeEntrySubmissions(arenaId);
+    const current = await arenaRepository.findById(arenaId);
     if (current?.status === "cancelled") {
       await this.refundCancelledArena(current);
-      await seriesRepository.setStatus(this.series.id, reason === "no_show" ? "invalid" : "decided");
-      this.options.broadcaster?.broadcast(opened.arenaId, { type: "arena.cancelled", reason });
+      if (reason === "no_show") await seriesRepository.setStatus(this.series.id, "invalid");
+      else if (reason === "series_decided") await seriesRepository.setStatus(this.series.id, "decided");
+      this.options.broadcaster?.broadcast(arenaId, { type: "arena.cancelled", reason });
       this.pendingCancellation = undefined;
       return;
     }
     if (current?.status !== "lobby") {
-      throw new Error(`Cannot cancel arena ${opened.arenaId} from state ${current?.status ?? "missing"}`);
+      throw new Error(`Cannot cancel arena ${arenaId} from state ${current?.status ?? "missing"}`);
     }
     if (current.onchainArenaId !== undefined) await cancelArenaOnchain(current.onchainArenaId);
 
-    const cancelled = await arenaRepository.cancelIfLobby(opened.arenaId, reason);
+    const cancelled = await arenaRepository.cancelIfLobby(arenaId, reason);
     if (cancelled === undefined) {
-      throw new Error(`Arena ${opened.arenaId} changed state after its on-chain cancellation`);
+      throw new Error(`Arena ${arenaId} changed state after its on-chain cancellation`);
     }
 
-    await seriesRepository.setStatus(this.series.id, reason === "no_show" ? "invalid" : "decided");
+    // A forfeit leaves the series active — it continues to the next map.
+    if (reason === "no_show") await seriesRepository.setStatus(this.series.id, "invalid");
+    else if (reason === "series_decided") await seriesRepository.setStatus(this.series.id, "decided");
     await this.refundCancelledArena(cancelled);
 
-    this.options.broadcaster?.broadcast(opened.arenaId, { type: "arena.cancelled", reason });
+    this.options.broadcaster?.broadcast(arenaId, { type: "arena.cancelled", reason });
     this.pendingCancellation = undefined;
+  }
+
+  private async findArenaIdByMatchIndex(matchIndex: number): Promise<Uuid | undefined> {
+    const match = (await matchRepository.listBySeriesId(this.series.id)).find(
+      (m) => m.discipline === "cs2" && m.seriesMatchIndex === matchIndex,
+    );
+    return match === undefined ? undefined : (await arenaRepository.findByMatchId(match.id))?.id;
   }
 
   private async refundCancelledArena(arena: Arena): Promise<void> {

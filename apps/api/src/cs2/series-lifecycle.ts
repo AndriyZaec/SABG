@@ -11,7 +11,7 @@ export type Cs2LifecycleAction =
   | { type: "match_live_detected"; matchIndex: number }
   | { type: "match_ended"; matchIndex: number }
   | { type: "series_decided"; reason: "clinch" | "all_maps_played" }
-  | { type: "cancel_arena"; matchIndex: number; reason: "no_show" | "series_decided" };
+  | { type: "cancel_arena"; matchIndex: number; reason: "no_show" | "series_decided" | "forfeit" };
 
 export interface Cs2SeriesLifecycleState {
   readonly scheduledStartTime: IsoDateTime;

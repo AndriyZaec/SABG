@@ -338,4 +338,33 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     expect(arena1?.status).toBe("lobby");
     expect(openedArenas).toEqual([{ arenaId: arena1!.id }]);
   });
+
+  it("restores over a forfeit-cancelled arena without ending the Series", async () => {
+    const at = clockFrom(new Date(Date.now() + 18 * 60 * MIN).toISOString());
+    const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
+      format: 3,
+      scheduledStartTime: new Date(at(0)),
+    });
+    seriesIds.push(series.id);
+    const matchTeamIds = await synchronizeTestTeams(series.id);
+
+    const writeQueue = new WriteQueue();
+    const first = await Cs2SeriesOrchestrator.create(series, { writeQueue, entryFeeLamports: 1000 });
+    await first.poll(snapshot(matchTeamIds, {}), at(-10));
+    const match1 = (await matchRepository.listBySeriesId(series.id))[0]!;
+    matchIds.push(match1.id);
+    const arena1 = (await arenaRepository.findByMatchId(match1.id))!;
+    arenaIds.push(arena1.id);
+    await writeQueue.drain();
+
+    // Simulates a crash after the forfeit cancellation committed but before the next arena opened.
+    expect(await arenaRepository.cancelIfLobby(arena1.id, "forfeit")).toBeDefined();
+
+    const restored = await Cs2SeriesOrchestrator.create(series, { writeQueue, entryFeeLamports: 1000 });
+    expect((await seriesRepository.findById(series.id))?.status).toBe("active");
+
+    await restored.poll(snapshot(matchTeamIds, {}), at(1));
+    expect((await seriesRepository.findById(series.id))?.status).toBe("active");
+    expect(await matchRepository.listBySeriesId(series.id)).toHaveLength(1);
+  });
 });
