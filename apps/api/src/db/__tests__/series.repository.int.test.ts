@@ -48,4 +48,14 @@ describe.skipIf(!RUN)("seriesRepository.setMapNames (integration, requires DATAB
     expect(afterSecondWrite?.mapNames).toEqual(["mirage", "inferno"]);
     expect(afterSecondWrite?.updatedAt).not.toEqual(afterFirstWrite?.updatedAt);
   });
+
+  it("never overwrites a longer stored list with a shorter one (transient GRID regression)", async () => {
+    await seriesRepository.setMapNames(seriesId, ["mirage", "inferno", "nuke"]);
+    const [afterFullWrite] = await db.select({ mapNames: schema.series.mapNames }).from(schema.series).where(eq(schema.series.id, seriesId));
+    expect(afterFullWrite?.mapNames).toEqual(["mirage", "inferno", "nuke"]);
+
+    await seriesRepository.setMapNames(seriesId, ["mirage", "inferno"]);
+    const [afterShrinkAttempt] = await db.select({ mapNames: schema.series.mapNames }).from(schema.series).where(eq(schema.series.id, seriesId));
+    expect(afterShrinkAttempt?.mapNames).toEqual(["mirage", "inferno", "nuke"]);
+  });
 });

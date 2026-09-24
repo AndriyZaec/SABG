@@ -50,9 +50,14 @@ export const seriesRepository = {
 
   async setMapNames(id: Uuid, mapNames: string[]): Promise<void> {
     const literal = sql.join(mapNames.map((name) => sql`${name}`), sql`, `);
+    const newArray = sql`ARRAY[${literal}]::text[]`;
     await db
       .update(series)
       .set({ mapNames })
-      .where(and(eq(series.id, id), sql`${series.mapNames} IS DISTINCT FROM ARRAY[${literal}]::text[]`));
+      .where(and(
+        eq(series.id, id),
+        sql`${series.mapNames} IS DISTINCT FROM ${newArray}`,
+        sql`COALESCE(array_length(${newArray}, 1), 0) >= COALESCE(array_length(${series.mapNames}, 1), 0)`,
+      ));
   },
 };
