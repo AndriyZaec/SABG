@@ -275,9 +275,8 @@
 @media (max-width: 780px) {
   .landing-page { scroll-snap-type: y mandatory; }
   .kinetic-nav { top: 12px; right: 14px; left: 14px; }
-  .scene-progress { top: auto; right: 50%; bottom: 13px; grid-auto-flow: column; transform: translateX(50%); }
-  .landing-page[data-active-scene="claim"] .scene-progress { bottom: 70px; }
-  .scene-progress a, .scene-progress a[aria-current="step"] { width: 22px; }
+  .scene-progress { top: 18px; right: auto; bottom: auto; left: 50%; grid-auto-flow: column; gap: 5px; padding: 8px 6px; transform: translateX(-50%); }
+  .scene-progress a, .scene-progress a[aria-current="step"] { width: 18px; }
   .scene-progress a { height: 4px; }
   .scene-wrap { padding: 78px 18px 68px; }
   .scene-next { display: none; }
