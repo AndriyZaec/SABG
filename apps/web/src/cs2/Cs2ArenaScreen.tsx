@@ -7,6 +7,8 @@ import { Cs2EntryCard } from "./Cs2EntryCard.js";
 import { TeamLogo } from "./TeamLogo.js";
 import { useCs2Series } from "./useCs2Catalog.js";
 import { useCs2ArenaEntry } from "./useCs2ArenaEntry.js";
+import { useCs2RoundAlerts, type Cs2NewRoundSignal } from "./live/useCs2RoundAlerts.js";
+import { useCs2VictoryAlert } from "./live/useCs2VictoryAlert.js";
 import type { Cs2AnswerSubmission, Cs2ArenaView } from "./cs2View.js";
 import { EliminationFeed } from "../arena/live/EliminationFeed.js";
 import { LeaderboardRail } from "../arena/live/LeaderboardRail.js";
@@ -35,6 +37,7 @@ function Cs2ArenaLobby({
   connected,
   answerSubmission,
   submitAnswer,
+  newRoundSignal,
 }: {
   arena: Arena;
   match: Cs2Match;
@@ -42,6 +45,7 @@ function Cs2ArenaLobby({
   connected: boolean;
   answerSubmission: Cs2AnswerSubmission;
   submitAnswer: (answer: Answer) => void;
+  newRoundSignal: Cs2NewRoundSignal | null;
 }) {
   const [seriesResult] = useCs2Series(match.seriesId);
   const series = seriesResult.state === "ready" ? seriesResult.value : undefined;
@@ -50,6 +54,7 @@ function Cs2ArenaLobby({
     ...(arena?.onchainArenaId != null ? { onchainArenaId: arena.onchainArenaId } : {}),
     backendArenaId: arena.id,
   });
+  const [muted, toggleMuted] = useCs2RoundAlerts(newRoundSignal, entry.hasEntry);
 
   if (entry.hasEntry) {
     return (
@@ -66,6 +71,8 @@ function Cs2ArenaLobby({
                 connected={connected}
                 eliminated={view?.myStatus === "eliminated"}
                 participant
+                muted={muted}
+                onToggleMute={toggleMuted}
               />
             )}
             <EliminationFeed feed={view?.feed ?? []} />
@@ -99,7 +106,8 @@ function Cs2ArenaLobby({
 
 export function Cs2ArenaScreen() {
   const { arenaId = "" } = useParams();
-  const { detail, loadError, retry, view, connected, answerSubmission, submitAnswer } = useCs2ArenaSocket(arenaId);
+  const { detail, loadError, retry, view, connected, answerSubmission, submitAnswer, newRoundSignal, victorySignal } =
+    useCs2ArenaSocket(arenaId);
 
   if (!arenaId) {
     return (
@@ -148,6 +156,7 @@ export function Cs2ArenaScreen() {
         connected={connected}
         answerSubmission={answerSubmission}
         submitAnswer={submitAnswer}
+        newRoundSignal={newRoundSignal}
       />
     );
   }
@@ -160,8 +169,37 @@ export function Cs2ArenaScreen() {
     return <div className="nb-container"><Panel accent="red">This arena was cancelled ({view.cancelled.reason}).</Panel></div>;
   }
 
+  return (
+    <Cs2ArenaLive
+      view={view}
+      connected={connected}
+      answerSubmission={answerSubmission}
+      submitAnswer={submitAnswer}
+      newRoundSignal={newRoundSignal}
+      victorySignal={victorySignal}
+    />
+  );
+}
+
+function Cs2ArenaLive({
+  view,
+  connected,
+  answerSubmission,
+  submitAnswer,
+  newRoundSignal,
+  victorySignal,
+}: {
+  view: Cs2ArenaView;
+  connected: boolean;
+  answerSubmission: Cs2AnswerSubmission;
+  submitAnswer: (answer: Answer) => void;
+  newRoundSignal: Cs2NewRoundSignal | null;
+  victorySignal: number;
+}) {
   const isParticipant = view.myStatus !== undefined;
   const pending = (view.pendingPredictions ?? []).filter((prediction) => prediction.roundId !== view.round?.roundId);
+  const [muted, toggleMuted] = useCs2RoundAlerts(newRoundSignal, isParticipant);
+  useCs2VictoryAlert(victorySignal, muted);
 
   return (
     <div className="nb-container">
@@ -194,6 +232,8 @@ export function Cs2ArenaScreen() {
               connected={connected}
               eliminated={view.myStatus === "eliminated"}
               participant={isParticipant}
+              muted={muted}
+              onToggleMute={toggleMuted}
             />
           )}
           {pending.length > 0 && <PendingPredictionsList predictions={pending} />}

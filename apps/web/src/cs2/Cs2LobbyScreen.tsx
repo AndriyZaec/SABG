@@ -22,7 +22,7 @@ export function Cs2LobbyScreen() {
     );
   }
 
-  if (catalog.value.length === 0) {
+  if (catalog.value.series.length === 0) {
     return (
       <div className="nb-container">
         <div className="cs2-state">
@@ -34,5 +34,5 @@ export function Cs2LobbyScreen() {
     );
   }
 
-  return <Cs2Catalog series={catalog.value} />;
+  return <Cs2Catalog series={catalog.value.series} followedIds={catalog.value.followedIds} />;
 }

@@ -4,7 +4,9 @@
   "private": true,
   "description": "SABG backend: ingestion, engines, realtime gateway, payout bridge (build plan B1-B8, C4-C5).",
   "type": "module",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "main": "./dist/gateway/run.js",
   "scripts": {
     "dev": "tsx watch src/mock/server.ts",
@@ -44,6 +46,7 @@
     "pino": "^10.3.1",
     "postgres": "^3.4.9",
     "tweetnacl": "^1.0.3",
+    "web-push": "^3.6.7",
     "ws": "^8.21.0",
     "zod": "^4.4.3"
   },
@@ -51,6 +54,7 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "^22.10.0",
+    "@types/web-push": "^3.6.4",
     "@types/ws": "^8.18.1",
     "drizzle-kit": "^0.31.10",
     "pino-pretty": "^13.1.3",

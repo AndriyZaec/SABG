@@ -133,6 +133,11 @@ export interface Cs2SeriesListResponse {
   series: Cs2SeriesSummary[];
 }
 
+/** GET /series/follows?ids=... — which of the given series ids the authenticated user follows. */
+export interface Cs2SeriesFollowsResponse {
+  followedIds: Uuid[];
+}
+
 /** GET /series/:seriesId */
 export interface Cs2SeriesDetailResponse {
   series: Cs2SeriesDetail;
@@ -259,6 +264,26 @@ export interface RoundWithPredictions {
 }
 export interface ArenaRoundsResponse {
   rounds: RoundWithPredictions[];
+}
+
+/** POST /push/subscribe — save a browser's Web Push subscription. */
+export interface PushSubscribeRequest {
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+}
+export interface PushSubscribeResponse {
+  subscribed: true;
+}
+
+/** POST /cs2/series/:id/follow — opt into arena-open push notifications for a series. */
+export interface Cs2SeriesFollowResponse {
+  followed: true;
+}
+
+/** DELETE /cs2/series/:id/follow — opt out of arena-open push notifications for a series. */
+export interface Cs2SeriesUnfollowResponse {
+  followed: false;
 }
 
 export interface ApiError {

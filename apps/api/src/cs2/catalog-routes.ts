@@ -5,23 +5,52 @@ import type {
   ApiError,
   Cs2SeriesDetail,
   Cs2SeriesDetailResponse,
+  Cs2SeriesFollowsResponse,
   Cs2SeriesListResponse,
   Cs2SeriesSummary,
   Uuid,
 } from "@arena/contracts";
 import { cs2CatalogRepository } from "../db/repositories/cs2-catalog.repository.js";
+import { cs2SeriesFollowRepository } from "../db/repositories/cs2-series-follow.repository.js";
+import { requireAuth, type AuthedRequest } from "../gateway/auth.js";
 
 export interface Cs2CatalogReadStore {
   listSupported(): Promise<Cs2SeriesSummary[]>;
   findSupportedDetailById(id: Uuid): Promise<Cs2SeriesDetail | undefined>;
 }
 
-export function createCs2CatalogRouter(store: Cs2CatalogReadStore = cs2CatalogRepository): RouterType {
+export interface Cs2FollowReadStore {
+  listFollowedSeriesIds(userId: Uuid, seriesIds: Uuid[]): Promise<Uuid[]>;
+}
+
+const seriesIdsQuery = z.array(z.string().uuid());
+
+export function createCs2CatalogRouter(
+  store: Cs2CatalogReadStore = cs2CatalogRepository,
+  followStore: Cs2FollowReadStore = cs2SeriesFollowRepository,
+): RouterType {
   const router = Router();
 
   router.get<Record<string, never>, Cs2SeriesListResponse>("/series", async (_req, res) => {
     res.json({ series: await store.listSupported() });
   });
+
+  router.get<Record<string, never>, Cs2SeriesFollowsResponse | ApiError>(
+    "/series/follows",
+    requireAuth,
+    async (req, res) => {
+      const rawIds = req.query.ids;
+      const ids = typeof rawIds === "string" ? rawIds.split(",").filter((id) => id.length > 0) : [];
+      const parsedIds = seriesIdsQuery.safeParse(ids);
+      if (!parsedIds.success) {
+        res.status(400).json({ error: "bad_request", message: "ids must be a comma-separated list of UUIDs" });
+        return;
+      }
+      const userId = (req as unknown as AuthedRequest).userId;
+      const followedIds = await followStore.listFollowedSeriesIds(userId, parsedIds.data);
+      res.json({ followedIds });
+    },
+  );
 
   router.get<{ seriesId: string }, Cs2SeriesDetailResponse | ApiError>("/series/:seriesId", async (req, res) => {
     const parsedId = z.string().uuid().safeParse(req.params.seriesId);

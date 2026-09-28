@@ -6,12 +6,15 @@ import type { WriteQueue } from "../gateway/stores/write-queue.js";
 import { MatchSignalBus } from "../ingestion/event-bus.js";
 import { arenaPlayerRepository } from "../db/repositories/arena-player.repository.js";
 import { arenaRepository } from "../db/repositories/arena.repository.js";
+import { cs2SeriesFollowRepository } from "../db/repositories/cs2-series-follow.repository.js";
 import { entryPassRepository } from "../db/repositories/entry-pass.repository.js";
 import { matchRepository } from "../db/repositories/match.repository.js";
 import { predictionRepository } from "../db/repositories/prediction.repository.js";
 import { predictionRoundRepository } from "../db/repositories/prediction-round.repository.js";
 import { seriesRepository } from "../db/repositories/series.repository.js";
 import { userRepository } from "../db/repositories/user.repository.js";
+import { logger } from "../grid/logger.js";
+import { sendPushToUser } from "../push/service.js";
 import {
   cancelArenaOnchain,
   listOnchainArenaEntryPlayers,
@@ -195,6 +198,24 @@ export class Cs2SeriesOrchestrator {
     this.arenasByMatchIndex.set(matchIndex, opened);
     this.options.onArenaOpened?.(arena.id, opened.runtime);
     opened.runtime.openRoundOne(now, snapshot.teams);
+    void this.notifyFollowersOfArenaOpen(arena.id);
+  }
+
+  private async notifyFollowersOfArenaOpen(arenaId: Uuid): Promise<void> {
+    try {
+      const followerUserIds = await cs2SeriesFollowRepository.listFollowerUserIds(this.series.id);
+      await Promise.all(
+        followerUserIds.map((userId) =>
+          sendPushToUser(userId, {
+            title: "Map is live",
+            body: "Your CS2 arena just opened — jump in now.",
+            url: `/cs2/arena/${arenaId}`,
+          }),
+        ),
+      );
+    } catch (err) {
+      logger.error({ err, arenaId }, "cs2: failed to notify series followers of arena open");
+    }
   }
 
   private async createRuntime(

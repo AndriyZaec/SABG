@@ -1,6 +1,7 @@
 import type { Cs2SeriesParticipant, Cs2SeriesSummary } from "@arena/contracts";
 import { Link } from "react-router-dom";
 import { Badge } from "../ui/Badge.js";
+import { NotifyMeToggle } from "./NotifyMeToggle.js";
 import { TeamLogo } from "./TeamLogo.js";
 
 const fullDate = new Intl.DateTimeFormat(undefined, {
@@ -26,11 +27,14 @@ function ParticipantLogo({ participant }: { participant: Cs2SeriesParticipant })
   );
 }
 
-function UpcomingQueueItem({ item, next }: { item: Cs2SeriesSummary; next: boolean }) {
+function UpcomingQueueItem({ item, next, following }: { item: Cs2SeriesSummary; next: boolean; following: boolean }) {
   const className = `cs2-broadcast__queue-item${next ? " cs2-broadcast__queue-item--next" : ""}${item.availability === "soon" ? " cs2-broadcast__queue-item--soon" : ""}`;
   const content = (
     <>
-      <time className="cs2-broadcast__queue-time">{eventTime.format(new Date(item.scheduledStartTime))}</time>
+      <div className="cs2-broadcast__queue-time-col">
+        <NotifyMeToggle seriesId={item.id} initiallyFollowing={following} />
+        <time className="cs2-broadcast__queue-time">{eventTime.format(new Date(item.scheduledStartTime))}</time>
+      </div>
       <div className="cs2-broadcast__queue-body">
         <div className="cs2-broadcast__queue-teams">
           {item.participants.map((participant) => (
@@ -54,7 +58,7 @@ function UpcomingQueueItem({ item, next }: { item: Cs2SeriesSummary; next: boole
     : <div aria-disabled="true" className={className}>{content}</div>;
 }
 
-export function Cs2Catalog({ series }: { series: Cs2SeriesSummary[] }) {
+export function Cs2Catalog({ series, followedIds }: { series: Cs2SeriesSummary[]; followedIds: string[] }) {
   const liveSeries = series.filter((item) => item.lifecycle === "live");
   const upcoming = series
     .filter((item) => item.lifecycle === "upcoming")
@@ -135,7 +139,14 @@ export function Cs2Catalog({ series }: { series: Cs2SeriesSummary[] }) {
               ? [...upcomingByDay].map(([day, items]) => (
                   <section className="cs2-broadcast__queue-day" key={day}>
                     <div className="cs2-broadcast__queue-day-head"><span>{day}</span></div>
-                    {items.map((item) => <UpcomingQueueItem key={item.id} item={item} next={item.id === upcoming[0]?.id} />)}
+                    {items.map((item) => (
+                      <UpcomingQueueItem
+                        key={item.id}
+                        item={item}
+                        next={item.id === upcoming[0]?.id}
+                        following={followedIds.includes(item.id)}
+                      />
+                    ))}
                   </section>
                 ))
               : (

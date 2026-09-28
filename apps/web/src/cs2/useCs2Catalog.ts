@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Cs2SeriesDetail, Cs2SeriesSummary } from "@arena/contracts";
-import { fetchCs2Series, fetchCs2SeriesDetail } from "./api/cs2Client.js";
+import { useAuth } from "../auth/AuthContext.js";
+import { fetchCs2Series, fetchCs2SeriesDetail, fetchCs2SeriesFollows } from "./api/cs2Client.js";
 
 type LoadState<T> =
   | { state: "loading" }
@@ -29,8 +30,19 @@ function useLoad<T>(load: () => Promise<T>, dependency: string): [LoadState<T>, 
   return [result, () => setAttempt((current) => current + 1)];
 }
 
-export function useCs2SeriesCatalog(): [LoadState<Cs2SeriesSummary[]>, () => void] {
-  return useLoad(async () => (await fetchCs2Series()).series, "catalog");
+export interface Cs2SeriesCatalog {
+  series: Cs2SeriesSummary[];
+  followedIds: string[];
+}
+
+export function useCs2SeriesCatalog(): [LoadState<Cs2SeriesCatalog>, () => void] {
+  const { token } = useAuth();
+  return useLoad(async () => {
+    const { series } = await fetchCs2Series();
+    if (!token || series.length === 0) return { series, followedIds: [] };
+    const { followedIds } = await fetchCs2SeriesFollows(series.map((item) => item.id));
+    return { series, followedIds };
+  }, `catalog:${token ?? ""}`);
 }
 
 export function useCs2Series(seriesId: string): [LoadState<Cs2SeriesDetail>, () => void] {

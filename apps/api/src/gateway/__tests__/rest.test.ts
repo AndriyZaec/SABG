@@ -28,6 +28,15 @@ vi.mock("../../db/repositories/prediction.repository.js", () => ({
 vi.mock("../../db/repositories/entry-pass.repository.js", () => ({
   entryPassRepository: { create: vi.fn() },
 }));
+vi.mock("../../db/repositories/push-subscription.repository.js", () => ({
+  pushSubscriptionRepository: { upsert: vi.fn() },
+}));
+vi.mock("../../db/repositories/cs2-series-follow.repository.js", () => ({
+  cs2SeriesFollowRepository: { follow: vi.fn() },
+}));
+vi.mock("../../db/repositories/series.repository.js", () => ({
+  seriesRepository: { findById: vi.fn() },
+}));
 vi.mock("../../onchain/index.js", () => ({
   buildEntryTx: vi.fn(),
   isOnchainArenaProvisioningEnabled: vi.fn(),
@@ -43,6 +52,9 @@ const { arenaPlayerRepository } = await import("../../db/repositories/arena-play
 const { predictionRoundRepository } = await import("../../db/repositories/prediction-round.repository.js");
 const { predictionRepository } = await import("../../db/repositories/prediction.repository.js");
 const { entryPassRepository } = await import("../../db/repositories/entry-pass.repository.js");
+const { pushSubscriptionRepository } = await import("../../db/repositories/push-subscription.repository.js");
+const { cs2SeriesFollowRepository } = await import("../../db/repositories/cs2-series-follow.repository.js");
+const { seriesRepository } = await import("../../db/repositories/series.repository.js");
 const { buildEntryTx, isOnchainArenaProvisioningEnabled, isValidSolanaWalletAddress, verifyPreparedEntryTransaction } = await import("../../onchain/index.js");
 const { createRestRouter } = await import("../rest.js");
 const { issueToken } = await import("../auth.js");
@@ -589,6 +601,78 @@ describe("REST gateway routes", () => {
 
       const res = await fetch(`${baseUrl}/arenas/${ARENA_ID}/rounds`);
       expect(await res.json()).toEqual({ rounds: [] });
+    });
+  });
+
+  describe("POST /push/subscribe", () => {
+    it("saves a push subscription for the authenticated user", async () => {
+      vi.mocked(pushSubscriptionRepository.upsert).mockResolvedValue(undefined);
+      const res = await fetch(`${baseUrl}/push/subscribe`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${issueToken("u1")}` },
+        body: JSON.stringify({ endpoint: "https://push.example/1", p256dh: "p", auth: "a" }),
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ subscribed: true });
+      expect(pushSubscriptionRepository.upsert).toHaveBeenCalledWith("u1", {
+        endpoint: "https://push.example/1",
+        p256dh: "p",
+        auth: "a",
+      });
+    });
+
+    it("rejects a request missing a required field", async () => {
+      const res = await fetch(`${baseUrl}/push/subscribe`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${issueToken("u1")}` },
+        body: JSON.stringify({ endpoint: "https://push.example/1", p256dh: "p" }),
+      });
+      expect(res.status).toBe(400);
+      expect(pushSubscriptionRepository.upsert).not.toHaveBeenCalled();
+    });
+
+    it("rejects an unauthenticated request", async () => {
+      const res = await fetch(`${baseUrl}/push/subscribe`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ endpoint: "https://push.example/1", p256dh: "p", auth: "a" }),
+      });
+      expect(res.status).toBe(401);
+    });
+  });
+
+  describe("POST /cs2/series/:id/follow", () => {
+    it("records the authenticated user's follow for the series", async () => {
+      vi.mocked(seriesRepository.findById).mockResolvedValue({
+        id: "series-1",
+        gridSeriesId: "grid-1",
+        format: 3,
+        scheduledStartTime: "2026-01-01T00:00:00.000Z",
+        status: "active",
+      });
+      vi.mocked(cs2SeriesFollowRepository.follow).mockResolvedValue(undefined);
+      const res = await fetch(`${baseUrl}/cs2/series/series-1/follow`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${issueToken("u1")}` },
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ followed: true });
+      expect(cs2SeriesFollowRepository.follow).toHaveBeenCalledWith("u1", "series-1");
+    });
+
+    it("404s for an unknown series instead of a raw DB error", async () => {
+      vi.mocked(seriesRepository.findById).mockResolvedValue(undefined);
+      const res = await fetch(`${baseUrl}/cs2/series/missing/follow`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${issueToken("u1")}` },
+      });
+      expect(res.status).toBe(404);
+      expect(cs2SeriesFollowRepository.follow).not.toHaveBeenCalled();
+    });
+
+    it("rejects an unauthenticated request", async () => {
+      const res = await fetch(`${baseUrl}/cs2/series/series-1/follow`, { method: "POST" });
+      expect(res.status).toBe(401);
     });
   });
 

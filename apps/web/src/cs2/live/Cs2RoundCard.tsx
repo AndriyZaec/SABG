@@ -11,6 +11,8 @@ export function Cs2RoundCard({
   connected,
   eliminated = false,
   participant = true,
+  muted,
+  onToggleMute,
 }: {
   round: Cs2RoundView;
   onAnswer?: (a: Answer) => void;
@@ -18,6 +20,8 @@ export function Cs2RoundCard({
   connected: boolean;
   eliminated?: boolean;
   participant?: boolean;
+  muted?: boolean;
+  onToggleMute?: () => void;
 }) {
   const isOpen = round.status === "open";
   const currentSubmission = "roundId" in submission && submission.roundId === round.roundId ? submission : undefined;
@@ -29,8 +33,24 @@ export function Cs2RoundCard({
     onAnswer?.(a);
   };
 
+  const title = (
+    <div className="nb-row" style={{ justifyContent: "space-between", gap: 10 }}>
+      <span>Round {round.roundNumber}</span>
+      {onToggleMute && (
+        <button
+          type="button"
+          className="nb-btn nb-btn--plain"
+          style={{ padding: "4px 8px", fontSize: "0.8rem" }}
+          onClick={onToggleMute}
+        >
+          {muted ? "🔇" : "🔊"}
+        </button>
+      )}
+    </div>
+  );
+
   return (
-    <Panel title={`Round ${round.roundNumber}`} accent="blue" className="nb-rise">
+    <Panel title={title} accent="blue" className="nb-rise">
       <h2 style={{ marginBottom: 14 }}>{round.question}</h2>
 
       <div className="nb-row" style={{ justifyContent: "space-between" }}>
