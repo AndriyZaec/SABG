@@ -10,6 +10,7 @@ deploy_path=${1:-}
 image=${2:-}
 revision=${3:-}
 archive=${4:-}
+expected_vapid_public_key=${5:-}
 
 case "$deploy_path" in
   /*) ;;
@@ -29,6 +30,11 @@ case "$revision" in
 esac
 [ "${#revision}" -eq 40 ] || fail "revision must contain 40 characters"
 [ -f "$archive" ] || fail "deployment archive does not exist"
+case "$expected_vapid_public_key" in
+  ''|*[!A-Za-z0-9_-]*) fail "expected VAPID public key is invalid" ;;
+esac
+[ "${#expected_vapid_public_key}" -ge 80 ] && [ "${#expected_vapid_public_key}" -le 120 ] \
+  || fail "expected VAPID public key has an invalid length"
 command -v docker >/dev/null 2>&1 || fail "docker is not installed"
 command -v flock >/dev/null 2>&1 || fail "flock is not installed"
 
@@ -107,6 +113,12 @@ runtime_mode=
 runtime_mode_configured=false
 grid_series_id=
 scheduled_start_time=
+vapid_public_key=
+vapid_private_key=
+vapid_subject=
+vapid_public_key_count=0
+vapid_private_key_count=0
+vapid_subject_count=0
 had_compose=false
 had_caddyfile=false
 had_init_script=false
@@ -175,14 +187,28 @@ for required_env in app postgres mongo migrate caddy; do
   [ "$(stat -c %a "$deploy_path/deploy/$required_env.env")" = 600 ] \
     || fail "deploy/$required_env.env must have mode 0600"
 done
-
-while IFS='=' read -r key value; do
+while IFS='=' read -r key value || [ -n "$key" ]; do
   case "$key" in
     CS2_RUNTIME_MODE) runtime_mode=$value; runtime_mode_configured=true ;;
     GRID_SERIES_ID) grid_series_id=$value ;;
     CS2_SCHEDULED_START_TIME) scheduled_start_time=$value ;;
+    VAPID_PUBLIC_KEY) vapid_public_key=$value; vapid_public_key_count=$((vapid_public_key_count + 1)) ;;
+    VAPID_PRIVATE_KEY) vapid_private_key=$value; vapid_private_key_count=$((vapid_private_key_count + 1)) ;;
+    VAPID_SUBJECT) vapid_subject=$value; vapid_subject_count=$((vapid_subject_count + 1)) ;;
   esac
 done < "$deploy_path/deploy/app.env"
+[ "$vapid_public_key_count" -eq 1 ] || fail "deploy/app.env must contain VAPID_PUBLIC_KEY exactly once"
+[ "$vapid_private_key_count" -eq 1 ] || fail "deploy/app.env must contain VAPID_PRIVATE_KEY exactly once"
+[ "$vapid_subject_count" -eq 1 ] || fail "deploy/app.env must contain VAPID_SUBJECT exactly once"
+[ "$vapid_public_key" = "$expected_vapid_public_key" ] \
+  || fail "frontend and backend VAPID public keys do not match"
+case "$vapid_private_key" in
+  *[!A-Za-z0-9_-]*|'') fail "VAPID_PRIVATE_KEY is invalid" ;;
+esac
+case "$vapid_subject" in
+  mailto:?*|https://?*) ;;
+  *) fail "VAPID_SUBJECT must be a mailto: or HTTPS URL" ;;
+esac
 [ "$runtime_mode_configured" = true ] || runtime_mode=catalog
 case "$runtime_mode" in
   catalog) ;;
@@ -232,12 +258,14 @@ docker run --rm --network none --read-only --tmpfs /tmp --tmpfs /data --tmpfs /c
   --env-file "$deploy_path/deploy/caddy.env" \
   --mount "type=bind,src=$staging_dir/deploy/Caddyfile,dst=/tmp/sabg-caddyfile,readonly" \
   "$caddy_image" caddy validate --config /tmp/sabg-caddyfile --adapter caddyfile
+docker pull "$image"
+docker run --rm --network none --read-only --tmpfs /tmp --env-file "$deploy_path/deploy/app.env" \
+  "$image" node -e "import('./dist/push/config/env.js')" \
+  || fail "application image rejected the VAPID configuration"
 if [ -f "$deploy_path/compose.yml" ]; then
   active_cs2_arenas=$(inspect_active_cs2_arenas)
   assert_no_active_cs2_arenas "$active_cs2_arenas"
 fi
-
-docker pull "$image"
 
 mkdir -p "$deploy_path/deploy"
 mkdir -p "$staging_dir/backup"

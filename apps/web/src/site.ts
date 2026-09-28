@@ -1,7 +1,7 @@
-const LANDING_HOSTS = new Set(["sabg.fun", "www.sabg.fun", "landing.localhost"]);
+const APP_HOSTS = new Set(["app.sabg.fun", "localhost", "127.0.0.1", "[::1]"]);
 
 export type Site = "app" | "landing";
 
 export function siteForHostname(hostname: string): Site {
-  return LANDING_HOSTS.has(hostname) ? "landing" : "app";
+  return APP_HOSTS.has(hostname) ? "app" : "landing";
 }

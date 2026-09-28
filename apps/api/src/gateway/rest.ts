@@ -33,7 +33,11 @@ import { arenaPlayerRepository } from "../db/repositories/arena-player.repositor
 import { predictionRoundRepository } from "../db/repositories/prediction-round.repository.js";
 import { predictionRepository } from "../db/repositories/prediction.repository.js";
 import { entryPassRepository } from "../db/repositories/entry-pass.repository.js";
-import { pushSubscriptionRepository } from "../db/repositories/push-subscription.repository.js";
+import {
+  PushSubscriptionConflictError,
+  PushSubscriptionLimitError,
+  pushSubscriptionRepository,
+} from "../db/repositories/push-subscription.repository.js";
 import { cs2SeriesFollowRepository } from "../db/repositories/cs2-series-follow.repository.js";
 import { seriesRepository } from "../db/repositories/series.repository.js";
 import { issueToken, requireAuth, type AuthedRequest } from "./auth.js";
@@ -49,6 +53,7 @@ import {
 import { gatewayConfig } from "./config.js";
 import { logger } from "./logger.js";
 import type { ArenaRuntimeLookup } from "./arena-runtime.js";
+import { canonicalPushEndpoint, validatePushSubscription } from "../push/subscription-validation.js";
 
 function notFound(res: Response, message: string): void {
   res.status(404).json({ error: "not_found", message } satisfies ApiError);
@@ -411,12 +416,25 @@ export function createRestRouter(runtimeLookup: ArenaRuntimeLookup): RouterType 
     requireAuth,
     async (req, res) => {
       const { endpoint, p256dh, auth } = req.body;
-      if (!endpoint || !p256dh || !auth) {
-        res.status(400).json({ error: "bad_request", message: "endpoint, p256dh and auth are required" });
+      const validationError = validatePushSubscription({ endpoint, p256dh, auth });
+      if (validationError) {
+        res.status(400).json({ error: "bad_request", message: validationError });
         return;
       }
       const userId = (req as unknown as AuthedRequest).userId;
-      await pushSubscriptionRepository.upsert(userId, { endpoint, p256dh, auth });
+      try {
+        await pushSubscriptionRepository.upsert(userId, {
+          endpoint: canonicalPushEndpoint(endpoint),
+          p256dh,
+          auth,
+        });
+      } catch (error) {
+        if (error instanceof PushSubscriptionConflictError || error instanceof PushSubscriptionLimitError) {
+          res.status(409).json({ error: "push_subscription_conflict", message: error.message });
+          return;
+        }
+        throw error;
+      }
       res.json({ subscribed: true });
     },
   );
