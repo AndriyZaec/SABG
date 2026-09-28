@@ -205,7 +205,7 @@
 .claim-footer__status strong { padding: 4px 7px 3px; background: var(--yellow); color: var(--ink); box-shadow: 3px 3px 0 var(--pink); }
 .claim-footer a { padding: 5px; }
 .claim-footer a:hover { transform: translateY(-2px); }
-.claim-footer img { width: 17px; height: 18px; display: block; object-fit: contain; }
+.claim-footer img { width: auto; height: 18px; display: block; }
 
 .kinetic-scene .scene-kicker,
 .kinetic-scene h1,
