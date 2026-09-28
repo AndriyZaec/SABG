@@ -200,16 +200,30 @@ export function LandingPage() {
           <div className="scene-wrap survive-scene__layout">
             <div className="scene-copy">
               <p className="scene-kicker">03 / Survive</p>
-              <h2 id="survive-title">Outlast<br />the field.</h2>
+              <h2 id="survive-title"><span>Outlast</span><span>the</span><span>arena.</span></h2>
               <p className="scene-lede">Read the match. Stay alive as the arena gets smaller.</p>
             </div>
-            <div className="survival-board" aria-label="Your rank rises from 12 to 3 as survivors fall from 24 to 7">
-              <div className="survival-board__counts"><span><b>24</b> survivors</span><i>to</i><span><b>7</b> survivors</span></div>
-              <ol>
-                <li className="survival-board__out"><span>#08</span><strong>ecoCobra</strong><b>Out</b></li>
-                <li><span>#05</span><strong>pixelpeek</strong><b>16</b></li>
-                <li className="survival-board__you"><span>#03</span><strong>You</strong><b>18</b></li>
-                <li className="survival-board__out"><span>#14</span><strong>midControl</strong><b>Out</b></li>
+            <div className="survival-board" aria-label="Eliminated players leave the board, your row rises to first, and surviving players move up">
+              <header className="survival-board__mast"><span><i /> Live</span><strong>Round 08</strong></header>
+              <div className="survival-board__counts">
+                <span><small>Arena</small><b>24</b> players</span>
+                <svg className="survival-arrow" viewBox="0 0 36 30" aria-hidden="true">
+                  <path className="survival-arrow__shadow" d="M2 9h16V3l14 11-14 11v-6H2z" />
+                  <path className="survival-arrow__face" d="M1 7h16V1l14 11-14 11v-6H1z" />
+                </svg>
+                <span><small>Remaining</small><b>7</b> survivors</span>
+              </div>
+              <ol aria-hidden="true">
+                <li className="survival-board__out survival-row--one"><span>#08</span><strong>ecoCobra</strong><b>Out</b></li>
+                <li className="survival-row--two">
+                  <span className="survival-rank survival-rank--changing"><i>#05</i><i>#02</i></span><strong>0xDecadance</strong><b>8</b>
+                </li>
+                <li className="survival-board__you survival-row--three">
+                  <span className="survival-rank survival-rank--changing"><i>#03</i><i>#01</i></span><strong>You</strong><b>8</b>
+                </li>
+                <li className="survival-board__out survival-row--four"><span>#14</span><strong>midControl</strong><b>Out</b></li>
+                <li className="survival-board__incoming survival-row--five"><span>#03</span><strong>vikipick</strong><b>8</b></li>
+                <li className="survival-board__incoming survival-row--six"><span>#04</span><strong>RageBrain</strong><b>8</b></li>
               </ol>
             </div>
           </div>
