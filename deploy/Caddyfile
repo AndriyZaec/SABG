@@ -9,6 +9,10 @@
 	}
 }
 
+www.{$SABG_LANDING_HOST:landing.localhost} {
+	redir https://{$SABG_LANDING_HOST:landing.localhost}{uri} permanent
+}
+
 {$SABG_HOST:localhost} {
 	encode zstd gzip
 
