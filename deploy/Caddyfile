@@ -19,7 +19,10 @@ www.{$SABG_LANDING_HOST:landing.localhost} {
 
 {$SABG_HOST:localhost} {
 	encode zstd gzip
-	header Strict-Transport-Security "max-age=31536000"
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Robots-Tag "noindex, nofollow"
+	}
 
 	handle_path /cs2-api/* {
 		rewrite * /api{uri}

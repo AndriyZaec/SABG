@@ -12,10 +12,12 @@ function render(element: React.ReactNode) {
 async function start() {
   if (siteForHostname(window.location.hostname) === "landing") {
     const { LandingPage } = await import("./landing/LandingPage.js");
-    document.title = "SABG — Live CS2 survival game";
+    document.title = "SABG — Can you survive the match?";
     render(<LandingPage />);
     return;
   }
+
+  document.title = "SABG — Live esports prediction game";
 
   const [{ Buffer }, { App }] = await Promise.all([import("buffer"), import("./App.js")]);
 
