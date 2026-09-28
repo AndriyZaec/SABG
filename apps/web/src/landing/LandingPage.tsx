@@ -113,7 +113,7 @@ export function LandingPage() {
   };
 
   return (
-    <div className="landing-page" ref={pageRef}>
+    <div className="landing-page" data-active-scene={SCENES[activeScene]?.id} ref={pageRef}>
       <header className="kinetic-nav">
         <a className="kinetic-nav__mark" href="#watch" aria-label="SABG home">SABG</a>
         <a className="kinetic-nav__cta" href={appUrl()}>Enter arena</a>

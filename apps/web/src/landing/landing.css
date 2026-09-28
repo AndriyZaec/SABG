@@ -273,34 +273,48 @@
 @keyframes stamp-in { from { opacity: 0; transform: scale(1.35) rotate(-3deg); } to { opacity: 1; transform: none; } }
 
 @media (max-width: 780px) {
-  .landing-page { scroll-snap-type: y proximity; }
+  .landing-page { scroll-snap-type: y mandatory; }
   .kinetic-nav { top: 12px; right: 14px; left: 14px; }
   .scene-progress { top: auto; right: 50%; bottom: 13px; grid-auto-flow: column; transform: translateX(50%); }
+  .landing-page[data-active-scene="claim"] .scene-progress { bottom: 70px; }
   .scene-progress a, .scene-progress a[aria-current="step"] { width: 22px; }
   .scene-progress a { height: 4px; }
   .scene-wrap { padding: 78px 18px 68px; }
   .scene-next { display: none; }
   .watch-scene__layout,
   .survive-scene__layout { grid-template-columns: 1fr; gap: 42px; }
-  .watch-scene h1 { gap: 6px; font-size: clamp(3.8rem, 18vw, 5.8rem); line-height: 0.9; }
+  .watch-scene h1 { font-size: clamp(3.8rem, 18vw, 5.8rem); line-height: 0.9; }
+  .watch-scene h1,
+  .predict-scene h2,
+  .survive-scene h2,
+  .claim-scene h2 { gap: 0; }
   .broadcast-score__teams { min-height: 120px; }
   .broadcast-team { gap: 5px; padding: 10px 5px 8px; }
   .broadcast-team img { width: 48px; height: 50px; }
   .broadcast-team strong { font-size: 0.5rem; }
   .broadcast-score__result { gap: 3px; padding: 8px; font-size: 2.6rem; }
-  .predict-scene h2,
-  .claim-scene h2 { font-size: clamp(3.9rem, 18vw, 6rem); }
+  .predict-scene h2 { font-size: clamp(3.9rem, 18vw, 6rem); }
   .prediction-visual { grid-template-columns: 1fr 1fr; gap: 11px; }
   .prediction-visual > i { grid-column: 1 / -1; grid-row: 2; }
   .prediction-timeline { grid-row: 3; }
   .prediction-status { grid-row: 4; flex-direction: column; align-items: center; gap: 1px; }
   .prediction-status--locked { flex-direction: row; gap: 10px; }
-  .survive-scene h2 { gap: 6px; font-size: clamp(4.2rem, 19vw, 6.2rem); line-height: 0.9; }
+  .survive-scene .scene-wrap { padding-block: 70px 60px; }
+  .survive-scene__layout { gap: 20px; }
+  .survive-scene .scene-kicker { margin-bottom: 12px; }
+  .survive-scene h2 { font-size: clamp(3.2rem, 15vw, 4.6rem); line-height: 0.86; }
+  .survive-scene .scene-lede { margin-top: 12px; font-size: 0.9rem; line-height: 1.3; }
   .survival-board__counts { padding: 10px; }
-  .settlement-line { grid-template-columns: 1fr; }
-  .settlement-line span { min-height: 54px; }
-  .settlement-line i { min-height: 28px; border-block: 2px solid var(--ink); border-inline: 0; transform: rotate(90deg); }
-  .claim-footer { align-items: flex-start; flex-direction: column; gap: 3px; padding-block: 8px; }
+  .claim-scene .scene-wrap { padding-bottom: 104px; }
+  .claim-scene h2 { font-size: clamp(3.4rem, 16vw, 5.2rem); }
+  .settlement-line { grid-template-columns: 1fr; gap: 5px; margin-top: 24px; border: 0; background: transparent; box-shadow: none; }
+  .settlement-line span { width: calc(100% - 4px); min-height: 38px; padding: 5px; border: 2px solid var(--ink); background: var(--white); box-shadow: 4px 4px 0 var(--ink); }
+  .settlement-line i { min-height: 16px; border: 0; background: transparent; color: var(--ink); font-size: 0; }
+  .settlement-line i::before { content: "\2193"; font: normal 1.4rem var(--font-display); }
+  .claim-cta { margin-top: 24px; padding-block: 14px; }
+  .claim-note { margin-top: 12px; }
+  .claim-footer { flex-direction: row; gap: 10px; padding-block: 8px; }
+  .claim-footer__status { white-space: nowrap; }
 }
 
 @media (prefers-reduced-motion: reduce) {
