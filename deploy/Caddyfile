@@ -1,3 +1,14 @@
+{$SABG_LANDING_HOST:landing.localhost} {
+	encode zstd gzip
+
+	@appOnly path /api /api/* /cs2-api /cs2-api/* /ws /cs2-ws /manifest.webmanifest /sw.js
+	respond @appOnly 404
+
+	handle {
+		reverse_proxy app:4000
+	}
+}
+
 {$SABG_HOST:localhost} {
 	encode zstd gzip
 
