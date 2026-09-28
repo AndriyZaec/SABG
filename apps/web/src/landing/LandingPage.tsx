@@ -8,6 +8,13 @@ const SCENES = [
   { id: "claim", label: "Claim" },
 ] as const;
 
+const PREDICTION_SECONDS = 6;
+
+type PredictionChoice = "yes" | "no";
+type PredictionRound =
+  | { phase: "open"; choice: PredictionChoice | null; secondsLeft: number; round: number }
+  | { phase: "resolved"; choice: PredictionChoice | null; result: "alive" | "out"; round: number };
+
 function appUrl(): string {
   if (window.location.hostname === "landing.localhost") {
     return `${window.location.protocol}//localhost${window.location.port ? `:${window.location.port}` : ""}`;
@@ -19,6 +26,12 @@ export function LandingPage() {
   const pageRef = useRef<HTMLDivElement>(null);
   const sceneRefs = useRef<Array<HTMLElement | null>>([]);
   const [activeScene, setActiveScene] = useState(0);
+  const [prediction, setPrediction] = useState<PredictionRound>({
+    phase: "open",
+    choice: null,
+    secondsLeft: PREDICTION_SECONDS,
+    round: 0,
+  });
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -34,6 +47,46 @@ export function LandingPage() {
     sceneRefs.current.forEach((scene) => scene && observer.observe(scene));
     return () => observer.disconnect();
   }, []);
+
+  useEffect(() => {
+    if (activeScene !== 1) return;
+
+    setPrediction((current) => ({
+      phase: "open",
+      choice: null,
+      secondsLeft: PREDICTION_SECONDS,
+      round: current.round + 1,
+    }));
+  }, [activeScene]);
+
+  useEffect(() => {
+    if (activeScene !== 1) return;
+
+    if (prediction.phase === "resolved") return;
+
+    if (prediction.secondsLeft === 0) {
+      setPrediction({
+        phase: "resolved",
+        choice: prediction.choice,
+        result: prediction.choice === "yes" ? "alive" : "out",
+        round: prediction.round,
+      });
+      return;
+    }
+
+    const tick = window.setTimeout(() => {
+      setPrediction((current) => current.phase === "open"
+        ? { ...current, secondsLeft: current.secondsLeft - 1 }
+        : current);
+    }, 1000);
+    return () => window.clearTimeout(tick);
+  }, [activeScene, prediction]);
+
+  const choosePrediction = (choice: PredictionChoice) => {
+    setPrediction((current) => current.phase === "open" && current.choice === null
+      ? { ...current, choice }
+      : current);
+  };
 
   return (
     <div className="landing-page" ref={pageRef}>
@@ -102,11 +155,36 @@ export function LandingPage() {
         >
           <div className="scene-wrap predict-scene__layout">
             <p className="scene-kicker">02 / Predict</p>
-            <h2 id="predict-title">Will the attack<br />close the round?</h2>
+            <h2 id="predict-title"><span>Will the attack</span><span>close the round?</span></h2>
             <p className="scene-lede">Every live moment becomes a Yes / No call.</p>
-            <div className="prediction-visual" aria-label="Prediction choices: Yes or No">
-              <span>Yes</span><i>Locks 00:06</i><span>No</span>
-              <div aria-hidden="true"><b /></div>
+            <div
+              className={`prediction-visual prediction-state--${prediction.phase} ${prediction.choice ? "has-choice" : ""}`}
+              role="group"
+              aria-label="Prediction choices: Yes or No"
+            >
+              <button
+                className={`prediction-choice prediction-choice--yes ${prediction.choice === "yes" ? "is-selected" : ""}`}
+                type="button"
+                aria-pressed={prediction.choice === "yes"}
+                disabled={prediction.phase === "resolved" || prediction.choice !== null}
+                onClick={() => choosePrediction("yes")}
+              >Yes</button>
+              <i>{prediction.phase === "open" ? `Locks 00:0${prediction.secondsLeft}` : "Settled"}</i>
+              <button
+                className={`prediction-choice prediction-choice--no ${prediction.choice === "no" ? "is-selected" : ""}`}
+                type="button"
+                aria-pressed={prediction.choice === "no"}
+                disabled={prediction.phase === "resolved" || prediction.choice !== null}
+                onClick={() => choosePrediction("no")}
+              >No</button>
+              <div className="prediction-timeline" key={prediction.round} aria-hidden="true"><b /></div>
+              <p className={`prediction-status ${prediction.phase === "resolved" ? `prediction-status--${prediction.result}` : prediction.choice ? "prediction-status--locked" : ""}`} aria-live="polite">
+                {prediction.phase === "resolved"
+                  ? <strong>{prediction.result}</strong>
+                  : prediction.choice
+                    ? <><span className="prediction-lock"><i />Call locked</span><strong>{prediction.choice}</strong></>
+                    : <strong>Make your call</strong>}
+              </p>
             </div>
           </div>
           <a className="scene-next" href="#survive">Next / Survive</a>
