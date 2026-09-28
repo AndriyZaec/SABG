@@ -306,4 +306,5 @@
 @media (prefers-reduced-motion: reduce) {
   .landing-page { scroll-behavior: auto; }
   .landing-page *, .landing-page *::before, .landing-page *::after { animation-duration: 0.01ms !important; animation-delay: 0ms !important; transition-duration: 0.01ms !important; }
+  .predict-scene.is-active .prediction-state--open .prediction-timeline b { animation: none !important; transform: scaleX(1); }
 }

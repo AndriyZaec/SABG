@@ -35,13 +35,37 @@ export function LandingPage() {
 
   useEffect(() => {
     const observer = new IntersectionObserver(
-      (entries) => {
-        const visible = entries
-          .filter((entry) => entry.isIntersecting)
-          .sort((left, right) => right.intersectionRatio - left.intersectionRatio)[0];
-        if (visible) setActiveScene(Number((visible.target as HTMLElement).dataset.scene));
+      () => {
+        const rootBounds = pageRef.current?.getBoundingClientRect();
+        if (!rootBounds) return;
+
+        const visibleRatio = (scene: HTMLElement) => {
+          const bounds = scene.getBoundingClientRect();
+          const visibleHeight = Math.max(
+            0,
+            Math.min(bounds.bottom, rootBounds.bottom) - Math.max(bounds.top, rootBounds.top),
+          );
+          return visibleHeight / bounds.height;
+        };
+
+        setActiveScene((current) => {
+          const currentScene = sceneRefs.current[current];
+          let next = current;
+          let largestRatio = currentScene ? visibleRatio(currentScene) : 0;
+
+          sceneRefs.current.forEach((scene, index) => {
+            if (!scene) return;
+            const ratio = visibleRatio(scene);
+            if (ratio > largestRatio) {
+              largestRatio = ratio;
+              next = index;
+            }
+          });
+
+          return next;
+        });
       },
-      { root: pageRef.current, threshold: [0.35, 0.55, 0.75] },
+      { root: pageRef.current, threshold: [0, 0.35, 0.55, 0.75, 1] },
     );
 
     sceneRefs.current.forEach((scene) => scene && observer.observe(scene));
@@ -120,7 +144,7 @@ export function LandingPage() {
               <h1 id="watch-title"><span>Live esports,</span><span>now playable.</span></h1>
               <p className="scene-lede">SABG turns every match into a survival game.</p>
             </div>
-            <div className="broadcast-score" aria-label="NAVI 10, Vitality 10">
+            <div className="broadcast-score" role="img" aria-label="Live CS2 score: NAVI 10, Vitality 10. Mirage, round 21.">
               <div className="broadcast-score__signal"><i /> Live / CS2</div>
               <div className="broadcast-score__teams" aria-hidden="true">
                 <div className="broadcast-team broadcast-team--navi">
@@ -203,7 +227,7 @@ export function LandingPage() {
               <h2 id="survive-title"><span>Outlast</span><span>the</span><span>arena.</span></h2>
               <p className="scene-lede">Read the match. Stay alive as the arena gets smaller.</p>
             </div>
-            <div className="survival-board" aria-label="Eliminated players leave the board, your row rises to first, and surviving players move up">
+            <div className="survival-board" role="img" aria-label="Round 8: 7 of 24 players remain. You lead with 8 points.">
               <header className="survival-board__mast"><span><i /> Live</span><strong>Round 08</strong></header>
               <div className="survival-board__counts">
                 <span><small>Arena</small><b>24</b> players</span>
