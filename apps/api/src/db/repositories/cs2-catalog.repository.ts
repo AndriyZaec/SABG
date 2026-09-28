@@ -169,6 +169,9 @@ export const cs2CatalogRepository = {
     const [catalogSeries] = await readSupportedSeries(tournamentIds, id, activeGridSeriesId);
     if (catalogSeries === undefined) return undefined;
 
+    const [mapNamesRow] = await db.select({ mapNames: series.mapNames }).from(series).where(eq(series.id, id));
+    const mapNames = mapNamesRow?.mapNames ?? [];
+
     const seriesMatches = await matchRepository.listBySeriesId(id);
     if (seriesMatches.some((match) => match.discipline !== "cs2")) {
       throw new Error(`CS2 series ${id} contains a non-CS2 match`);
@@ -198,7 +201,7 @@ export const cs2CatalogRepository = {
 
     const maps: Cs2SeriesMapSummary[] = Array.from(
       { length: catalogSeries.format },
-      (_, index) => ({ state: "pending", seriesMatchIndex: index + 1 }),
+      (_, index) => ({ state: "pending", seriesMatchIndex: index + 1, mapName: mapNames[index] }),
     );
     for (const match of cs2Matches) {
       if (match.seriesMatchIndex < 1 || match.seriesMatchIndex > catalogSeries.format) {
@@ -210,6 +213,7 @@ export const cs2CatalogRepository = {
       maps[match.seriesMatchIndex - 1] = {
         state: arena.status,
         seriesMatchIndex: match.seriesMatchIndex,
+        mapName: mapNames[match.seriesMatchIndex - 1],
         matchId: match.id,
         teams: [
           { teamId: firstTeamScore.teamId, score: firstTeamScore.score },

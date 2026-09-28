@@ -154,6 +154,9 @@ export class Cs2SeriesOrchestrator {
     // Preserve reducer action order when one poll emits multiple transitions.
     for (const action of actions) await this.apply(action, snapshot, now);
     if (snapshot !== undefined) this.reconcilingFinishedMatch = false;
+    if (snapshot !== undefined && snapshot.mapNames.length > 0) {
+      await seriesRepository.setMapNames(this.series.id, snapshot.mapNames);
+    }
   }
 
   private async apply(action: Cs2LifecycleAction, snapshot: Cs2SeriesSnapshot | undefined, now: IsoDateTime): Promise<void> {

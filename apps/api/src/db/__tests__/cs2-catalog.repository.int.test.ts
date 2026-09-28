@@ -19,6 +19,7 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
   const gridSeriesId = `catalog-series-${runId}`;
   const unsupportedGridSeriesId = `catalog-unsupported-series-${runId}`;
   const legacyGridSeriesId = `catalog-legacy-series-${runId}`;
+  const mapNamesGridSeriesId = `catalog-map-names-series-${runId}`;
   const gridTournamentId = `catalog-tournament-${runId}`;
   const firstGridTeamId = `catalog-team-a-${runId}`;
   const secondGridTeamId = `catalog-team-b-${runId}`;
@@ -39,7 +40,10 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
       await db.delete(schema.arenas).where(inArray(schema.arenas.matchId, seriesMatchIds));
       await db.delete(schema.matches).where(inArray(schema.matches.id, seriesMatchIds));
     }
-    await db.delete(schema.series).where(inArray(schema.series.gridSeriesId, [gridSeriesId, unsupportedGridSeriesId, legacyGridSeriesId]));
+    await db.delete(schema.series).where(inArray(
+      schema.series.gridSeriesId,
+      [gridSeriesId, unsupportedGridSeriesId, legacyGridSeriesId, mapNamesGridSeriesId],
+    ));
     await db.delete(schema.cs2Teams).where(inArray(schema.cs2Teams.gridTeamId, [
       firstGridTeamId,
       secondGridTeamId,
@@ -225,5 +229,48 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
       .innerJoin(schema.cs2Teams, eq(schema.cs2SeriesParticipants.teamId, schema.cs2Teams.id))
       .where(eq(schema.cs2SeriesParticipants.seriesId, legacy.seriesId));
     expect(participants.map((team) => team.gridTeamId).sort()).toEqual([firstGridTeamId, secondGridTeamId].sort());
+  });
+
+  it("surfaces series.mapNames as mapName on both a pending slot and a match-backed one", async () => {
+    const base = {
+      gridSeriesId: mapNamesGridSeriesId,
+      competition: { gridTournamentId, name: "Major" },
+      format: 3,
+      scheduledStartTime: new Date("2026-09-03T12:00:00.000Z"),
+      lifecycle: "upcoming" as const,
+      isSupported: true,
+    };
+    const { seriesId } = await repository.synchronizeSeries({
+      ...base,
+      participants: [
+        { state: "known", displayOrder: 1, team: { gridTeamId: firstGridTeamId, name: "Team A" } },
+        { state: "known", displayOrder: 2, team: { gridTeamId: secondGridTeamId, name: "Team B" } },
+      ],
+    });
+
+    const participants = await db
+      .select({ teamId: schema.cs2Teams.id, name: schema.cs2Teams.name })
+      .from(schema.cs2SeriesParticipants)
+      .innerJoin(schema.cs2Teams, eq(schema.cs2SeriesParticipants.teamId, schema.cs2Teams.id))
+      .where(eq(schema.cs2SeriesParticipants.seriesId, seriesId))
+      .orderBy(asc(schema.cs2SeriesParticipants.displayOrder));
+    const firstMap = await matchRepository.upsertForSeriesMap(seriesId, 1, {
+      teams: [
+        { teamId: participants[0]!.teamId, name: participants[0]!.name },
+        { teamId: participants[1]!.teamId, name: participants[1]!.name },
+      ],
+      startTime: new Date("2026-09-03T12:00:00.000Z"),
+    });
+    seriesMatchIds.push(firstMap.id);
+    await arenaRepository.upsertForMatch(firstMap.id, { entryFeeLamports: 100_000_000, prizePoolLamports: 0 });
+
+    await db.update(schema.series).set({ mapNames: ["mirage", "inferno"] }).where(eq(schema.series.id, seriesId));
+
+    const detail = await repository.findSupportedDetailById(seriesId, [gridTournamentId]);
+    expect(detail?.maps.map((map) => ({ seriesMatchIndex: map.seriesMatchIndex, mapName: map.mapName }))).toEqual([
+      { seriesMatchIndex: 1, mapName: "mirage" },
+      { seriesMatchIndex: 2, mapName: "inferno" },
+      { seriesMatchIndex: 3, mapName: undefined },
+    ]);
   });
 });

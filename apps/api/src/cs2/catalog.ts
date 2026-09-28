@@ -48,13 +48,8 @@ export interface Cs2CandidatePickInput {
   previousCandidate: Cs2Candidate | undefined;
 }
 
-function sameCandidate(a: Cs2Candidate, b: Cs2Candidate): boolean {
-  return (
-    a.topic === b.topic &&
-    a.params.targetTeamId === b.params.targetTeamId &&
-    a.params.weapon === b.params.weapon &&
-    a.params.y === b.params.y
-  );
+function sameTopic(a: Cs2Candidate, b: Cs2Candidate): boolean {
+  return a.topic === b.topic;
 }
 
 function teamSlotOf(
@@ -63,6 +58,27 @@ function teamSlotOf(
 ): Cs2TeamSlot | undefined {
   if (targetTeamId === undefined) return undefined;
   return teams[0].teamId === targetTeamId ? 0 : teams[1].teamId === targetTeamId ? 1 : undefined;
+}
+
+function collapseFlatPoolTopics(
+  pool: readonly Cs2Candidate[],
+  isPistolRound: boolean,
+  teams: readonly [Cs2TeamIdentity, Cs2TeamIdentity],
+): Cs2Candidate[] {
+  const byTopic = new Map<Cs2Topic, Cs2Candidate[]>();
+  const calibrated: Cs2Candidate[] = [];
+  for (const c of pool) {
+    const difficulty = cs2Difficulty(c, isPistolRound, teamSlotOf(teams, c.params.targetTeamId));
+    if (difficulty !== undefined) {
+      calibrated.push(c);
+      continue;
+    }
+    const group = byTopic.get(c.topic) ?? [];
+    group.push(c);
+    byTopic.set(c.topic, group);
+  }
+  const collapsed = [...byTopic.values()].map((group) => group[Math.floor(Math.random() * group.length)]!);
+  return [...calibrated, ...collapsed];
 }
 
 export function eligibleCs2Candidates(input: Cs2CandidatePickInput): Cs2Candidate[] {
@@ -81,10 +97,11 @@ export function eligibleCs2Candidates(input: Cs2CandidatePickInput): Cs2Candidat
     if (difficulty === undefined) return tier !== "easy";
     return cs2TierMatches(tier, difficulty);
   });
+  const weightedPool = collapseFlatPoolTopics(tierPool, isPistolRound, teams);
 
-  const varied = previousCandidate === undefined ? tierPool : tierPool.filter((c) => !sameCandidate(c, previousCandidate));
+  const varied = previousCandidate === undefined ? weightedPool : weightedPool.filter((c) => !sameTopic(c, previousCandidate));
   if (varied.length > 0) return varied;
-  if (tierPool.length > 0) return tierPool;
+  if (weightedPool.length > 0) return weightedPool;
   return nonBanned.length > 0 ? nonBanned : generalCandidates;
 }
 
@@ -135,7 +152,7 @@ export function renderCs2Question(
     case "team_ace":
       return `Will every player on Team ${teamName(params, topic, teams)} get a kill this round?`;
     case "multikill":
-      return `Will Team ${teamName(params, topic, teams)} get a ${requireY(params, topic)}-kill this round?`;
+      return `Will a player on Team ${teamName(params, topic, teams)} get ${requireY(params, topic)} kills this round?`;
     case "survivors_team":
       return `Will Team ${teamName(params, topic, teams)} have more than ${requireY(params, topic)} survivors this round?`;
     case "survivors_round":

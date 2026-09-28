@@ -51,6 +51,33 @@ function Cs2ArenaLobby({
     backendArenaId: arena.id,
   });
 
+  if (entry.hasEntry) {
+    return (
+      <div className="nb-container">
+        <Link className="cs2-back" to={`/cs2/series/${match.seriesId}`}>← Back to series</Link>
+        <div className="nb-arena-grid">
+          <div style={{ display: "grid", gap: 20 }}>
+            {view?.round && (
+              <Cs2RoundCard
+                key={view.round.roundId}
+                round={view.round}
+                onAnswer={submitAnswer}
+                submission={answerSubmission}
+                connected={connected}
+                eliminated={view?.myStatus === "eliminated"}
+                participant
+              />
+            )}
+            <EliminationFeed feed={view?.feed ?? []} />
+          </div>
+          <aside style={{ display: "grid", gap: 20 }}>
+            <LeaderboardRail entries={view?.leaderboard ?? []} />
+          </aside>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="nb-container" style={{ display: "grid", gap: 22 }}>
       <Link className="cs2-back" to={`/cs2/series/${match.seriesId}`}>← Back to series</Link>
@@ -66,18 +93,6 @@ function Cs2ArenaLobby({
         </div>
         <Cs2EntryCard arena={arena} entry={entry} />
       </Panel>
-      {/* Only a joined player should see the round — otherwise there's nothing prompting them to join. */}
-      {view?.round && entry.hasEntry && (
-        <Cs2RoundCard
-          key={view.round.roundId}
-          round={view.round}
-          onAnswer={submitAnswer}
-          submission={answerSubmission}
-          connected={connected}
-          eliminated={view.myStatus === "eliminated"}
-          participant
-        />
-      )}
     </div>
   );
 }

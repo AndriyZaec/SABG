@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { Cs2SeriesLifecycle, Series, SeriesStatus, Uuid } from "@arena/contracts";
 import { db } from "../client.js";
 import { series } from "../schema.js";
@@ -46,5 +46,13 @@ export const seriesRepository = {
 
   async setCatalogLifecycle(id: Uuid, catalogLifecycle: Cs2SeriesLifecycle): Promise<void> {
     await db.update(series).set({ catalogLifecycle }).where(eq(series.id, id));
+  },
+
+  async setMapNames(id: Uuid, mapNames: string[]): Promise<void> {
+    const literal = sql.join(mapNames.map((name) => sql`${name}`), sql`, `);
+    await db
+      .update(series)
+      .set({ mapNames })
+      .where(and(eq(series.id, id), sql`${series.mapNames} IS DISTINCT FROM ARRAY[${literal}]::text[]`));
   },
 };
