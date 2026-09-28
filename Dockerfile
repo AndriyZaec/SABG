@@ -22,6 +22,9 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
 
 FROM dependencies AS build
 
+ARG VITE_VAPID_PUBLIC_KEY
+ENV VITE_VAPID_PUBLIC_KEY=$VITE_VAPID_PUBLIC_KEY
+
 COPY . .
 
 RUN pnpm --filter @arena/contracts build \
