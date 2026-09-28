@@ -39,7 +39,7 @@ export function LandingPage() {
     <div className="landing-page" ref={pageRef}>
       <header className="kinetic-nav">
         <a className="kinetic-nav__mark" href="#watch" aria-label="SABG home">SABG</a>
-        <span>{SCENES[activeScene]?.label}</span>
+        <a className="kinetic-nav__cta" href={appUrl()}>Enter arena</a>
       </header>
 
       <nav className="scene-progress" aria-label="Landing sections">
@@ -64,15 +64,30 @@ export function LandingPage() {
           <div className="scene-wrap watch-scene__layout">
             <div className="scene-copy">
               <p className="scene-kicker">01 / Watch</p>
-              <h1 id="watch-title">Live esports,<br />now playable.</h1>
+              <h1 id="watch-title"><span>Live esports,</span><span>now playable.</span></h1>
               <p className="scene-lede">SABG turns every match into a survival game.</p>
             </div>
             <div className="broadcast-score" aria-label="NAVI 10, Vitality 10">
               <div className="broadcast-score__signal"><i /> Live / CS2</div>
-              <div className="broadcast-score__teams">
-                <strong>NAVI</strong><p><b>10</b><i>:</i><b>10</b></p><strong>Vitality</strong>
+              <div className="broadcast-score__teams" aria-hidden="true">
+                <div className="broadcast-team broadcast-team--navi">
+                  <img src="/landing/navi.png" alt="" />
+                  <strong>NAVI</strong>
+                </div>
+                <p className="broadcast-score__result">
+                  <span className="score-number score-number--changed">
+                    <b className="score-number__old">9</b>
+                    <b className="score-number__new">10</b>
+                  </span>
+                  <i>:</i>
+                  <span className="score-number"><b>10</b></span>
+                </p>
+                <div className="broadcast-team broadcast-team--vitality">
+                  <img src="/landing/vitality.png" alt="" />
+                  <strong>Vitality</strong>
+                </div>
               </div>
-              <footer><span>Mirage / Round 21</span><span>More arenas follow</span></footer>
+              <footer><span>Mirage / Round 21</span></footer>
             </div>
           </div>
           <a className="scene-next" href="#predict">Next / Predict</a>
