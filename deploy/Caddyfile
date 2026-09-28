@@ -3,7 +3,9 @@
 	header Strict-Transport-Security "max-age=31536000"
 
 	@appOnly path_regexp (?i)^/(api(?:/.*)?|cs2-api(?:/.*)?|ws/?|cs2-ws/?|manifest\.webmanifest|sw\.js)$
-	respond @appOnly 404
+	handle @appOnly {
+		respond 404
+	}
 
 	handle {
 		reverse_proxy app:4000
