@@ -49,7 +49,6 @@ export class Cs2SeriesOrchestrator {
   private lifecycleState: Cs2SeriesLifecycleState;
   private readonly arenasByMatchIndex = new Map<number, OpenedArena>();
   private reconcilingFinishedMatch = false;
-  private pendingCancellation: { matchIndex: number; reason: "no_show" | "series_decided" | "forfeit" } | undefined;
 
   constructor(
     private readonly series: Series,
@@ -147,17 +146,13 @@ export class Cs2SeriesOrchestrator {
   }
 
   async poll(snapshot: Cs2SeriesSnapshot | undefined, now: IsoDateTime): Promise<void> {
-    if (this.pendingCancellation !== undefined) {
-      await this.cancelArena(this.pendingCancellation.matchIndex, this.pendingCancellation.reason);
-      return;
-    }
     if (this.reconcilingFinishedMatch && snapshot?.hasLiveGame === true) {
       throw new Error(`Cannot safely restore active CS2 series ${this.series.id}: its next map is already live`);
     }
     const { state, actions } = processCs2SeriesPoll(this.lifecycleState, snapshot, now);
-    this.lifecycleState = state;
-    // Preserve reducer action order when one poll emits multiple transitions.
+    // Commit only once every action applied: a failure leaves the old state, so the next poll re-emits them.
     for (const action of actions) await this.apply(action, snapshot, now);
+    this.lifecycleState = state;
     if (snapshot !== undefined) this.reconcilingFinishedMatch = false;
     if (snapshot !== undefined && snapshot.mapNames.length > 0) {
       await seriesRepository.setMapNames(this.series.id, snapshot.mapNames);
@@ -289,7 +284,6 @@ export class Cs2SeriesOrchestrator {
   }
 
   private async cancelArena(matchIndex: number, reason: "no_show" | "series_decided" | "forfeit"): Promise<void> {
-    this.pendingCancellation = { matchIndex, reason };
     // restore() creates no runtime for an already-cancelled arena, so fall back to the DB.
     const arenaId =
       this.arenasByMatchIndex.get(matchIndex)?.arenaId ?? (await this.findArenaIdByMatchIndex(matchIndex));
@@ -302,7 +296,6 @@ export class Cs2SeriesOrchestrator {
       if (reason === "no_show") await seriesRepository.setStatus(this.series.id, "invalid");
       else if (reason === "series_decided") await seriesRepository.setStatus(this.series.id, "decided");
       this.options.broadcaster?.broadcast(arenaId, { type: "arena.cancelled", reason });
-      this.pendingCancellation = undefined;
       return;
     }
     if (current?.status !== "lobby") {
@@ -321,7 +314,6 @@ export class Cs2SeriesOrchestrator {
     await this.refundCancelledArena(cancelled);
 
     this.options.broadcaster?.broadcast(arenaId, { type: "arena.cancelled", reason });
-    this.pendingCancellation = undefined;
   }
 
   private async findArenaIdByMatchIndex(matchIndex: number): Promise<Uuid | undefined> {

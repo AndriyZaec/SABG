@@ -388,6 +388,45 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     await writeQueue.drain();
   });
 
+  it("still opens the next arena when a forfeit cancel fails once", async () => {
+    const at = clockFrom(new Date(Date.now() + 27 * 60 * MIN).toISOString());
+    const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
+      format: 3,
+      scheduledStartTime: new Date(at(0)),
+    });
+    seriesIds.push(series.id);
+    const matchTeamIds = await synchronizeTestTeams(series.id);
+
+    const writeQueue = new WriteQueue();
+    const orchestrator = await Cs2SeriesOrchestrator.create(series, { writeQueue, entryFeeLamports: 1000 });
+    await orchestrator.poll(snapshot(matchTeamIds, {}), at(-10));
+    const match1 = (await matchRepository.listBySeriesId(series.id))[0]!;
+    matchIds.push(match1.id);
+    const arena1 = (await arenaRepository.findByMatchId(match1.id))!;
+    arenaIds.push(arena1.id);
+
+    const cancelSpy = vi.spyOn(arenaRepository, "cancelIfLobby").mockRejectedValueOnce(new Error("db unavailable"));
+    try {
+      await orchestrator.poll(snapshot(matchTeamIds, { teams: [1, 0] }), at(15));
+      await expect(orchestrator.poll(snapshot(matchTeamIds, { teams: [1, 0] }), at(15.2))).rejects.toThrow(
+        "db unavailable",
+      );
+      expect((await arenaRepository.findById(arena1.id))?.status).toBe("lobby");
+
+      await orchestrator.poll(snapshot(matchTeamIds, { teams: [1, 0] }), at(15.4));
+    } finally {
+      cancelSpy.mockRestore();
+    }
+
+    expect(await arenaRepository.findById(arena1.id)).toMatchObject({ status: "cancelled", cancelledReason: "forfeit" });
+    const match2 = (await matchRepository.listBySeriesId(series.id)).find((m) => m.id !== match1.id)!;
+    matchIds.push(match2.id);
+    const arena2 = (await arenaRepository.findByMatchId(match2.id))!;
+    arenaIds.push(arena2.id);
+    expect(arena2.status).toBe("lobby");
+    await writeQueue.drain();
+  });
+
   it("does not no-show a restored lobby Arena #2 by measuring from the Series' scheduled start", async () => {
     const at = clockFrom(new Date(Date.now() + 24 * 60 * MIN).toISOString());
     const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
