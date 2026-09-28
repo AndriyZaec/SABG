@@ -239,14 +239,20 @@ export function LandingPage() {
         >
           <div className="scene-wrap claim-scene__layout">
             <p className="scene-kicker">04 / Claim</p>
-            <h2 id="claim-title">Last survivors<br />split the pool.</h2>
-            <div className="settlement-line" aria-label="Live events lead to a deterministic result and devnet payout">
-              <span>Live events</span><i>&gt;</i><span>Result</span><i>&gt;</i><span>Devnet payout</span>
+            <h2 id="claim-title"><span>Last survivors</span><span>split the pool.</span></h2>
+            <div className="settlement-line" aria-label="Live events and your call lead to a deterministic result and payout">
+              <span>Live events</span><i>&gt;</i><span>Your call</span><i>&gt;</i><span>Result</span><i>&gt;</i><span>Payout</span>
             </div>
             <a className="claim-cta" href={appUrl()}>Enter the arena</a>
             <p className="claim-note">Private beta / invite code required</p>
           </div>
-          <footer className="claim-footer"><strong>SABG</strong><span>CS2 first. More esports arenas next.</span></footer>
+          <footer className="claim-footer">
+            <span>© 2026 SABG</span>
+            <span className="claim-footer__status"><span>Open beta</span><strong>Soon</strong></span>
+            <a href="https://x.com/sabg_sol" target="_blank" rel="noreferrer" aria-label="SABG on X">
+              <img src="/landing/x-logo.png" alt="" />
+            </a>
+          </footer>
         </section>
       </main>
     </div>
