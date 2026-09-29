@@ -152,26 +152,12 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     arenaIds.push(arena2!.id);
     expect(openedArenas).toEqual([{ arenaId: arena1Id }, { arenaId: arena2!.id }]);
 
-    const walletAddress = `int-test-wallet-${randomUUID()}`;
-    const user = await userRepository.upsertByWallet(walletAddress, "int-test-user");
-    userIds.push(user.id);
-    const entryPass = await entryPassRepository.create({
-      arenaId: arena2!.id,
-      userId: user.id,
-      walletAddress,
-      amountLamports: 1000,
-      txSignature: `sig-${randomUUID()}`,
-    });
-
     // The series-score jump resolves a map that never appeared live; it must hold for 2 polls.
     await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: false, teams: [2, 0], finished: true }), at(22));
     await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: false, teams: [2, 0], finished: true }), at(22.2));
 
     const cancelledArena2 = await arenaRepository.findById(arena2!.id);
     expect(cancelledArena2).toMatchObject({ status: "cancelled", cancelledReason: "series_decided" });
-
-    const refundedPass = await entryPassRepository.listByArenaId(arena2!.id);
-    expect(refundedPass.find((p) => p.id === entryPass.id)?.status).toBe("refunded");
 
     const decidedSeries = await seriesRepository.findById(series.id);
     expect(decidedSeries?.status).toBe("decided");
@@ -200,6 +186,50 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
 
     const invalidSeries = await seriesRepository.findById(series.id);
     expect(invalidSeries?.status).toBe("invalid");
+  });
+
+  it("keeps a no-show cancelled arena cancelled when the teams go live on the next poll", async () => {
+    const at = clockFrom(new Date(Date.now() + 24 * 60 * MIN).toISOString());
+    const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
+      format: 3,
+      scheduledStartTime: new Date(at(0)),
+    });
+    seriesIds.push(series.id);
+    const matchTeamIds = await synchronizeTestTeams(series.id);
+
+    const writeQueue = new WriteQueue();
+    const orchestrator = await Cs2SeriesOrchestrator.create(series, { writeQueue, entryFeeLamports: 1000 });
+    await orchestrator.poll(snapshot(matchTeamIds, {}), at(-10));
+    const match1 = (await matchRepository.listBySeriesId(series.id))[0]!;
+    matchIds.push(match1.id);
+    const arena1 = (await arenaRepository.findByMatchId(match1.id))!;
+    arenaIds.push(arena1.id);
+
+    const walletAddress = `int-test-wallet-${randomUUID()}`;
+    const user = await userRepository.upsertByWallet(walletAddress, "no-show-player");
+    userIds.push(user.id);
+    await entryPassRepository.create({
+      arenaId: arena1.id,
+      userId: user.id,
+      walletAddress,
+      amountLamports: 1000,
+      txSignature: `sig-${randomUUID()}`,
+    });
+
+    // A failing refund must not keep the cancel from committing.
+    const refundSpy = vi.spyOn(entryPassRepository, "markRefunded").mockRejectedValueOnce(new Error("rpc unavailable"));
+    try {
+      await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: false }), at(61));
+      expect(await arenaRepository.findById(arena1.id)).toMatchObject({ status: "cancelled", cancelledReason: "no_show" });
+      expect((await seriesRepository.findById(series.id))?.status).toBe("invalid");
+
+      await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: true }), at(61.2));
+    } finally {
+      refundSpy.mockRestore();
+    }
+
+    expect((await arenaRepository.findById(arena1.id))?.status).toBe("cancelled");
+    expect((await matchRepository.findById(match1.id))?.status).not.toBe("live");
   });
 
   it("restores the same lobby arena, round, roster, and answer without creating a duplicate match", async () => {
@@ -384,7 +414,7 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     expect(openedArenas).toEqual([{ arenaId: arena1!.id }]);
   });
 
-  it("cancels a forfeited, never-live map as forfeit, refunds it, and runs the next map in a fresh arena", async () => {
+  it("cancels a forfeited, never-live map as forfeit and runs the next map in a fresh arena", async () => {
     const at = clockFrom(new Date(Date.now() + 21 * 60 * MIN).toISOString());
     const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
       format: 3,
@@ -401,23 +431,11 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     const arena1 = (await arenaRepository.findByMatchId(match1.id))!;
     arenaIds.push(arena1.id);
 
-    const walletAddress = `int-test-wallet-${randomUUID()}`;
-    const user = await userRepository.upsertByWallet(walletAddress, "forfeit-player");
-    userIds.push(user.id);
-    const entryPass = await entryPassRepository.create({
-      arenaId: arena1.id,
-      userId: user.id,
-      walletAddress,
-      amountLamports: 1000,
-      txSignature: `sig-${randomUUID()}`,
-    });
-
     await orchestrator.poll(snapshot(matchTeamIds, { teams: [1, 0] }), at(15));
     expect((await arenaRepository.findById(arena1.id))?.status).toBe("lobby");
     await orchestrator.poll(snapshot(matchTeamIds, { teams: [1, 0] }), at(15.2));
 
     expect(await arenaRepository.findById(arena1.id)).toMatchObject({ status: "cancelled", cancelledReason: "forfeit" });
-    expect((await entryPassRepository.listByArenaId(arena1.id)).find((p) => p.id === entryPass.id)?.status).toBe("refunded");
 
     const match2 = (await matchRepository.listBySeriesId(series.id)).find((m) => m.id !== match1.id)!;
     matchIds.push(match2.id);

@@ -7,7 +7,6 @@ import { MatchSignalBus } from "../ingestion/event-bus.js";
 import { arenaPlayerRepository } from "../db/repositories/arena-player.repository.js";
 import { arenaRepository } from "../db/repositories/arena.repository.js";
 import { cs2SeriesFollowRepository } from "../db/repositories/cs2-series-follow.repository.js";
-import { entryPassRepository } from "../db/repositories/entry-pass.repository.js";
 import { matchRepository } from "../db/repositories/match.repository.js";
 import { predictionRepository } from "../db/repositories/prediction.repository.js";
 import { predictionRoundRepository } from "../db/repositories/prediction-round.repository.js";
@@ -17,11 +16,7 @@ import { logger } from "../grid/logger.js";
 
 const PUSH_FOLLOWER_BATCH_SIZE = 10;
 import { sendPushToUser } from "../push/service.js";
-import {
-  cancelArenaOnchain,
-  listOnchainArenaEntryPlayers,
-  refundArenaEntryOnchain,
-} from "../onchain/index.js";
+import { cancelArenaOnchain } from "../onchain/index.js";
 import { payoutService } from "../payout/index.js";
 import type { Arena, Cs2GameSnapshot, Cs2Match, IsoDateTime, PredictionRound, Series, Uuid } from "@arena/contracts";
 import { Cs2ArenaRuntime, type Cs2ArenaPersistence } from "./arena-runtime.js";
@@ -82,8 +77,6 @@ export class Cs2SeriesOrchestrator {
     const matchIndex = latestMatch.seriesMatchIndex;
     if (this.series.status !== "active") {
       this.lifecycleState = { ...this.lifecycleState, openedThrough: matchIndex };
-      const terminalArena = await arenaRepository.findByMatchId(latestMatch.id);
-      if (terminalArena?.status === "cancelled") await this.refundCancelledArena(terminalArena);
       return;
     }
 
@@ -107,7 +100,6 @@ export class Cs2SeriesOrchestrator {
       throw new Error(`Cannot safely restore live CS2 arena ${arena.id} without a GRID lock snapshot`);
     }
     if (arena.status === "cancelled") {
-      await this.refundCancelledArena(arena);
       if (arena.cancelledReason === "no_show") {
         await seriesRepository.setStatus(this.series.id, "invalid");
         this.lifecycleState = { ...this.lifecycleState, invalid: true };
@@ -298,7 +290,6 @@ export class Cs2SeriesOrchestrator {
     await closeEntrySubmissions(arenaId);
     const current = await arenaRepository.findById(arenaId);
     if (current?.status === "cancelled") {
-      await this.refundCancelledArena(current);
       if (reason === "no_show") await seriesRepository.setStatus(this.series.id, "invalid");
       else if (reason === "series_decided") await seriesRepository.setStatus(this.series.id, "decided");
       this.options.broadcaster?.broadcast(arenaId, { type: "arena.cancelled", reason });
@@ -314,10 +305,10 @@ export class Cs2SeriesOrchestrator {
       throw new Error(`Arena ${arenaId} changed state after its on-chain cancellation`);
     }
 
+    // Refunds are the scheduler's job (ADR-0007), so nothing after the cancelled write can fail the cancel.
     // A forfeit leaves the series active — it continues to the next map.
     if (reason === "no_show") await seriesRepository.setStatus(this.series.id, "invalid");
     else if (reason === "series_decided") await seriesRepository.setStatus(this.series.id, "decided");
-    await this.refundCancelledArena(cancelled);
 
     this.options.broadcaster?.broadcast(arenaId, { type: "arena.cancelled", reason });
   }
@@ -327,30 +318,5 @@ export class Cs2SeriesOrchestrator {
       (m) => m.discipline === "cs2" && m.seriesMatchIndex === matchIndex,
     );
     return match === undefined ? undefined : (await arenaRepository.findByMatchId(match.id))?.id;
-  }
-
-  private async refundCancelledArena(arena: Arena): Promise<void> {
-    if (arena.onchainArenaId !== undefined) await cancelArenaOnchain(arena.onchainArenaId);
-    const passes = await entryPassRepository.listByArenaId(arena.id);
-    const passByWallet = new Map(passes.map((pass) => [pass.walletAddress, pass]));
-    const wallets = new Set(passByWallet.keys());
-    if (arena.onchainArenaId !== undefined) {
-      for (const wallet of await listOnchainArenaEntryPlayers(arena.onchainArenaId)) wallets.add(wallet);
-    }
-
-    let firstFailure: unknown;
-    for (const wallet of wallets) {
-      try {
-        if (arena.onchainArenaId !== undefined) {
-          await refundArenaEntryOnchain(arena.onchainArenaId, wallet);
-        }
-        const pass = passByWallet.get(wallet);
-        if (pass !== undefined && pass.status !== "refunded") await entryPassRepository.markRefunded(pass.id);
-      } catch (error) {
-        firstFailure ??= error;
-      }
-    }
-    if (firstFailure !== undefined) throw firstFailure;
-    await arenaRepository.clearCancelledBalances(arena.id);
   }
 }
