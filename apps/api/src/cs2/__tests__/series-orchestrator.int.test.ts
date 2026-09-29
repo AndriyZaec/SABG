@@ -307,6 +307,50 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     );
   });
 
+  it("does not reopen an arena when a poll retries after a later action failed", async () => {
+    const at = clockFrom(new Date(Date.now() + 18 * 60 * MIN).toISOString());
+    const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
+      format: 3,
+      scheduledStartTime: new Date(at(0)),
+    });
+    seriesIds.push(series.id);
+    const matchTeamIds = await synchronizeTestTeams(series.id);
+
+    const follower = await userRepository.upsertByWallet(`int-test-wallet-${randomUUID()}`, "follower");
+    userIds.push(follower.id);
+    await cs2SeriesFollowRepository.follow(follower.id, series.id);
+
+    const writeQueue = new WriteQueue();
+    const openedArenas: { arenaId: string }[] = [];
+    const orchestrator = await Cs2SeriesOrchestrator.create(series, {
+      writeQueue,
+      entryFeeLamports: 1000,
+      onArenaOpened: (arenaId) => openedArenas.push({ arenaId }),
+    });
+
+    // The first poll lands mid-game: [open_arena(1), match_live_detected(1)], and the second action fails.
+    const setStatusSpy = vi.spyOn(arenaRepository, "setStatus").mockRejectedValueOnce(new Error("db unavailable"));
+    try {
+      await expect(orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: true }), at(5))).rejects.toThrow("db unavailable");
+      await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: true }), at(5.2));
+    } finally {
+      setStatusSpy.mockRestore();
+    }
+
+    const match1 = (await matchRepository.listBySeriesId(series.id))[0]!;
+    matchIds.push(match1.id);
+    const arena1 = (await arenaRepository.findByMatchId(match1.id))!;
+    arenaIds.push(arena1.id);
+    expect(arena1.status).toBe("live");
+    expect(openedArenas).toEqual([{ arenaId: arena1.id }]);
+
+    await writeQueue.drain();
+    const rounds = await predictionRoundRepository.listByArenaId(arena1.id);
+    expect(rounds.filter((round) => round.roundNumber === 1)).toHaveLength(1);
+
+    await vi.waitFor(() => expect(pushMocks.sendPushToUser).toHaveBeenCalledTimes(1));
+  });
+
   it("does not block or fail arena opening when the push send throws", async () => {
     const at = clockFrom(new Date(Date.now() + 15 * 60 * MIN).toISOString());
     const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {

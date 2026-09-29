@@ -182,6 +182,8 @@ export class Cs2SeriesOrchestrator {
   }
 
   private async openArena(matchIndex: number, snapshot: Cs2SeriesSnapshot | undefined, now: IsoDateTime): Promise<void> {
+    // A retried poll re-emits open_arena after a later action failed; the arena is already running.
+    if (this.arenasByMatchIndex.has(matchIndex)) return;
     if (snapshot === undefined) throw new Error(`Cannot open CS2 Arena ${matchIndex} without team identities`);
     const match = await matchRepository.upsertForSeriesMap(this.series.id, matchIndex, {
       teams: snapshot.teams,
