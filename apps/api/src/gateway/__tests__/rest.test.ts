@@ -1,3 +1,4 @@
+import { createECDH } from "node:crypto";
 import { createServer, type Server as HttpServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import express from "express";
@@ -6,6 +7,11 @@ import bs58 from "bs58";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildSignInMessage } from "@arena/auth";
 import type { Arena, ArenaPlayer, EntryPass, Match, Prediction, PredictionRound, SoccerMatch, User } from "@arena/contracts";
+
+const pushKey = createECDH("prime256v1");
+pushKey.setPrivateKey(Buffer.alloc(32, 1));
+const PUSH_P256DH = pushKey.getPublicKey().toString("base64url");
+const PUSH_AUTH = Buffer.alloc(16).toString("base64url");
 
 vi.mock("../../db/repositories/user.repository.js", () => ({
   userRepository: { upsertByWallet: vi.fn(), findById: vi.fn() },
@@ -29,6 +35,8 @@ vi.mock("../../db/repositories/entry-pass.repository.js", () => ({
   entryPassRepository: { create: vi.fn() },
 }));
 vi.mock("../../db/repositories/push-subscription.repository.js", () => ({
+  PushSubscriptionConflictError: class extends Error {},
+  PushSubscriptionLimitError: class extends Error {},
   pushSubscriptionRepository: { upsert: vi.fn() },
 }));
 vi.mock("../../db/repositories/cs2-series-follow.repository.js", () => ({
@@ -610,14 +618,14 @@ describe("REST gateway routes", () => {
       const res = await fetch(`${baseUrl}/push/subscribe`, {
         method: "POST",
         headers: { "content-type": "application/json", authorization: `Bearer ${issueToken("u1")}` },
-        body: JSON.stringify({ endpoint: "https://push.example/1", p256dh: "p", auth: "a" }),
+        body: JSON.stringify({ endpoint: "https://fcm.googleapis.com/fcm/send/1", p256dh: PUSH_P256DH, auth: PUSH_AUTH }),
       });
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ subscribed: true });
       expect(pushSubscriptionRepository.upsert).toHaveBeenCalledWith("u1", {
-        endpoint: "https://push.example/1",
-        p256dh: "p",
-        auth: "a",
+        endpoint: "https://fcm.googleapis.com/fcm/send/1",
+        p256dh: PUSH_P256DH,
+        auth: PUSH_AUTH,
       });
     });
 
@@ -625,7 +633,7 @@ describe("REST gateway routes", () => {
       const res = await fetch(`${baseUrl}/push/subscribe`, {
         method: "POST",
         headers: { "content-type": "application/json", authorization: `Bearer ${issueToken("u1")}` },
-        body: JSON.stringify({ endpoint: "https://push.example/1", p256dh: "p" }),
+        body: JSON.stringify({ endpoint: "https://fcm.googleapis.com/fcm/send/1", p256dh: PUSH_P256DH }),
       });
       expect(res.status).toBe(400);
       expect(pushSubscriptionRepository.upsert).not.toHaveBeenCalled();
@@ -635,7 +643,7 @@ describe("REST gateway routes", () => {
       const res = await fetch(`${baseUrl}/push/subscribe`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ endpoint: "https://push.example/1", p256dh: "p", auth: "a" }),
+        body: JSON.stringify({ endpoint: "https://fcm.googleapis.com/fcm/send/1", p256dh: PUSH_P256DH, auth: PUSH_AUTH }),
       });
       expect(res.status).toBe(401);
     });

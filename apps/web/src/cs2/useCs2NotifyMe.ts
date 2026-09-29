@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useAuth } from "../auth/AuthContext.js";
 import { followCs2Series, subscribeToPush, unfollowCs2Series } from "./api/cs2Client.js";
@@ -20,11 +20,44 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
   return output;
 }
 
+function usesApplicationServerKey(subscription: PushSubscription, expectedKey: Uint8Array<ArrayBuffer>): boolean {
+  const currentKey = subscription.options.applicationServerKey;
+  if (!currentKey) return false;
+  const currentBytes = new Uint8Array(currentKey);
+  return currentBytes.length === expectedKey.length && currentBytes.every((byte, index) => byte === expectedKey[index]);
+}
+
 export function useCs2NotifyMe(seriesId: string, initiallyFollowing: boolean): Cs2NotifyMe {
   const { connected } = useWallet();
   const { token, signIn } = useAuth();
   const [status, setStatus] = useState<Status>(initiallyFollowing ? "subscribed" : "idle");
   const busyRef = useRef(false);
+
+  useEffect(() => {
+    if (!initiallyFollowing) return;
+    const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
+    if (!vapidPublicKey || !("serviceWorker" in navigator) || !("PushManager" in window)) {
+      setStatus("error");
+      return;
+    }
+
+    let cancelled = false;
+    void navigator.serviceWorker.ready
+      .then(async (registration) => {
+        const subscription = await registration.pushManager.getSubscription();
+        const applicationServerKey = urlBase64ToUint8Array(vapidPublicKey);
+        if (subscription && usesApplicationServerKey(subscription, applicationServerKey)) return;
+        if (subscription) await subscription.unsubscribe();
+        if (!cancelled) setStatus("idle");
+      })
+      .catch(() => {
+        if (!cancelled) setStatus("error");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [initiallyFollowing]);
 
   const toggle = useCallback(async () => {
     if (busyRef.current) return;
@@ -54,12 +87,16 @@ export function useCs2NotifyMe(seriesId: string, initiallyFollowing: boolean): C
           return;
         }
         const registration = await navigator.serviceWorker.ready;
-        const subscription =
-          (await registration.pushManager.getSubscription()) ??
-          (await registration.pushManager.subscribe({
+        const applicationServerKey = urlBase64ToUint8Array(vapidPublicKey);
+        let subscription = await registration.pushManager.getSubscription();
+        if (subscription && !usesApplicationServerKey(subscription, applicationServerKey)) {
+          await subscription.unsubscribe();
+          subscription = null;
+        }
+        subscription ??= await registration.pushManager.subscribe({
             userVisibleOnly: true,
-            applicationServerKey: urlBase64ToUint8Array(vapidPublicKey),
-          }));
+            applicationServerKey,
+          });
         const { endpoint, keys } = subscription.toJSON() as { endpoint: string; keys: { p256dh: string; auth: string } };
         await subscribeToPush({ endpoint, p256dh: keys.p256dh, auth: keys.auth });
         await followCs2Series(seriesId);

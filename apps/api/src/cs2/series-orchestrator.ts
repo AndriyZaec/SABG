@@ -14,6 +14,8 @@ import { predictionRoundRepository } from "../db/repositories/prediction-round.r
 import { seriesRepository } from "../db/repositories/series.repository.js";
 import { userRepository } from "../db/repositories/user.repository.js";
 import { logger } from "../grid/logger.js";
+
+const PUSH_FOLLOWER_BATCH_SIZE = 10;
 import { sendPushToUser } from "../push/service.js";
 import {
   cancelArenaOnchain,
@@ -204,15 +206,17 @@ export class Cs2SeriesOrchestrator {
   private async notifyFollowersOfArenaOpen(arenaId: Uuid): Promise<void> {
     try {
       const followerUserIds = await cs2SeriesFollowRepository.listFollowerUserIds(this.series.id);
-      await Promise.all(
-        followerUserIds.map((userId) =>
-          sendPushToUser(userId, {
-            title: "Map is live",
-            body: "Your CS2 arena just opened — jump in now.",
-            url: `/cs2/arena/${arenaId}`,
-          }),
-        ),
-      );
+      for (let offset = 0; offset < followerUserIds.length; offset += PUSH_FOLLOWER_BATCH_SIZE) {
+        await Promise.all(
+          followerUserIds.slice(offset, offset + PUSH_FOLLOWER_BATCH_SIZE).map((userId) =>
+            sendPushToUser(userId, {
+              title: "Map is live",
+              body: "Your CS2 arena just opened — jump in now.",
+              url: `/cs2/arena/${arenaId}`,
+            }),
+          ),
+        );
+      }
     } catch (err) {
       logger.error({ err, arenaId }, "cs2: failed to notify series followers of arena open");
     }

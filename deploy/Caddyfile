@@ -1,5 +1,28 @@
+{$SABG_LANDING_HOST:landing.localhost} {
+	encode zstd gzip
+	header Strict-Transport-Security "max-age=31536000"
+
+	@appOnly path_regexp (?i)^/(api(?:/.*)?|cs2-api(?:/.*)?|ws/?|cs2-ws/?|manifest\.webmanifest|sw\.js)$
+	handle @appOnly {
+		respond 404
+	}
+
+	handle {
+		reverse_proxy app:4000
+	}
+}
+
+www.{$SABG_LANDING_HOST:landing.localhost} {
+	header Strict-Transport-Security "max-age=31536000"
+	redir https://{$SABG_LANDING_HOST:landing.localhost}{uri} permanent
+}
+
 {$SABG_HOST:localhost} {
 	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Robots-Tag "noindex, nofollow"
+	}
 
 	handle_path /cs2-api/* {
 		rewrite * /api{uri}
