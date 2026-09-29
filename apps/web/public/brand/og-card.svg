@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <style>
+    @import url("https://fonts.googleapis.com/css2?family=Anton&amp;family=Space+Mono:wght@700&amp;display=swap");
+  </style>
+  <defs>
+    <pattern id="grid" width="26" height="26" patternUnits="userSpaceOnUse">
+      <path d="M 26 0 L 0 0 0 26" fill="none" stroke="#0a0a0a" stroke-opacity="0.055" stroke-width="2" />
+    </pattern>
+  </defs>
+
+  <rect width="1200" height="630" fill="#f4f0e4" />
+  <rect width="1200" height="630" fill="url(#grid)" />
+
+  <image href="sabg-wordmark.png" x="64" y="38" width="190" height="93" />
+
+  <g fill="#0a0a0a" font-family="Impact, Anton, Arial Narrow, sans-serif" font-size="128" letter-spacing="-1">
+    <text x="70" y="256">CAN YOU</text>
+    <text x="70" y="380">SURVIVE</text>
+    <text x="70" y="504">THE MATCH?</text>
+  </g>
+  <g fill="#2d6bff" font-family="Impact, Anton, Arial Narrow, sans-serif" font-size="128" letter-spacing="-1">
+    <text x="64" y="250">CAN YOU</text>
+    <text x="64" y="374">SURVIVE</text>
+    <text x="64" y="498">THE MATCH?</text>
+  </g>
+
+  <rect x="824" y="218" width="280" height="104" fill="#0a0a0a" />
+  <rect x="816" y="210" width="280" height="104" fill="#28e191" stroke="#0a0a0a" stroke-width="5" />
+  <text x="956" y="287" fill="#0a0a0a" font-family="Impact, Anton, Arial Narrow, sans-serif" font-size="76" text-anchor="middle">YES</text>
+
+  <rect x="824" y="374" width="280" height="104" fill="#0a0a0a" />
+  <rect x="816" y="366" width="280" height="104" fill="#ff4d4d" stroke="#0a0a0a" stroke-width="5" />
+  <text x="956" y="443" fill="#ffffff" font-family="Impact, Anton, Arial Narrow, sans-serif" font-size="76" text-anchor="middle">NO</text>
+
+  <rect x="64" y="550" width="482" height="52" fill="#0a0a0a" />
+  <text
+    x="86"
+    y="584"
+    fill="#ffffff"
+    font-family="Andale Mono, Space Mono, monospace"
+    font-size="18"
+    font-weight="700"
+    letter-spacing="2"
+  >A LIVE ESPORTS PREDICTION GAME</text>
+</svg>

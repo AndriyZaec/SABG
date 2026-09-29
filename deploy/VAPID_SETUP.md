@@ -1,69 +1,57 @@
-# CS2 arena-open push notifications — production setup
+# CS2 arena-open push notifications - production setup
 
 Web Push (the "notify me" toggle on CS2 series screens, `docs/adr/0005-cs2-arena-open-web-push.md`)
-needs a VAPID key pair. The backend config is optional (the app won't crash without it — push just
+needs a VAPID key pair. The backend config is optional (the app won't crash without it - push just
 silently no-ops), so this can be done at any point, but the feature is inert in production until
-all three steps below are done.
+all setup steps below are done.
 
 ## 1. Generate a VAPID key pair
 
+```bash
+pnpm dlx web-push@3.6.7 generate-vapid-keys
 ```
-npx web-push generate-vapid-keys
+
+Generate the pair once per environment. Store the private key in the team's secret manager; never
+commit it or send it through chat. The public key is safe to share.
+
+## 2. Configure the frontend build
+
+Create the repository-level GitHub Actions variable below under **Settings -> Secrets and variables
+-> Actions -> Variables**:
+
+```text
+VITE_VAPID_PUBLIC_KEY=<public key from step 1>
 ```
 
-Produces a public and a private key. Do this once per environment (devnet/prod) — don't reuse the
-dev key pair already in local `.env` files.
+The release workflow passes this variable into the Docker build. Vite embeds it in the immutable
+frontend bundle, so changing it requires building and deploying a new image.
 
-## 2. Add the three backend vars to `deploy/app.env` on the server
+## 3. Configure the backend runtime
 
-`deploy/app.env` is not in git (see `deploy/app.env.example` for the template — add these three
-lines there too so the template stays complete):
+Add all three values to the server's gitignored `deploy/app.env`:
 
-```
+```dotenv
 VAPID_PUBLIC_KEY=<public key from step 1>
 VAPID_PRIVATE_KEY=<private key from step 1>
-VAPID_SUBJECT=mailto:<a real contact address>
+VAPID_SUBJECT=mailto:<real contact address>
 ```
 
-`VAPID_SUBJECT` is a contact the push providers (Chrome/FCM, Mozilla, etc.) can reach if this
-server's push traffic ever needs investigating — must be a real `mailto:` or `https://` value, not
-a placeholder, in production.
+`VITE_VAPID_PUBLIC_KEY` and `VAPID_PUBLIC_KEY` must match. `VAPID_SUBJECT` must be a real `mailto:`
+or `https://` contact. Restarting the backend is sufficient for runtime-only changes, but a public
+key change also requires a new frontend image.
 
-## 3. Pass the public key into the frontend Docker build (the part that's easy to miss)
+## 4. Deploy and verify
 
-Vite bakes `import.meta.env.VITE_*` into the static JS bundle **at `docker build` time**, not at
-container startup. `deploy/app.env` is only mounted at runtime (`compose.yml`'s `env_file`) — by
-then the frontend bundle is already built and immutable, so putting the key there does nothing for
-the frontend half.
+1. Push a release branch so `.github/workflows/deploy-event.yml` builds with the repository variable.
+2. Confirm the VPS has all three backend values before the new container starts.
+3. On `app.sabg.fun`, enable notifications on a CS2 series and confirm the browser grants permission
+   without the UI entering the `error` state.
 
-Also note: `.dockerignore` excludes `.env`, `.env.*`, and `deploy/*.env` from the build context, and
-the `Dockerfile` currently accepts no `ARG` for any `VITE_*` variable (only `VCS_REF`). Without the
-change below, `VITE_VAPID_PUBLIC_KEY` is simply undefined in the production bundle — the "notify me"
-toggle will exist and render, but clicking it always ends in an `error` state (handled gracefully,
-no crash, just silently non-functional).
+## Team ownership
 
-To fix, two changes:
-
-**`Dockerfile`** — add before the `pnpm --filter @arena/web build` step (in the `build` stage):
-
-```dockerfile
-ARG VITE_VAPID_PUBLIC_KEY
-ENV VITE_VAPID_PUBLIC_KEY=$VITE_VAPID_PUBLIC_KEY
-```
-
-**`.github/workflows/deploy-event.yml`** — in the `publish` job's "Build and push image" step, add
-to `build-args:`:
-
-```yaml
-build-args: |
-  VCS_REF=${{ github.sha }}
-  VITE_VAPID_PUBLIC_KEY=${{ vars.VITE_VAPID_PUBLIC_KEY }}
-```
-
-`vars.VITE_VAPID_PUBLIC_KEY` should be set as a GitHub Actions repository or environment variable
-(Settings → Secrets and variables → Actions → Variables) — it's the *public* key, safe to expose,
-so a variable (not a secret) is fine; use the same public key value as `VAPID_PUBLIC_KEY` in
-`deploy/app.env` from step 2.
+- Repo admin: set `VITE_VAPID_PUBLIC_KEY` as a GitHub Actions repository variable.
+- VPS operator: store the three backend values in `deploy/app.env`.
+- Secret owner: retain the private key in the team secret manager and rotate the full pair together.
 
 ## What already works with no extra steps
 
