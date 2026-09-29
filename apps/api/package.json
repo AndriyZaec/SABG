@@ -27,6 +27,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:migrate:prod": "node dist/db/migrate.js",
+    "db:migrate:local": "tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/seeds/seed-matches.ts",
     "reset-replay": "tsx src/db/seeds/reset-replay.ts"
   },
@@ -43,6 +44,7 @@
     "drizzle-orm": "^0.45.2",
     "express": "^5.2.1",
     "mongodb": "^7.4.0",
+    "pg-boss": "^12.35.0",
     "pino": "^10.3.1",
     "postgres": "^3.4.9",
     "tweetnacl": "^1.0.3",
