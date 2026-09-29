@@ -2,8 +2,11 @@ import { PgBoss } from "pg-boss";
 
 import { databaseUrl } from "../db/client.js";
 import { logger } from "../gateway/logger.js";
+import { processPendingRefunds } from "../payout/refunds.js";
 
 export type Scheduler = PgBoss;
+
+const REFUND_QUEUE = "refund-cancelled-arenas";
 
 // Fails when the pgboss schema is missing or behind: run the migrate step first.
 export async function startScheduler(): Promise<Scheduler> {
@@ -11,6 +14,7 @@ export async function startScheduler(): Promise<Scheduler> {
   boss.on("error", (err) => logger.error({ err }, "scheduler: pg-boss error"));
   try {
     await boss.start();
+    await registerJobs(boss);
   } catch (err) {
     // start() opens the pool before checking the schema; close it so a failed startup can exit.
     await boss.stop({ graceful: false }).catch(() => undefined);
@@ -23,4 +27,13 @@ export async function startScheduler(): Promise<Scheduler> {
 export async function stopScheduler(scheduler: Scheduler): Promise<void> {
   await scheduler.stop();
   logger.info("scheduler: stopped");
+}
+
+async function registerJobs(boss: PgBoss): Promise<void> {
+  // exclusive: a slow run never piles up queued runs behind it; the next minute picks up what's left.
+  await boss.createQueue(REFUND_QUEUE, { policy: "exclusive" });
+  await boss.schedule(REFUND_QUEUE, "* * * * *");
+  await boss.work(REFUND_QUEUE, async () => {
+    await processPendingRefunds();
+  });
 }
