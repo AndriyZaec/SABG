@@ -205,31 +205,23 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     const arena1 = (await arenaRepository.findByMatchId(match1.id))!;
     arenaIds.push(arena1.id);
 
-    const walletAddress = `int-test-wallet-${randomUUID()}`;
-    const user = await userRepository.upsertByWallet(walletAddress, "no-show-player");
-    userIds.push(user.id);
-    await entryPassRepository.create({
-      arenaId: arena1.id,
-      userId: user.id,
-      walletAddress,
-      amountLamports: 1000,
-      txSignature: `sig-${randomUUID()}`,
-    });
-
-    // A failing refund must not keep the cancel from committing.
-    const refundSpy = vi.spyOn(entryPassRepository, "markRefunded").mockRejectedValueOnce(new Error("rpc unavailable"));
+    // The series-status write after cancelIfLobby fails, so the cancel doesn't commit.
+    const seriesStatusSpy = vi.spyOn(seriesRepository, "setStatus").mockRejectedValueOnce(new Error("db unavailable"));
     try {
-      await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: false }), at(61));
-      expect(await arenaRepository.findById(arena1.id)).toMatchObject({ status: "cancelled", cancelledReason: "no_show" });
-      expect((await seriesRepository.findById(series.id))?.status).toBe("invalid");
-
-      await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: true }), at(61.2));
+      await expect(orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: false }), at(61))).rejects.toThrow("db unavailable");
     } finally {
-      refundSpy.mockRestore();
+      seriesStatusSpy.mockRestore();
     }
+    expect(await arenaRepository.findById(arena1.id)).toMatchObject({ status: "cancelled", cancelledReason: "no_show" });
 
+    // The teams go live: the cancelled arena must not.
+    await expect(orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: true }), at(61.2))).rejects.toThrow("no longer open");
     expect((await arenaRepository.findById(arena1.id))?.status).toBe("cancelled");
-    expect((await matchRepository.findById(match1.id))?.status).not.toBe("live");
+    expect((await matchRepository.findById(match1.id))?.status).toBe("scheduled");
+
+    // Once the game is over, the no-show cancel is re-emitted and completes.
+    await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: false }), at(90));
+    expect((await seriesRepository.findById(series.id))?.status).toBe("invalid");
   });
 
   it("restores the same lobby arena, round, roster, and answer without creating a duplicate match", async () => {
@@ -359,7 +351,7 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     });
 
     // The first poll lands mid-game: [open_arena(1), match_live_detected(1)], and the second action fails.
-    const setStatusSpy = vi.spyOn(arenaRepository, "setStatus").mockRejectedValueOnce(new Error("db unavailable"));
+    const setStatusSpy = vi.spyOn(arenaRepository, "setLiveIfOpen").mockRejectedValueOnce(new Error("db unavailable"));
     try {
       await expect(orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: true }), at(5))).rejects.toThrow("db unavailable");
       await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: true }), at(5.2));

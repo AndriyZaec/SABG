@@ -88,6 +88,15 @@ describe.skipIf(!RUN)("processPendingRefunds (integration, requires DATABASE_URL
     return (await entryPassRepository.listByArenaId(arenaId)).map((pass) => pass.status);
   }
 
+  // processPendingRefunds scans the shared DB while other files run, so only count calls for our own rows.
+  function onchainCallsFor(filter: { onchainArenaId?: number; wallet?: string }) {
+    return onchainMocks.refundArenaEntryOnchain.mock.calls.filter(
+      ([id, wallet]) =>
+        (filter.onchainArenaId === undefined || id === filter.onchainArenaId) &&
+        (filter.wallet === undefined || wallet === filter.wallet),
+    );
+  }
+
   it("refunds every paid pass of a cancelled arena on-chain and clears its balances", async () => {
     const onchainArenaId = 900_000_000 + Math.floor(Math.random() * 1_000_000);
     const { arenaId, passes } = await seedArena("cancelled", onchainArenaId, 2);
@@ -95,9 +104,9 @@ describe.skipIf(!RUN)("processPendingRefunds (integration, requires DATABASE_URL
     await processPendingRefunds();
 
     expect(await passStatuses(arenaId)).toEqual(["refunded", "refunded"]);
-    for (const pass of passes) {
-      expect(onchainMocks.refundArenaEntryOnchain).toHaveBeenCalledWith(onchainArenaId, pass.walletAddress);
-    }
+    expect(onchainCallsFor({ onchainArenaId }).map(([, wallet]) => wallet).sort()).toEqual(
+      passes.map((pass) => pass.walletAddress).sort(),
+    );
     expect(await arenaRepository.findById(arenaId)).toMatchObject({ prizePoolLamports: 0, activePlayersCount: 0 });
   });
 
@@ -115,7 +124,9 @@ describe.skipIf(!RUN)("processPendingRefunds (integration, requires DATABASE_URL
   it("keeps a failed wallet paid, skips clearing balances, and finishes on the next run", async () => {
     const onchainArenaId = 900_000_000 + Math.floor(Math.random() * 1_000_000);
     const { arenaId, passes } = await seedArena("cancelled", onchainArenaId, 2);
+    const healthy = await seedArena("cancelled", onchainArenaId + 1, 1);
     const failingWallet = passes[0]!.walletAddress;
+    const succeedingWallet = passes[1]!.walletAddress;
     onchainMocks.refundArenaEntryOnchain.mockImplementation(async (_id: number, wallet: string) => {
       if (wallet === failingWallet) throw new Error("rpc unavailable");
     });
@@ -126,12 +137,17 @@ describe.skipIf(!RUN)("processPendingRefunds (integration, requires DATABASE_URL
     expect(afterFirst.find((pass) => pass.walletAddress === failingWallet)?.status).toBe("paid");
     expect(afterFirst.find((pass) => pass.walletAddress !== failingWallet)?.status).toBe("refunded");
     expect(await arenaRepository.findById(arenaId)).toMatchObject({ prizePoolLamports: 2000, activePlayersCount: 2 });
+    // Another arena's failure doesn't hold this one back.
+    expect(await passStatuses(healthy.arenaId)).toEqual(["refunded"]);
+    expect(await arenaRepository.findById(healthy.arenaId)).toMatchObject({ prizePoolLamports: 0, activePlayersCount: 0 });
 
     onchainMocks.refundArenaEntryOnchain.mockResolvedValue(undefined);
     await processPendingRefunds();
 
     expect(await passStatuses(arenaId)).toEqual(["refunded", "refunded"]);
     expect(await arenaRepository.findById(arenaId)).toMatchObject({ prizePoolLamports: 0, activePlayersCount: 0 });
+    // A wallet refunded in the first run is never refunded on-chain again.
+    expect(onchainCallsFor({ wallet: succeedingWallet })).toHaveLength(1);
   });
 
   it("refunds an off-chain arena's passes without an on-chain call", async () => {
@@ -140,6 +156,6 @@ describe.skipIf(!RUN)("processPendingRefunds (integration, requires DATABASE_URL
     await processPendingRefunds();
 
     expect(await passStatuses(arenaId)).toEqual(["refunded"]);
-    expect(onchainMocks.refundArenaEntryOnchain).not.toHaveBeenCalledWith(expect.anything(), passes[0]!.walletAddress);
+    expect(onchainCallsFor({ wallet: passes[0]!.walletAddress })).toEqual([]);
   });
 });

@@ -270,10 +270,13 @@ export class Cs2SeriesOrchestrator {
   private async matchLiveDetected(matchIndex: number, now: IsoDateTime): Promise<void> {
     const opened = this.arenasByMatchIndex.get(matchIndex);
     if (opened === undefined) return;
+    await closeEntrySubmissions(opened.arenaId);
+    // Throwing keeps the poll uncommitted; once the game ends the reducer re-emits the cancel and it completes.
+    if ((await arenaRepository.setLiveIfOpen(opened.arenaId)) === undefined) {
+      throw new Error(`Cannot start CS2 arena ${opened.arenaId}: it is no longer open`);
+    }
     opened.runtime.onMatchLiveDetected(now);
     await matchRepository.setStatus(opened.matchId, "live");
-    await closeEntrySubmissions(opened.arenaId);
-    await arenaRepository.setStatus(opened.arenaId, "live");
   }
 
   private async markMatchFinished(matchIndex: number): Promise<void> {
@@ -305,7 +308,7 @@ export class Cs2SeriesOrchestrator {
       throw new Error(`Arena ${arenaId} changed state after its on-chain cancellation`);
     }
 
-    // Refunds are the scheduler's job (ADR-0007), so nothing after the cancelled write can fail the cancel.
+    // Refunds are the scheduler's job (ADR-0007). If a write below fails, setLiveIfOpen still keeps the arena from going live.
     // A forfeit leaves the series active — it continues to the next map.
     if (reason === "no_show") await seriesRepository.setStatus(this.series.id, "invalid");
     else if (reason === "series_decided") await seriesRepository.setStatus(this.series.id, "decided");
