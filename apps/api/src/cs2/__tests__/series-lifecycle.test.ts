@@ -109,7 +109,7 @@ describe("processCs2SeriesPoll — series decided", () => {
 });
 
 describe("processCs2SeriesPoll — forfeit cancellation", () => {
-  it("cancels Arena #k+1 the moment the series-level score shows it decided, without waiting for MLD", () => {
+  it("cancels Arena #k+1 once the series-level score shows it decided for 2 polls, without waiting for MLD", () => {
     let state = initialCs2SeriesLifecycleState(START);
     ({ state } = poll(state, snapshot({ format: 3 }), -10));
     ({ state } = poll(state, snapshot({ format: 3, hasLiveGame: true }), 0));
@@ -118,16 +118,100 @@ describe("processCs2SeriesPoll — forfeit cancellation", () => {
     expect(state.matchLiveDetected).toBe(false);
 
     // A forfeit can decide the series without a live-game edge.
-    const { state: after, actions } = poll(
-      state,
-      snapshot({ format: 3, hasLiveGame: false, teams: [2, 0], finished: true }),
-      22,
-    );
+    const decidedSnapshot = snapshot({ format: 3, hasLiveGame: false, teams: [2, 0], finished: true });
+    let first;
+    ({ state, actions: first } = poll(state, decidedSnapshot, 22));
+    expect(first).toEqual([]);
+    const { state: after, actions } = poll(state, decidedSnapshot, 22.2);
     expect(actions).toEqual([
       { type: "cancel_arena", matchIndex: 2, reason: "series_decided" },
       { type: "series_decided", reason: "clinch" },
     ]);
     expect(after.decided).toBe(true);
+  });
+});
+
+describe("processCs2SeriesPoll — mid-series forfeit (ADR-0006)", () => {
+  it("cancels a forfeited, never-live map and opens the next arena once the score holds for 2 polls", () => {
+    let state = initialCs2SeriesLifecycleState(START);
+    ({ state } = poll(state, snapshot({}), -10));
+
+    let actions;
+    ({ state, actions } = poll(state, snapshot({ teams: [1, 0] }), 15));
+    expect(actions).toEqual([]);
+    expect(state.forfeitPendingPolls).toBe(1);
+
+    ({ state, actions } = poll(state, snapshot({ teams: [1, 0] }), 15.2));
+    expect(actions).toEqual([
+      { type: "cancel_arena", matchIndex: 1, reason: "forfeit" },
+      { type: "open_arena", matchIndex: 2 },
+    ]);
+    expect(state).toMatchObject({ openedThrough: 2, openedThroughAt: at(15.2), forfeitPendingPolls: 0, decided: false });
+  });
+
+  it("ignores a forfeit signal that disappears after one poll", () => {
+    let state = initialCs2SeriesLifecycleState(START);
+    ({ state } = poll(state, snapshot({}), -10));
+
+    let actions;
+    ({ state } = poll(state, snapshot({ teams: [1, 0] }), 15));
+    ({ state, actions } = poll(state, snapshot({ teams: [0, 0] }), 15.2));
+    expect(actions).toEqual([]);
+    expect(state.forfeitPendingPolls).toBe(0);
+
+    ({ state, actions } = poll(state, snapshot({ teams: [1, 0] }), 15.4));
+    expect(actions).toEqual([]);
+    expect(state.forfeitPendingPolls).toBe(1);
+  });
+
+  it("keeps the series_decided path when the forfeited map decides the series", () => {
+    let state = initialCs2SeriesLifecycleState(START);
+    ({ state } = poll(state, snapshot({ format: 1 }), -10));
+
+    ({ state } = poll(state, snapshot({ format: 1, teams: [1, 0] }), 15));
+    const { state: after, actions } = poll(state, snapshot({ format: 1, teams: [1, 0] }), 15.2);
+    expect(actions).toEqual([
+      { type: "cancel_arena", matchIndex: 1, reason: "series_decided" },
+      { type: "series_decided", reason: "clinch" },
+    ]);
+    expect(after.decided).toBe(true);
+  });
+
+  it("attributes a live game seen on the same poll as the score jump to the next map, not the forfeited one", () => {
+    let state = initialCs2SeriesLifecycleState(START);
+    ({ state } = poll(state, snapshot({}), -10));
+
+    let actions;
+    ({ state, actions } = poll(state, snapshot({ teams: [1, 0], hasLiveGame: true }), 15));
+    expect(actions).toEqual([]);
+    expect(state.matchLiveDetected).toBe(false);
+
+    ({ state, actions } = poll(state, snapshot({ teams: [1, 0], hasLiveGame: true }), 15.2));
+    expect(actions).toEqual([
+      { type: "cancel_arena", matchIndex: 1, reason: "forfeit" },
+      { type: "open_arena", matchIndex: 2 },
+    ]);
+
+    ({ state, actions } = poll(state, snapshot({ teams: [1, 0], hasLiveGame: true }), 15.4));
+    expect(actions).toEqual([{ type: "match_live_detected", matchIndex: 2 }]);
+  });
+});
+
+describe("processCs2SeriesPoll — Arena #2+ no-show", () => {
+  it("measures from when the arena opened, not from the series' scheduled start", () => {
+    let state = initialCs2SeriesLifecycleState(START);
+    ({ state } = poll(state, snapshot({}), -10));
+    ({ state } = poll(state, snapshot({ hasLiveGame: true }), 0));
+    ({ state } = poll(state, snapshot({ teams: [1, 0] }), 90));
+    expect(state.openedThrough).toBe(2);
+
+    let actions;
+    ({ state, actions } = poll(state, snapshot({ teams: [1, 0] }), 149));
+    expect(actions).toEqual([]);
+
+    ({ state, actions } = poll(state, snapshot({ teams: [1, 0] }), 151));
+    expect(actions).toEqual([{ type: "cancel_arena", matchIndex: 2, reason: "no_show" }]);
+    expect(state.invalid).toBe(true);
   });
 });
 

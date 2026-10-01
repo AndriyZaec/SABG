@@ -2,6 +2,7 @@ import { checkDatabaseConnection, closeDatabaseConnection } from "../db/client.j
 import { closeHttpServer, listenHttpServer } from "../gateway/http-lifecycle.js";
 import { logger } from "../gateway/logger.js";
 import { createGatewayServer } from "../gateway/server.js";
+import { startScheduler, stopScheduler, type Scheduler } from "../scheduler/index.js";
 import { cs2Config } from "./config/env.js";
 
 if (cs2Config.mode !== "catalog") {
@@ -11,6 +12,7 @@ if (cs2Config.mode !== "catalog") {
 async function main(): Promise<void> {
   const abortController = new AbortController();
   let gatewayServer: ReturnType<typeof createGatewayServer> | undefined;
+  let scheduler: Scheduler | undefined;
   let shutdownPromise: Promise<void> | undefined;
 
   const shutdown = (signal: string): Promise<void> => {
@@ -20,6 +22,7 @@ async function main(): Promise<void> {
       logger.info({ signal }, "cs2: catalog runtime shutting down");
       await gatewayServer?.wsGateway.close();
       if (gatewayServer !== undefined) await closeHttpServer(gatewayServer.httpServer);
+      if (scheduler !== undefined) await stopScheduler(scheduler);
       await closeDatabaseConnection();
       logger.info({ signal }, "cs2: catalog runtime shutdown complete");
     })();
@@ -37,6 +40,9 @@ async function main(): Promise<void> {
   try {
     await checkDatabaseConnection();
     if (abortController.signal.aborted) return;
+    scheduler = await startScheduler();
+    // A signal during startup already ran shutdown() without the scheduler.
+    if (abortController.signal.aborted) return await stopScheduler(scheduler);
     gatewayServer = createGatewayServer({
       runtimeConfig: { gameSource: "catalog", sourceLabel: "CS2 SCHEDULE" },
     });
