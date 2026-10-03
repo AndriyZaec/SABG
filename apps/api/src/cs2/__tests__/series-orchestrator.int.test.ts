@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import dotenv from "dotenv";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Cs2GameSnapshot, MatchSignal } from "@arena/contracts";
 import type { Cs2ArenaRuntime } from "../arena-runtime.js";
 import type { Cs2SeriesSnapshot } from "../series-snapshot.js";
 
@@ -288,6 +289,53 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     }
   });
 
+  it("stops feeding a no-show-cancelled arena when its game starts late", async () => {
+    const at = clockFrom(new Date(Date.now() + 33 * 60 * MIN).toISOString());
+    const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
+      format: 3,
+      scheduledStartTime: new Date(at(0)),
+    });
+    seriesIds.push(series.id);
+    const matchTeamIds = await synchronizeTestTeams(series.id);
+
+    const writeQueue = new WriteQueue();
+    const orchestrator = await Cs2SeriesOrchestrator.create(series, { writeQueue, entryFeeLamports: 1000 });
+    await orchestrator.poll(snapshot(matchTeamIds, {}), at(-10));
+    const match1 = (await matchRepository.listBySeriesId(series.id))[0]!;
+    matchIds.push(match1.id);
+    const arena1 = (await arenaRepository.findByMatchId(match1.id))!;
+    arenaIds.push(arena1.id);
+
+    await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: false }), at(61));
+    expect((await arenaRepository.findById(arena1.id))?.status).toBe("cancelled");
+    expect(orchestrator.currentBus()).toBeUndefined();
+
+    // The late game, delivered the way Cs2LivePoller does: tracker signals go to currentBus().
+    const game = (a: number, b: number): Cs2GameSnapshot => ({
+      teams: [
+        { teamId: matchTeamIds[0], name: "Team A", score: a, deaths: 0, weaponKills: [], players: [] },
+        { teamId: matchTeamIds[1], name: "Team B", score: b, deaths: 0, weaponKills: [], players: [] },
+      ],
+      clock: { ticking: true, currentSeconds: 20 },
+    });
+    const deliver = (signal: MatchSignal) => orchestrator.currentBus()?.publish(signal);
+    const settleSpy = vi.spyOn(payoutService, "settleArena").mockResolvedValue(undefined);
+    try {
+      await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: true }), at(70));
+      deliver({ kind: "cs2_round_lock", roundNumber: 1, timestamp: at(71) });
+      deliver({ kind: "cs2_round_end", roundNumber: 1, snapshot: game(1, 0), timestamp: at(72) });
+      deliver({ kind: "cs2_match_end", timestamp: at(120) });
+      await writeQueue.drain();
+
+      const rounds = await predictionRoundRepository.listByArenaId(arena1.id);
+      expect(rounds.map((round) => round.roundNumber)).toEqual([1]);
+      expect((await arenaRepository.findById(arena1.id))?.status).toBe("cancelled");
+      expect(settleSpy).not.toHaveBeenCalled();
+    } finally {
+      settleSpy.mockRestore();
+    }
+  });
+
   it("restores the same lobby arena, round, roster, and answer without creating a duplicate match", async () => {
     const at = clockFrom(new Date(Date.now() + 6 * 60 * MIN).toISOString());
     const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
@@ -498,6 +546,8 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     const arena2 = (await arenaRepository.findByMatchId(match2.id))!;
     arenaIds.push(arena2.id);
     expect(arena2.status).toBe("lobby");
+    // Arena 1 is detached, so the current bus can only be arena 2's.
+    expect(orchestrator.currentBus()).toBeDefined();
 
     await orchestrator.poll(snapshot(matchTeamIds, { teams: [1, 0], hasLiveGame: true }), at(20));
     expect((await arenaRepository.findById(arena2.id))?.status).toBe("live");

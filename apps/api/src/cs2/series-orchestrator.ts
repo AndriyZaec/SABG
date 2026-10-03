@@ -40,6 +40,8 @@ interface OpenedArena {
   arenaId: Uuid;
   runtime: Cs2ArenaRuntime;
   bus: MatchSignalBus;
+  /** Set once the arena is cancelled: it gets no more match signals (specs/conventions/arena-state-transitions.md). */
+  detached: boolean;
 }
 
 export class Cs2SeriesOrchestrator {
@@ -127,16 +129,21 @@ export class Cs2SeriesOrchestrator {
 
   /** Must be read before a poll can open the next arena. */
   currentBus(): MatchSignalBus | undefined {
-    const indices = [...this.arenasByMatchIndex.keys()];
-    if (indices.length === 0) return undefined;
-    return this.arenasByMatchIndex.get(Math.max(...indices))?.bus;
+    return this.currentArena()?.bus;
   }
 
   async updateLiveScore(snapshot: Cs2GameSnapshot): Promise<void> {
-    const indices = [...this.arenasByMatchIndex.keys()];
-    const opened = indices.length === 0 ? undefined : this.arenasByMatchIndex.get(Math.max(...indices));
+    const opened = this.currentArena();
     if (opened === undefined) return;
     await matchRepository.updateCs2TeamScores(opened.matchId, snapshot.teams);
+  }
+
+  // The latest map's arena, unless it was detached. An older map's arena would misattribute the signals.
+  private currentArena(): OpenedArena | undefined {
+    const indices = [...this.arenasByMatchIndex.keys()];
+    if (indices.length === 0) return undefined;
+    const opened = this.arenasByMatchIndex.get(Math.max(...indices));
+    return opened?.detached === true ? undefined : opened;
   }
 
   async poll(snapshot: Cs2SeriesSnapshot | undefined, now: IsoDateTime): Promise<void> {
@@ -268,7 +275,7 @@ export class Cs2SeriesOrchestrator {
       ...(this.options.broadcaster !== undefined ? { broadcaster: this.options.broadcaster } : {}),
     });
 
-    return { matchId: match.id, arenaId: arena.id, runtime, bus };
+    return { matchId: match.id, arenaId: arena.id, runtime, bus, detached: false };
   }
 
   private async matchLiveDetected(matchIndex: number, now: IsoDateTime): Promise<void> {
@@ -290,13 +297,15 @@ export class Cs2SeriesOrchestrator {
 
   private async cancelArena(matchIndex: number, reason: "no_show" | "series_decided" | "forfeit"): Promise<void> {
     // restore() creates no runtime for an already-cancelled arena, so fall back to the DB.
-    const arenaId =
-      this.arenasByMatchIndex.get(matchIndex)?.arenaId ?? (await this.findArenaIdByMatchIndex(matchIndex));
+    const opened = this.arenasByMatchIndex.get(matchIndex);
+    const arenaId = opened?.arenaId ?? (await this.findArenaIdByMatchIndex(matchIndex));
     if (arenaId === undefined) throw new Error(`Cannot cancel unopened CS2 arena #${matchIndex}`);
 
     await closeEntrySubmissions(arenaId);
     const current = await arenaRepository.findById(arenaId);
     if (current?.status === "cancelled") {
+      // Kept in the map so openArena never reopens this map.
+      if (opened !== undefined) opened.detached = true;
       if (reason === "no_show") await seriesRepository.setStatus(this.series.id, "invalid");
       else if (reason === "series_decided") await seriesRepository.setStatus(this.series.id, "decided");
       this.options.broadcaster?.broadcast(arenaId, { type: "arena.cancelled", reason });
@@ -311,6 +320,7 @@ export class Cs2SeriesOrchestrator {
     if (cancelled === undefined) {
       throw new Error(`Arena ${arenaId} changed state after its on-chain cancellation`);
     }
+    if (opened !== undefined) opened.detached = true;
 
     // Refunds are the scheduler's job (ADR-0007). If a write below fails, setLiveIfOpen still keeps the arena from going live.
     // A forfeit leaves the series active — it continues to the next map.
