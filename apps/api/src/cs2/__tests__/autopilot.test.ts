@@ -40,6 +40,12 @@ function candidateOf(s: Series) {
 
 class FakeRunner {
   stopped = false;
+  skipResult: "skipped" | "refused" = "skipped";
+  skipCalls = 0;
+  async skip() {
+    this.skipCalls += 1;
+    return this.skipResult;
+  }
   constructor(
     readonly seriesId: string,
     readonly gridSeriesId: string,
@@ -312,6 +318,44 @@ describe("Cs2Autopilot.hasRunner", () => {
     finishPriming();
     await tick;
     expect(autopilot.hasRunner).toBe(false);
+  });
+});
+
+describe("Cs2Autopilot operator skip", () => {
+  it("skips the running series on the next tick when the operator requested it, and frees the slot", async () => {
+    const all = [series("s1", 5), series("s2", 5)];
+    const { autopilot, starts, runners } = setup({ series: all });
+    const listener = vi.fn();
+    autopilot.onSeriesEnded(listener);
+    await autopilot.tick();
+    all[0]!.skipRequested = true;
+
+    await autopilot.tick();
+    expect(runners[0]!.skipCalls).toBe(1);
+    expect(runners[0]!.stopped).toBe(true);
+    expect(autopilot.hasRunner).toBe(false);
+    expect(listener).toHaveBeenCalledOnce();
+    expect(starts).toHaveLength(1);
+  });
+
+  it("keeps the runner when the skip is refused", async () => {
+    const all = [series("s1", 5)];
+    const { autopilot, runners } = setup({ series: all });
+    await autopilot.tick();
+    runners[0]!.skipResult = "refused";
+    all[0]!.skipRequested = true;
+
+    await autopilot.tick();
+    expect(runners[0]!.skipCalls).toBe(1);
+    expect(runners[0]!.stopped).toBe(false);
+    expect(autopilot.hasRunner).toBe(true);
+  });
+
+  it("does nothing to a running series without a skip request", async () => {
+    const { autopilot, runners } = setup();
+    await autopilot.tick();
+    await autopilot.tick();
+    expect(runners[0]!.skipCalls).toBe(0);
   });
 });
 

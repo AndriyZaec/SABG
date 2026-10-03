@@ -68,7 +68,7 @@ async function primeSeries(
   return undefined;
 }
 
-/** Runs one CS2 series from priming to its end, under the per-series advisory lock (ADR-0008 §3). */
+/** Runs one CS2 series from priming to its end, under the per-series advisory lock. */
 export class Cs2SeriesRunner {
   private stopPromise: Promise<void> | undefined;
 
@@ -178,6 +178,19 @@ export class Cs2SeriesRunner {
 
   openedArenaIds(): string[] {
     return this.orchestrator.openedArenaIds();
+  }
+
+  /** Operator stop. Polling pauses so no poll races the skip, and resumes if it was refused. */
+  async skip(): Promise<"skipped" | "refused"> {
+    await this.poller.shutdown();
+    let result: "skipped" | "refused" | undefined;
+    try {
+      result = await this.orchestrator.skip();
+      return result;
+    } finally {
+      // Refused or failed (e.g. the on-chain cancel threw): keep following the series; the flag retries a failure.
+      if (result !== "skipped") this.poller.start();
+    }
   }
 
   /** Stops GRID polling only; call `stop()` once nothing else can write to the series' arenas. */

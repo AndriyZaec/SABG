@@ -49,6 +49,7 @@ describe.skipIf(!RUN)("Cs2SeriesRunner (integration, requires DATABASE_URL)", ()
   let WriteQueue: typeof import("../../gateway/stores/write-queue.js")["WriteQueue"];
   let GatewayWebSocketServer: typeof import("../../gateway/ws.js")["GatewayWebSocketServer"];
   let Cs2SeriesRunner: typeof import("../series-runner.js")["Cs2SeriesRunner"];
+  let Cs2SeriesOrchestrator: typeof import("../series-orchestrator.js")["Cs2SeriesOrchestrator"];
   let payoutService: typeof import("../../payout/index.js")["payoutService"];
 
   const gridSeriesIds: string[] = [];
@@ -64,6 +65,7 @@ describe.skipIf(!RUN)("Cs2SeriesRunner (integration, requires DATABASE_URL)", ()
     ({ WriteQueue } = await import("../../gateway/stores/write-queue.js"));
     ({ GatewayWebSocketServer } = await import("../../gateway/ws.js"));
     ({ Cs2SeriesRunner } = await import("../series-runner.js"));
+    ({ Cs2SeriesOrchestrator } = await import("../series-orchestrator.js"));
     ({ payoutService } = await import("../../payout/index.js"));
   });
 
@@ -224,4 +226,39 @@ describe.skipIf(!RUN)("Cs2SeriesRunner (integration, requires DATABASE_URL)", ()
       settleSpy.mockRestore();
     }
   });
+
+  it("keeps polling when an operator skip throws partway", async () => {
+    const { gridSeriesId, gridIds } = newSeries();
+    let fetches = 0;
+    const raw = rawSeries(gridIds, { format: "best-of-3", teams: [0, 0], live: false });
+    const result = await Cs2SeriesRunner.start({
+      gridSeriesId,
+      scheduledStartTime: new Date(Date.now() + 60 * MIN).toISOString(),
+      wsGateway: new GatewayWebSocketServer(),
+      writeQueue: new WriteQueue(),
+      entryFeeLamports: 1000,
+      rawRecordingEnabled: false,
+      signal: new AbortController().signal,
+      gridClient: {
+        fetchSeriesState: async () => {
+          fetches += 1;
+          return { data: raw, status: 200, headers: {} };
+        },
+      },
+    });
+    expect(result.kind).toBe("started");
+    if (result.kind !== "started") return;
+    runners.push(result.runner);
+
+    const skipSpy = vi.spyOn(Cs2SeriesOrchestrator.prototype, "skip").mockRejectedValueOnce(new Error("rpc down"));
+    try {
+      // The poll interval is far longer than this test, so a new fetch can only come from a restarted poller.
+      await vi.waitFor(() => expect(fetches).toBe(2));
+      await expect(result.runner.skip()).rejects.toThrow("rpc down");
+      await vi.waitFor(() => expect(fetches).toBe(3));
+    } finally {
+      skipSpy.mockRestore();
+    }
+  });
 });
+

@@ -1,4 +1,4 @@
-// The 0:0 rule (plans/cs2-autopilot/03): only the live feed knows the score, so the priming poll decides.
+// The 0:0 rule: join only a series nobody has scored in yet. Only the live feed knows the score, so the priming poll decides.
 
 import type { Cs2SeriesSnapshot } from "./series-snapshot.js";
 

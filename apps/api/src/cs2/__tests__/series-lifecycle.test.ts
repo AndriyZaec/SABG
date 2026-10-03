@@ -131,7 +131,7 @@ describe("processCs2SeriesPoll — forfeit cancellation", () => {
   });
 });
 
-describe("processCs2SeriesPoll — mid-series forfeit (ADR-0006)", () => {
+describe("processCs2SeriesPoll — mid-series forfeit", () => {
   it("cancels a forfeited, never-live map and opens the next arena once the score holds for 2 polls", () => {
     let state = initialCs2SeriesLifecycleState(START);
     ({ state } = poll(state, snapshot({}), -10));

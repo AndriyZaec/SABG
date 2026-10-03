@@ -104,7 +104,7 @@ export function processCs2SeriesPoll(
 
   if (snapshot === undefined) return { state: next, actions };
 
-  // GRID counts match k as decided although we never saw it live: a forfeit (ADR-0006).
+  // GRID counts match k as decided although we never saw it live: a forfeit.
   const scoredMaps = snapshot.teams[0].score + snapshot.teams[1].score;
   const forfeitSignal = !next.matchLiveDetected && scoredMaps >= k;
   if (forfeitSignal) {

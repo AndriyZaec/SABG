@@ -349,7 +349,7 @@ export const replayResetAudits = pgTable("demo_reset_audit", {
   index("demo_reset_audit_fixture_id_idx").on(t.fixtureId),
 ]);
 
-/** Operator switches, flipped over SQL without a restart (ADR-0008). */
+/** Operator switches, flipped over SQL without a restart. */
 export const settings = pgTable("settings", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull().unique(),

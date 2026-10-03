@@ -1,4 +1,4 @@
-// The launcher's candidate rule (ADR-0008 §2): earliest start, then priority, follows, random.
+// The launcher's candidate rule: earliest start, then priority, follows, random.
 
 import type { IsoDateTime, SeriesStatus, Uuid } from "@arena/contracts";
 import { LOBBY_OPEN_BEFORE_START_MS } from "./series-lifecycle.js";

@@ -255,6 +255,120 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     await writeQueue.drain();
   });
 
+  async function openArenaOne(startInHours: number, options: { live?: boolean } = {}) {
+    const at = clockFrom(new Date(Date.now() + startInHours * 60 * MIN).toISOString());
+    const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
+      format: 3,
+      scheduledStartTime: new Date(at(0)),
+    });
+    seriesIds.push(series.id);
+    const matchTeamIds = await synchronizeTestTeams(series.id);
+    const writeQueue = new WriteQueue();
+    const orchestrator = await Cs2SeriesOrchestrator.create(series, { writeQueue, entryFeeLamports: 1000 });
+    await orchestrator.poll(snapshot(matchTeamIds, {}), at(-10));
+    const match1 = (await matchRepository.listBySeriesId(series.id))[0]!;
+    matchIds.push(match1.id);
+    const arena1 = (await arenaRepository.findByMatchId(match1.id))!;
+    arenaIds.push(arena1.id);
+    if (options.live === true) await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: true }), at(1));
+    // The operator sets this over SQL (phase 12).
+    await db.update(schema.series).set({ skipRequested: true }).where(eq(schema.series.id, series.id));
+    return { series, orchestrator, writeQueue, arena1 };
+  }
+
+  async function addPaidPass(arenaId: string) {
+    const user = await userRepository.upsertByWallet(`int-test-wallet-${randomUUID()}`, "skip-payer");
+    userIds.push(user.id);
+    await entryPassRepository.create({
+      arenaId,
+      userId: user.id,
+      walletAddress: user.walletAddress,
+      amountLamports: 1000,
+      txSignature: `int-test-tx-${randomUUID()}`,
+    });
+  }
+
+  it("operator skip cancels an empty lobby arena and skips the series", async () => {
+    const { series, orchestrator, writeQueue, arena1 } = await openArenaOne(51);
+    expect(await orchestrator.skip()).toBe("skipped");
+    expect(await arenaRepository.findById(arena1.id)).toMatchObject({ status: "cancelled", cancelledReason: "operator_skip" });
+    expect(await seriesRepository.findById(series.id)).toMatchObject({ status: "skipped", skipRequested: false });
+    expect(orchestrator.currentBus()).toBeUndefined();
+    await writeQueue.drain();
+  });
+
+  it("operator skip cancels an empty live arena and detaches it from the game", async () => {
+    const { series, orchestrator, writeQueue, arena1 } = await openArenaOne(54, { live: true });
+    expect((await arenaRepository.findById(arena1.id))?.status).toBe("live");
+    expect(await orchestrator.skip()).toBe("skipped");
+    expect(await arenaRepository.findById(arena1.id)).toMatchObject({ status: "cancelled", cancelledReason: "operator_skip" });
+    expect(await seriesRepository.findById(series.id)).toMatchObject({ status: "skipped", skipRequested: false });
+    expect(orchestrator.currentBus()).toBeUndefined();
+    expect(await orchestrator.isComplete()).toBe(true);
+    await writeQueue.drain();
+  });
+
+  it.each([false, true])("operator skip is refused when the open arena has a paid entry (live: %s)", async (live) => {
+    const { series, orchestrator, writeQueue, arena1 } = await openArenaOne(live ? 60 : 57, { live });
+    await addPaidPass(arena1.id);
+    expect(await orchestrator.skip()).toBe("refused");
+    expect((await arenaRepository.findById(arena1.id))?.status).toBe(live ? "live" : "lobby");
+    expect(await seriesRepository.findById(series.id)).toMatchObject({ status: "active", skipRequested: false });
+    expect(orchestrator.currentBus()).toBeDefined();
+    await writeQueue.drain();
+  });
+
+  it("operator skip between maps skips the series and changes no arena", async () => {
+    const at = clockFrom(new Date(Date.now() + 63 * 60 * MIN).toISOString());
+    const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
+      format: 3,
+      scheduledStartTime: new Date(at(0)),
+    });
+    seriesIds.push(series.id);
+    await synchronizeTestTeams(series.id);
+    const orchestrator = await Cs2SeriesOrchestrator.create(series, {
+      writeQueue: new WriteQueue(),
+      entryFeeLamports: 1000,
+      startAfterMap1: true,
+    });
+    expect(await orchestrator.skip()).toBe("skipped");
+    expect((await seriesRepository.findById(series.id))?.status).toBe("skipped");
+    expect(await matchRepository.listBySeriesId(series.id)).toEqual([]);
+  });
+
+  it("operator skip is refused for a restored live arena that still holds paid entries but has no runtime", async () => {
+    const seeded = await seedLiveArenaAtCrash(69, [{ status: "eliminated", paid: true }]);
+    const settleSpy = vi.spyOn(payoutService, "settleArena").mockResolvedValue(undefined);
+    try {
+      const restored = await Cs2SeriesOrchestrator.create(seeded.series, { writeQueue: new WriteQueue(), entryFeeLamports: 1000 });
+      expect((await arenaRepository.findById(seeded.arena.id))?.status).toBe("live");
+      await db.update(schema.series).set({ skipRequested: true }).where(eq(schema.series.id, seeded.series.id));
+
+      expect(await restored.skip()).toBe("refused");
+      expect((await arenaRepository.findById(seeded.arena.id))?.status).toBe("live");
+      expect(await seriesRepository.findById(seeded.series.id)).toMatchObject({ status: "active", skipRequested: false });
+    } finally {
+      settleSpy.mockRestore();
+    }
+  });
+
+  it("operator skip leaves a series the last poll already ended as it is", async () => {
+    const { series, orchestrator, writeQueue } = await openArenaOne(72);
+    await seriesRepository.setStatus(series.id, "decided");
+    expect(await orchestrator.skip()).toBe("skipped");
+    expect(await seriesRepository.findById(series.id)).toMatchObject({ status: "decided", skipRequested: false });
+    await writeQueue.drain();
+  });
+
+  it("cancelLiveIfEmpty leaves a live arena live once a paid entry exists", async () => {
+    const { orchestrator, writeQueue, arena1 } = await openArenaOne(66, { live: true });
+    await addPaidPass(arena1.id);
+    expect(await arenaRepository.cancelLiveIfEmpty(arena1.id, "operator_skip")).toBeUndefined();
+    expect((await arenaRepository.findById(arena1.id))?.status).toBe("live");
+    expect(orchestrator.currentBus()).toBeDefined();
+    await writeQueue.drain();
+  });
+
   it("finishes a live arena on match end and settles its payout", async () => {
     const at = clockFrom(new Date(Date.now() + 27 * 60 * MIN).toISOString());
     const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {

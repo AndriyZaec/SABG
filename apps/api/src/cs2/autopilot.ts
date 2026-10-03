@@ -1,4 +1,4 @@
-// One process picks, runs and resumes CS2 series on its own (ADR-0008).
+// One long-lived process picks, runs and resumes CS2 series on its own: one series at a time, no per-match restarts.
 
 import type { IsoDateTime, Series, Uuid } from "@arena/contracts";
 import type { PgBoss } from "pg-boss";
@@ -25,6 +25,7 @@ export interface Cs2AutopilotRunner {
   readonly seriesId: Uuid;
   readonly gridSeriesId: string;
   openedArenaIds(): Uuid[];
+  skip(): Promise<"skipped" | "refused">;
   stopPolling(): Promise<void>;
   stop(): Promise<void>;
 }
@@ -99,7 +100,7 @@ export class Cs2Autopilot {
 
   constructor(private readonly deps: Cs2AutopilotDeps) {}
 
-  /** While a series is primed or runs, GRID requests go to it alone (ADR-0008 §4). */
+  /** While a series is primed or runs, GRID requests go to it alone: the catalog sync shares the same token budget. */
   get hasRunner(): boolean {
     return this.launching || this.runner !== undefined;
   }
@@ -127,7 +128,11 @@ export class Cs2Autopilot {
   /** The launcher job, every minute: start the next series when none is running. */
   tick(): Promise<void> {
     return this.enqueue(async () => {
-      if (this.runner !== undefined || this.abortController.signal.aborted) return;
+      if (this.abortController.signal.aborted) return;
+      if (this.runner !== undefined) {
+        await this.applySkipRequest(this.runner);
+        return;
+      }
       // A series with an open arena holds players' money: it comes first, e.g. after a failed resume.
       if (await this.resumeOpenSeries(await this.deps.listActiveRunSeries())) return;
       if (!(await this.deps.isEnabled())) return;
@@ -151,6 +156,11 @@ export class Cs2Autopilot {
   async stop(): Promise<void> {
     await this.stopPolling();
     await this.runner?.stop();
+  }
+
+  private async applySkipRequest(runner: Cs2AutopilotRunner): Promise<void> {
+    if ((await this.deps.findSeries(runner.seriesId))?.skipRequested !== true) return;
+    if ((await runner.skip()) === "skipped") await this.endRunner(runner.gridSeriesId, "skipped");
   }
 
   /** Returns whether a series with an open arena exists; if so it was (re)launched or will be retried next tick. */
@@ -197,7 +207,7 @@ export class Cs2Autopilot {
     }
   }
 
-  private async endRunner(gridSeriesId: string, outcome: "complete" | "overtaken"): Promise<void> {
+  private async endRunner(gridSeriesId: string, outcome: "complete" | "overtaken" | "skipped"): Promise<void> {
     const runner = this.runner;
     if (runner === undefined || runner.gridSeriesId !== gridSeriesId) return;
     try {
@@ -207,7 +217,7 @@ export class Cs2Autopilot {
         await this.deps.setSeriesSkipped(runner.seriesId);
         logger.warn({ gridSeriesId }, "autopilot: next map was already live after a crash close; series skipped");
       } else {
-        logger.info({ gridSeriesId }, "autopilot: series complete");
+        logger.info({ gridSeriesId }, outcome === "skipped" ? "autopilot: series skipped by the operator" : "autopilot: series complete");
       }
     } finally {
       // Even if stopping failed, a stuck runner must not block every later launch.

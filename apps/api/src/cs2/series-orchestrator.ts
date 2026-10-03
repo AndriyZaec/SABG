@@ -46,7 +46,7 @@ interface OpenedArena {
   arenaId: Uuid;
   runtime: Cs2ArenaRuntime;
   bus: MatchSignalBus;
-  /** Set once the arena is cancelled: it gets no more match signals (specs/conventions/arena-state-transitions.md). */
+  /** Set once the arena is cancelled: it gets no more match signals, but stays mapped so its map never reopens. */
   detached: boolean;
 }
 
@@ -142,7 +142,7 @@ export class Cs2SeriesOrchestrator {
   }
 
   /**
-   * A live arena can't resume: settling a locked round needs the in-memory lock snapshot (ADR-0009).
+   * A live arena can't resume: settling a locked round needs the in-memory lock snapshot.
    * Unsettled rounds are voided and the still-active players split the pool, as in a tie.
    */
   private async crashCloseLiveArena(arenaId: Uuid): Promise<void> {
@@ -188,6 +188,59 @@ export class Cs2SeriesOrchestrator {
       if (status === "lobby" || status === "live") return false;
     }
     return true;
+  }
+
+  /**
+   * Operator stop: skip the series unless its open arena holds a paid entry.
+   * The caller stops polling first, so no poll races this.
+   */
+  async skip(): Promise<"skipped" | "refused"> {
+    // The poll that was in flight when polling paused may have ended the series already; don't overwrite that.
+    if ((await seriesRepository.findById(this.series.id))?.status !== "active") {
+      await seriesRepository.clearSkipRequested(this.series.id);
+      return "skipped";
+    }
+
+    // From the DB, not memory: restore() leaves a live arena it couldn't close without a runtime.
+    const matches = await matchRepository.listBySeriesId(this.series.id);
+    const latest = matches[matches.length - 1];
+    const matchIndex = latest?.discipline === "cs2" ? latest.seriesMatchIndex : undefined;
+    const arena = latest === undefined ? undefined : await arenaRepository.findByMatchId(latest.id);
+    const opened = matchIndex === undefined ? undefined : this.arenasByMatchIndex.get(matchIndex);
+
+    if (matchIndex !== undefined && arena !== undefined && (arena.status === "lobby" || arena.status === "live")) {
+      const passes = await entryPassRepository.listByArenaId(arena.id);
+      if (passes.some((pass) => pass.status === "paid")) {
+        await seriesRepository.clearSkipRequested(this.series.id);
+        logger.warn({ arenaId: arena.id }, "cs2: operator skip refused, the open arena has paid entries");
+        return "refused";
+      }
+      if (arena.status === "lobby") {
+        // A payer racing this check is refunded by the refund job, like any cancelled arena's.
+        await this.cancelArena(matchIndex, "operator_skip");
+      } else {
+        // Entries closed when it went live, so the paid-pass check above can't go stale before this write.
+        if ((await arenaRepository.cancelLiveIfEmpty(arena.id, "operator_skip")) === undefined) {
+          await seriesRepository.clearSkipRequested(this.series.id);
+          logger.warn({ arenaId: arena.id }, "cs2: operator skip refused, the live arena changed or has paid entries");
+          return "refused";
+        }
+        if (opened !== undefined) opened.detached = true;
+        // No paid entries, so a failed on-chain cancel leaves only an empty account open.
+        if (arena.onchainArenaId !== undefined) {
+          await cancelArenaOnchain(arena.onchainArenaId).catch((err: unknown) =>
+            logger.error({ err, arenaId: arena.id }, "cs2: on-chain cancel of a skipped live arena failed"),
+          );
+        }
+        this.options.broadcaster?.broadcast(arena.id, { type: "arena.cancelled", reason: "operator_skip" });
+      }
+    }
+
+    await seriesRepository.setStatus(this.series.id, "skipped");
+    await seriesRepository.clearSkipRequested(this.series.id);
+    this.lifecycleState = { ...this.lifecycleState, invalid: true };
+    logger.info({ seriesId: this.series.id }, "cs2: series skipped by the operator");
+    return "skipped";
   }
 
   /** Must be read before a poll can open the next arena. */
@@ -325,7 +378,7 @@ export class Cs2SeriesOrchestrator {
       },
       finishArena: (arenaId, winners) => {
         void this.options.writeQueue.enqueue(arenaId, async () => {
-          // Pay only after our own live -> finished transition (specs/conventions/arena-state-transitions.md).
+          // Pay only after our own live -> finished transition; a cancelled arena must never finish or pay.
           if ((await arenaRepository.setFinishedIfLive(arenaId)) === undefined) {
             logger.warn({ arenaId }, "cs2: match end for an arena that isn't live; not finishing or paying");
             return;
@@ -374,7 +427,7 @@ export class Cs2SeriesOrchestrator {
     if (matchId !== undefined) await matchRepository.setStatus(matchId, "finished");
   }
 
-  private async cancelArena(matchIndex: number, reason: "no_show" | "series_decided" | "forfeit"): Promise<void> {
+  private async cancelArena(matchIndex: number, reason: "no_show" | "series_decided" | "forfeit" | "operator_skip"): Promise<void> {
     // restore() creates no runtime for an already-cancelled arena, so fall back to the DB.
     const opened = this.arenasByMatchIndex.get(matchIndex);
     const arenaId = opened?.arenaId ?? (await this.findArenaIdByMatchIndex(matchIndex));
@@ -401,7 +454,7 @@ export class Cs2SeriesOrchestrator {
     }
     if (opened !== undefined) opened.detached = true;
 
-    // Refunds are the scheduler's job (ADR-0007). If a write below fails, setLiveIfOpen still keeps the arena from going live.
+    // Refunds are the scheduled refund job's. If a write below fails, setLiveIfOpen still keeps the arena from going live.
     // A forfeit leaves the series active — it continues to the next map.
     if (reason === "no_show") await seriesRepository.setStatus(this.series.id, "invalid");
     else if (reason === "series_decided") await seriesRepository.setStatus(this.series.id, "decided");

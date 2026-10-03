@@ -5,7 +5,7 @@ import { entryPassRepository } from "../db/repositories/entry-pass.repository.js
 import { logger } from "../gateway/logger.js";
 import { refundArenaEntryOnchain } from "../onchain/index.js";
 
-// Arenas are cancelled only from lobby, so every paid pass gets its full entry back (ADR-0007).
+// Arenas with paid entries are cancelled only from lobby, so every paid pass gets its full entry back.
 export async function processPendingRefunds(): Promise<void> {
   const pending = await entryPassRepository.listPaidInCancelledArenas();
   const failedArenaIds = new Set<Uuid>();
