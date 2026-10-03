@@ -47,8 +47,8 @@ EVENT_SSH_KEY=/Users/operator/.ssh/id_ed25519
 
 describe("remote commands", () => {
   it("passes SSH settings and an exact remote command without a local shell", () => {
-    expect(buildSshInvocation(config, "start-cs2", "2995306", "START CS2 2995306")).toEqual({
-      remote: "sh -s -- '/opt/sabg/event' 'start-cs2' '2995306' 'START CS2 2995306'",
+    expect(buildSshInvocation(config, "skip-cs2", "2995306", "SKIP CS2 2995306")).toEqual({
+      remote: "sh -s -- '/opt/sabg/event' 'skip-cs2' '2995306' 'SKIP CS2 2995306'",
       args: [
         "-i",
         "/Users/operator/.ssh/id_ed25519",
@@ -59,26 +59,60 @@ describe("remote commands", () => {
         "-o",
         "StrictHostKeyChecking=yes",
         "deploy@example.com",
-        "sh -s -- '/opt/sabg/event' 'start-cs2' '2995306' 'START CS2 2995306'",
+        "sh -s -- '/opt/sabg/event' 'skip-cs2' '2995306' 'SKIP CS2 2995306'",
       ],
     });
   });
 
-  it("rejects mismatched confirmations before spawning SSH", () => {
-    expect(() => buildSshInvocation(config, "stop-cs2", "2995306", "yes")).toThrow(
-      "Invalid confirmation for stop-cs2",
+  it("rejects a skip whose confirmation names another series or nothing", () => {
+    expect(() => buildSshInvocation(config, "skip-cs2", "2995306", "SKIP CS2 2995307")).toThrow(
+      "Invalid confirmation for skip-cs2",
     );
+    expect(() => buildSshInvocation(config, "skip-cs2", "2995306", "yes")).toThrow(
+      "Invalid confirmation for skip-cs2",
+    );
+  });
+
+  it.each(["prioritize-cs2", "unprioritize-cs2"] as const)("sends %s with the series id and no confirmation", (command) => {
+    expect(buildSshInvocation(config, command, "2995306").remote).toBe(
+      `sh -s -- '/opt/sabg/event' '${command}' '2995306' ''`,
+    );
+  });
+
+  it.each(["prioritize-cs2", "unprioritize-cs2", "skip-cs2"] as const)("refuses %s without a series id", (command) => {
+    expect(() => buildSshInvocation(config, command, "", "SKIP CS2 ")).toThrow(`${command} needs a GRID Series ID`);
+  });
+
+  it("rejects a series id that could break out of the remote command", () => {
+    expect(() => buildSshInvocation(config, "prioritize-cs2", "1'; drop table series; --")).toThrow(
+      "GRID Series ID is invalid",
+    );
+  });
+
+  it.each(["autopilot-on", "autopilot-off"] as const)("sends %s without an argument", (command) => {
+    expect(buildSshInvocation(config, command).remote).toBe(`sh -s -- '/opt/sabg/event' '${command}' '' ''`);
   });
 });
 
 describe("runtime status", () => {
   it("parses the remote status protocol", () => {
-    expect(parseRuntimeStatus("MODE=catalog\nTOURNAMENT_ID=830487\nAPP_HEALTH=healthy\nUNFINISHED_ARENAS=0\n")).toMatchObject({
-      mode: "catalog",
+    expect(parseRuntimeStatus(
+      "TOURNAMENT_ID=830487\nAUTOPILOT=on\nRUNNING_SERIES=3002933\nPRIORITY_SERIES=3002934,3002940\nAPP_HEALTH=healthy\nUNFINISHED_ARENAS=1\n",
+    )).toMatchObject({
       tournamentId: "830487",
-      seriesId: "",
+      autopilot: "on",
+      runningSeries: ["3002933"],
+      prioritySeries: ["3002934", "3002940"],
       appHealth: "healthy",
-      unfinishedArenas: "0",
+      unfinishedArenas: "1",
+    });
+  });
+
+  it("reads missing autopilot lines as unknown with no series", () => {
+    expect(parseRuntimeStatus("TOURNAMENT_ID=830487\nRUNNING_SERIES=\n")).toMatchObject({
+      autopilot: "unknown",
+      runningSeries: [],
+      prioritySeries: [],
     });
   });
 });

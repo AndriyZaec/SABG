@@ -31,7 +31,7 @@ type PendingOperation = {
 type Screen =
   | { type: "loading"; label: string }
   | { type: "menu" }
-  | { type: "tournaments"; operation: "publish" | "start"; tournaments: DiscoveredTournament[] }
+  | { type: "tournaments"; operation: "publish" | "prioritize"; tournaments: DiscoveredTournament[] }
   | { type: "series"; tournament: DiscoveredTournament }
   | { type: "series-id"; value: string }
   | { type: "confirm"; operation: PendingOperation }
@@ -142,39 +142,70 @@ function App(): React.JSX.Element {
     })();
   }, []);
 
-  const discover = async (operation: "publish" | "start"): Promise<void> => {
+  const discover = async (operation: "publish" | "prioritize"): Promise<void> => {
     if (config === undefined) return;
     setScreen({ type: "loading", label: "Discovering CS2 tournaments..." });
     try {
       const output = await runRemote(config, remoteScriptPath, "discover-cs2");
-      setScreen({ type: "tournaments", operation, tournaments: parseDiscovery(output) });
+      let tournaments = parseDiscovery(output);
+      if (operation === "prioritize") {
+        // Only a published tournament's series exist in the database, so only they can take a priority.
+        const published = new Set((status?.tournamentId ?? "").split(",").filter((id) => id !== ""));
+        tournaments = tournaments.filter((tournament) => published.has(tournament.id));
+        if (tournaments.length === 0) throw new Error("No published tournament has upcoming Series; publish one first");
+      }
+      setScreen({ type: "tournaments", operation, tournaments });
     } catch (error) {
       setScreen({ type: "output", title: "Discovery failed", lines: [error instanceof Error ? error.message : String(error)], failed: true });
     }
   };
 
+  const running = status?.runningSeries[0];
+  const autopilotOn = status?.autopilot === "on";
   const menuItems: ListItem<string>[] = [
     { label: "Refresh status", value: "status" },
-    { label: "Publish upcoming tournament", value: "publish", disabled: status?.mode !== "catalog" },
-    { label: "Start upcoming Series", value: "start", disabled: status?.mode !== "catalog" },
-    { label: "Start by exact Series ID", value: "start-id", disabled: status?.mode !== "catalog" },
-    { label: "Stop active Series", value: "stop", disabled: status?.mode !== "live" },
+    { label: autopilotOn ? "Turn autopilot off" : "Turn autopilot on", value: "autopilot", disabled: status?.autopilot === "unknown" },
+    { label: "Prioritize or unprioritize an upcoming Series", value: "prioritize" },
+    { label: "Prioritize or unprioritize by exact Series ID", value: "prioritize-id" },
+    { label: `Skip running Series${running === undefined ? "" : ` ${running}`}`, value: "skip", disabled: running === undefined },
+    { label: "Publish upcoming tournament", value: "publish", disabled: running !== undefined },
     { label: "Recent CS2 logs", value: "logs" },
     { label: "Exit", value: "exit" },
   ];
 
+  const confirmPriority = (id: string, details: string[]): void => {
+    const prioritized = status?.prioritySeries.includes(id) === true;
+    setScreen({ type: "confirm", operation: {
+      title: prioritized ? "Remove CS2 Series priority" : "Prioritize CS2 Series",
+      details: [...details, prioritized
+        ? "It no longer wins a tie on start time."
+        : "It wins a tie on start time; an earlier Series still goes first."],
+      command: prioritized ? "unprioritize-cs2" : "prioritize-cs2",
+      argument: id,
+    } });
+  };
+
   const chooseMenu = (choice: string): void => {
     if (choice === "exit") return exit();
-    if (choice === "publish" || choice === "start") return void discover(choice);
-    if (choice === "start-id") return setScreen({ type: "series-id", value: "" });
-    if (choice === "stop" && status !== undefined) {
-      const id = status.seriesId;
+    if (choice === "publish" || choice === "prioritize") return void discover(choice);
+    if (choice === "prioritize-id") return setScreen({ type: "series-id", value: "" });
+    if (choice === "autopilot") {
+      setScreen({ type: "confirm", operation: autopilotOn
+        ? { title: "Turn autopilot off", details: ["The running Series plays to its end; no new Series launch."], command: "autopilot-off" }
+        : { title: "Turn autopilot on", details: ["The next due Series launches within a minute."], command: "autopilot-on" } });
+      return;
+    }
+    if (choice === "skip" && running !== undefined) {
       setScreen({ type: "confirm", operation: {
-        title: "Stop active CS2 Series",
-        details: [`Series: ${id}`, `Mode: ${status.mode}`, `Unfinished Arenas: ${status.unfinishedArenas}`],
-        command: "stop-cs2",
-        argument: id,
-        confirmation: `STOP CS2 ${id}`,
+        title: "Skip running CS2 Series",
+        details: [
+          `Series: ${running}`,
+          `Unfinished Arenas: ${status?.unfinishedArenas ?? "unknown"}`,
+          "Refused if any player paid to enter its open arena.",
+        ],
+        command: "skip-cs2",
+        argument: running,
+        confirmation: `SKIP CS2 ${running}`,
       } });
       return;
     }
@@ -200,7 +231,7 @@ function App(): React.JSX.Element {
       }))}
       onCancel={() => setScreen({ type: "menu" })}
       onSelect={(tournament) => {
-        if (screen.operation === "start") return setScreen({ type: "series", tournament });
+        if (screen.operation === "prioritize") return setScreen({ type: "series", tournament });
         const series = tournament.series.find((item) => item.selectable);
         if (series === undefined) return;
         setScreen({ type: "confirm", operation: {
@@ -215,18 +246,16 @@ function App(): React.JSX.Element {
   } else if (screen.type === "series") {
     content = <SelectList
       items={screen.tournament.series.map((series) => ({
-        label: `${series.teams}  ${new Date(series.scheduledStartTime).toLocaleString()}  Bo${series.format}  ${series.selectable ? series.serviceLevel : series.reason}  [${series.id}]`,
+        label: `${status?.prioritySeries.includes(series.id) === true ? "* " : ""}${series.teams}  ${new Date(series.scheduledStartTime).toLocaleString()}  Bo${series.format}  ${series.selectable ? series.serviceLevel : series.reason}  [${series.id}]`,
         value: series,
-        disabled: !series.selectable,
       }))}
       onCancel={() => setScreen({ type: "menu" })}
-      onSelect={(series: DiscoveredSeries) => setScreen({ type: "confirm", operation: {
-        title: "Start CS2 Series",
-        details: [`Tournament: ${screen.tournament.name}`, `Series: ${series.teams}`, `GRID Series ID: ${series.id}`, `Schedule: ${new Date(series.scheduledStartTime).toLocaleString()}`],
-        command: "start-cs2",
-        argument: series.id,
-        confirmation: `START CS2 ${series.id}`,
-      } })}
+      onSelect={(series: DiscoveredSeries) => confirmPriority(series.id, [
+        `Tournament: ${screen.tournament.name}`,
+        `Series: ${series.teams}`,
+        `GRID Series ID: ${series.id}`,
+        `Schedule: ${new Date(series.scheduledStartTime).toLocaleString()}`,
+      ])}
     />;
   } else if (screen.type === "series-id") {
     content = <Box flexDirection="column">
@@ -240,19 +269,12 @@ function App(): React.JSX.Element {
           const discovered = parseDiscoverySeries(await runRemote(config, remoteScriptPath, "inspect-cs2", id));
           const series = discovered.find((item) => item.id === id);
           if (series === undefined) throw new Error(`GRID Series ${id} was not found in the discovery window`);
-          if (!series.selectable) throw new Error(`GRID Series ${id} cannot start: ${series.reason}`);
-          setScreen({ type: "confirm", operation: {
-            title: "Start CS2 Series",
-            details: [
-              `Tournament: ${series.tournamentName}`,
-              `Series: ${series.teams}`,
-              `GRID Series ID: ${id}`,
-              `Schedule: ${new Date(series.scheduledStartTime).toLocaleString()} | Bo${series.format} | ${series.serviceLevel}`,
-            ],
-            command: "start-cs2",
-            argument: id,
-            confirmation: `START CS2 ${id}`,
-          } });
+          confirmPriority(id, [
+            `Tournament: ${series.tournamentName}`,
+            `Series: ${series.teams}`,
+            `GRID Series ID: ${id}`,
+            `Schedule: ${new Date(series.scheduledStartTime).toLocaleString()} | Bo${series.format} | ${series.selectable ? series.serviceLevel : series.reason}`,
+          ]);
         } catch (error) {
           setScreen({ type: "output", title: "Series lookup failed", lines: [error instanceof Error ? error.message : String(error)], failed: true });
         }
@@ -276,7 +298,7 @@ function App(): React.JSX.Element {
 
   return <Box flexDirection="column" paddingX={1}>
     <Text bold color="cyan">SABG CS2 Operator</Text>
-    {status !== undefined && <Text dimColor>Mode: {status.mode} | Health: {status.appHealth} | Series: {status.seriesId || "none"} | Rev: {status.revision.slice(0, 8)}</Text>}
+    {status !== undefined && <Text dimColor>Autopilot: {status.autopilot} | Health: {status.appHealth} | Running: {status.runningSeries.join(", ") || "none"} | Priority: {status.prioritySeries.join(", ") || "none"} | Rev: {status.revision.slice(0, 8)}</Text>}
     <Box marginTop={1} flexDirection="column">{content}</Box>
   </Box>;
 }

@@ -96,7 +96,8 @@ assert_no_active_cs2_arenas() {
   case "$active_arenas" in
     *[!0-9]*|'') fail "CS2 arena safety query returned an invalid result" ;;
   esac
-  [ "$active_arenas" = 0 ] || fail "$active_arenas unfinished CS2 arena(s) exist; deploy refused"
+  [ "$active_arenas" = 0 ] \
+    || fail "$active_arenas unfinished CS2 arena(s) exist; deploy refused (run autopilot-off and wait for the running series to end)"
 }
 
 staging_dir="$deploy_path/.deploy-$revision"

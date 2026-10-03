@@ -3,7 +3,17 @@ import { createReadStream } from "node:fs";
 import { readFile } from "node:fs/promises";
 import type { Cs2OperatorDiscoveryPayload } from "@arena/contracts";
 
-export type RemoteCommand = "status" | "discover-cs2" | "inspect-cs2" | "publish-cs2" | "start-cs2" | "stop-cs2" | "logs";
+export type RemoteCommand =
+  | "status"
+  | "discover-cs2"
+  | "inspect-cs2"
+  | "publish-cs2"
+  | "prioritize-cs2"
+  | "unprioritize-cs2"
+  | "autopilot-on"
+  | "autopilot-off"
+  | "skip-cs2"
+  | "logs";
 
 export interface OperatorConfig {
   host: string;
@@ -13,10 +23,13 @@ export interface OperatorConfig {
 }
 
 export interface RuntimeStatus {
-  mode: string;
   tournamentId: string;
-  seriesId: string;
-  scheduledStartTime: string;
+  /** `on`, `off` or `unknown` (database not reachable or not migrated yet). */
+  autopilot: string;
+  /** GRID ids of the series with an open arena; normally at most one. */
+  runningSeries: string[];
+  /** GRID ids of upcoming prioritized series, earliest first. */
+  prioritySeries: string[];
   revision: string;
   appHealth: string;
   unfinishedArenas: string;
@@ -91,11 +104,12 @@ export function parseRuntimeStatus(output: string): RuntimeStatus {
     const separator = line.indexOf("=");
     if (separator > 0) values.set(line.slice(0, separator), line.slice(separator + 1));
   }
+  const list = (key: string): string[] => (values.get(key) ?? "").split(",").filter((id) => id !== "");
   return {
-    mode: values.get("MODE") ?? "unknown",
     tournamentId: values.get("TOURNAMENT_ID") ?? "",
-    seriesId: values.get("SERIES_ID") ?? "",
-    scheduledStartTime: values.get("SCHEDULED_START_TIME") ?? "",
+    autopilot: values.get("AUTOPILOT") ?? "unknown",
+    runningSeries: list("RUNNING_SERIES"),
+    prioritySeries: list("PRIORITY_SERIES"),
     revision: values.get("REVISION") ?? "unknown",
     appHealth: values.get("APP_HEALTH") ?? "unknown",
     unfinishedArenas: values.get("UNFINISHED_ARENAS") ?? "unknown",
@@ -202,11 +216,10 @@ export function buildSshInvocation(
   confirmation = "",
 ): { args: string[]; remote: string } {
   if (argument !== "") assertGridId(argument);
-  const expectedConfirmation = command === "start-cs2"
-    ? `START CS2 ${argument}`
-    : command === "stop-cs2"
-      ? `STOP CS2 ${argument}`
-      : undefined;
+  if ((command === "prioritize-cs2" || command === "unprioritize-cs2" || command === "skip-cs2") && argument === "") {
+    throw new Error(`${command} needs a GRID Series ID`);
+  }
+  const expectedConfirmation = command === "skip-cs2" ? `SKIP CS2 ${argument}` : undefined;
   if (expectedConfirmation !== undefined && confirmation !== expectedConfirmation) {
     throw new Error(`Invalid confirmation for ${command}`);
   }
