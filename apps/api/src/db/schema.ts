@@ -101,6 +101,8 @@ export const series = pgTable("series", {
   catalogLifecycle: cs2SeriesLifecycleEnum("catalog_lifecycle").notNull().default("unknown"),
   isSupported: boolean("is_supported").notNull().default(false),
   mapNames: text("map_names").array(),
+  priority: boolean("priority").notNull().default(false),
+  skipRequested: boolean("skip_requested").notNull().default(false),
   ...timestamps,
 }, (t) => [
   index("series_competition_id_idx").on(t.competitionId),
@@ -346,3 +348,11 @@ export const replayResetAudits = pgTable("demo_reset_audit", {
 }, (t) => [
   index("demo_reset_audit_fixture_id_idx").on(t.fixtureId),
 ]);
+
+/** Operator switches, flipped over SQL without a restart (ADR-0008). */
+export const settings = pgTable("settings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull().unique(),
+  enabled: boolean("enabled").notNull().default(true),
+  ...timestamps,
+});
