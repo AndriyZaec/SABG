@@ -49,6 +49,7 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
   let userRepository: typeof import("../../db/repositories/user.repository.js")["userRepository"];
   let cs2SeriesFollowRepository: typeof import("../../db/repositories/cs2-series-follow.repository.js")["cs2SeriesFollowRepository"];
   let payoutService: typeof import("../../payout/index.js")["payoutService"];
+  let arenaPlayerRepository: typeof import("../../db/repositories/arena-player.repository.js")["arenaPlayerRepository"];
 
   const arenaIds: string[] = [];
   const matchIds: string[] = [];
@@ -70,6 +71,7 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     ({ userRepository } = await import("../../db/repositories/user.repository.js"));
     ({ cs2SeriesFollowRepository } = await import("../../db/repositories/cs2-series-follow.repository.js"));
     ({ payoutService } = await import("../../payout/index.js"));
+    ({ arenaPlayerRepository } = await import("../../db/repositories/arena-player.repository.js"));
   });
 
   beforeEach(() => {
@@ -330,6 +332,149 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
       const rounds = await predictionRoundRepository.listByArenaId(arena1.id);
       expect(rounds.map((round) => round.roundNumber)).toEqual([1]);
       expect((await arenaRepository.findById(arena1.id))?.status).toBe("cancelled");
+      expect(settleSpy).not.toHaveBeenCalled();
+    } finally {
+      settleSpy.mockRestore();
+    }
+  });
+
+  // A live arena 1 as a crash leaves it: round 1 settled, round 2 locked, the given players joined.
+  async function seedLiveArenaAtCrash(startInHours: number, players: { status: "active" | "eliminated"; paid?: boolean }[]) {
+    const at = clockFrom(new Date(Date.now() + startInHours * 60 * MIN).toISOString());
+    const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
+      format: 3,
+      scheduledStartTime: new Date(at(0)),
+    });
+    seriesIds.push(series.id);
+    const matchTeamIds = await synchronizeTestTeams(series.id);
+
+    const writeQueue = new WriteQueue();
+    let runtime: Cs2ArenaRuntime | undefined;
+    const first = await Cs2SeriesOrchestrator.create(series, {
+      writeQueue,
+      entryFeeLamports: 1000,
+      onArenaOpened: (_arenaId, opened) => {
+        runtime = opened;
+      },
+    });
+    await first.poll(snapshot(matchTeamIds, {}), at(-10));
+    const match1 = (await matchRepository.listBySeriesId(series.id))[0]!;
+    matchIds.push(match1.id);
+    const arena = (await arenaRepository.findByMatchId(match1.id))!;
+    arenaIds.push(arena.id);
+
+    const users = [];
+    for (const [i, player] of players.entries()) {
+      const user = await userRepository.upsertByWallet(`int-test-wallet-${randomUUID()}`, `crash-player-${i}`);
+      userIds.push(user.id);
+      runtime!.join(user.id, user.username, at(-9));
+      users.push({ ...user, ...player });
+    }
+    await first.poll(snapshot(matchTeamIds, { hasLiveGame: true }), at(1));
+    await writeQueue.drain();
+    expect((await arenaRepository.findById(arena.id))?.status).toBe("live");
+
+    for (const user of users) {
+      if (user.status === "eliminated") await arenaPlayerRepository.setStatus(arena.id, user.id, "eliminated");
+      if (user.paid === true) {
+        await entryPassRepository.create({
+          arenaId: arena.id,
+          userId: user.id,
+          walletAddress: user.walletAddress,
+          amountLamports: 1000,
+          txSignature: `int-test-tx-${randomUUID()}`,
+        });
+      }
+    }
+    const round1 = (await predictionRoundRepository.listByArenaId(arena.id))[0]!;
+    const settledRound1 = await predictionRoundRepository.upsert({ ...round1, status: "settled", settledAt: at(5) });
+    const lockedRound2 = await predictionRoundRepository.upsert({
+      ...round1,
+      id: randomUUID(),
+      roundNumber: 2,
+      status: "locked",
+      lockedAt: at(6),
+    });
+
+    return { at, series, matchTeamIds, match1, arena, users, settledRound1, lockedRound2 };
+  }
+
+  it("crash-closes a live arena on restore: voids unsettled rounds and pays the active players", async () => {
+    const seeded = await seedLiveArenaAtCrash(36, [{ status: "active" }, { status: "active" }, { status: "eliminated" }]);
+    const settleSpy = vi.spyOn(payoutService, "settleArena").mockResolvedValue(undefined);
+    try {
+      await Cs2SeriesOrchestrator.create(seeded.series, { writeQueue: new WriteQueue(), entryFeeLamports: 1000 });
+
+      const rounds = await predictionRoundRepository.listByArenaId(seeded.arena.id);
+      expect(rounds.find((round) => round.id === seeded.lockedRound2.id)?.status).toBe("voided");
+      expect(rounds.find((round) => round.id === seeded.settledRound1.id)).toEqual(seeded.settledRound1);
+
+      const statuses = Object.fromEntries(
+        (await arenaPlayerRepository.list(seeded.arena.id)).map((player) => [player.userId, player.status]),
+      );
+      expect(statuses).toEqual({
+        [seeded.users[0]!.id]: "winner",
+        [seeded.users[1]!.id]: "winner",
+        [seeded.users[2]!.id]: "eliminated",
+      });
+      expect((await arenaRepository.findById(seeded.arena.id))?.status).toBe("finished");
+      expect(settleSpy).toHaveBeenCalledTimes(1);
+      expect(settleSpy.mock.calls[0]![0]).toBe(seeded.arena.id);
+      expect([...settleSpy.mock.calls[0]![1]].sort()).toEqual([seeded.users[0]!.id, seeded.users[1]!.id].sort());
+    } finally {
+      settleSpy.mockRestore();
+    }
+  });
+
+  it("continues the series after a crash close: map 1's end opens arena 2 and finishes match 1", async () => {
+    const seeded = await seedLiveArenaAtCrash(39, [{ status: "active" }]);
+    const settleSpy = vi.spyOn(payoutService, "settleArena").mockResolvedValue(undefined);
+    try {
+      const writeQueue = new WriteQueue();
+      const restored = await Cs2SeriesOrchestrator.create(seeded.series, { writeQueue, entryFeeLamports: 1000 });
+      await restored.poll(snapshot(seeded.matchTeamIds, { hasLiveGame: true }), seeded.at(20));
+      expect(await matchRepository.listBySeriesId(seeded.series.id)).toHaveLength(1);
+
+      await restored.poll(snapshot(seeded.matchTeamIds, { teams: [1, 0] }), seeded.at(40));
+      const match2 = (await matchRepository.listBySeriesId(seeded.series.id)).find((m) => m.id !== seeded.match1.id)!;
+      matchIds.push(match2.id);
+      const arena2 = (await arenaRepository.findByMatchId(match2.id))!;
+      arenaIds.push(arena2.id);
+
+      expect(arena2.status).toBe("lobby");
+      expect((await matchRepository.findById(seeded.match1.id))?.status).toBe("finished");
+      expect((await seriesRepository.findById(seeded.series.id))?.status).toBe("active");
+      await writeQueue.drain();
+    } finally {
+      settleSpy.mockRestore();
+    }
+  });
+
+  it("refuses to follow the next map as the crash-closed one when it is already live at the first poll", async () => {
+    const seeded = await seedLiveArenaAtCrash(45, [{ status: "active" }]);
+    const settleSpy = vi.spyOn(payoutService, "settleArena").mockResolvedValue(undefined);
+    try {
+      const restored = await Cs2SeriesOrchestrator.create(seeded.series, { writeQueue: new WriteQueue(), entryFeeLamports: 1000 });
+
+      await expect(
+        restored.poll(snapshot(seeded.matchTeamIds, { teams: [1, 0], hasLiveGame: true }), seeded.at(50)),
+      ).rejects.toThrow("already live");
+      await expect(
+        restored.poll(snapshot(seeded.matchTeamIds, { teams: [1, 0], hasLiveGame: true }), seeded.at(51)),
+      ).rejects.toThrow("already live");
+      expect(await matchRepository.listBySeriesId(seeded.series.id)).toHaveLength(1);
+    } finally {
+      settleSpy.mockRestore();
+    }
+  });
+
+  it("leaves a live arena live on restore when it has paid entries but no active player", async () => {
+    const seeded = await seedLiveArenaAtCrash(42, [{ status: "eliminated", paid: true }]);
+    const settleSpy = vi.spyOn(payoutService, "settleArena").mockResolvedValue(undefined);
+    try {
+      await Cs2SeriesOrchestrator.create(seeded.series, { writeQueue: new WriteQueue(), entryFeeLamports: 1000 });
+
+      expect((await arenaRepository.findById(seeded.arena.id))?.status).toBe("live");
       expect(settleSpy).not.toHaveBeenCalled();
     } finally {
       settleSpy.mockRestore();

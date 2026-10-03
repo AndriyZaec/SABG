@@ -7,6 +7,7 @@ import { MatchSignalBus } from "../ingestion/event-bus.js";
 import { arenaPlayerRepository } from "../db/repositories/arena-player.repository.js";
 import { arenaRepository } from "../db/repositories/arena.repository.js";
 import { cs2SeriesFollowRepository } from "../db/repositories/cs2-series-follow.repository.js";
+import { entryPassRepository } from "../db/repositories/entry-pass.repository.js";
 import { matchRepository } from "../db/repositories/match.repository.js";
 import { predictionRepository } from "../db/repositories/prediction.repository.js";
 import { predictionRoundRepository } from "../db/repositories/prediction-round.repository.js";
@@ -50,6 +51,8 @@ export class Cs2SeriesOrchestrator {
   private lifecycleState: Cs2SeriesLifecycleState;
   private readonly arenasByMatchIndex = new Map<number, OpenedArena>();
   private reconcilingFinishedMatch = false;
+  /** Set by a crash close until the first snapshot confirms map k is still the one being played. */
+  private reconcilingCrashClosedMatch = false;
 
   constructor(
     private readonly series: Series,
@@ -104,7 +107,10 @@ export class Cs2SeriesOrchestrator {
     };
 
     if (arena.status === "live") {
-      throw new Error(`Cannot safely restore live CS2 arena ${arena.id} without a GRID lock snapshot`);
+      // No runtime: the state above keeps map k live, so its end opens arena k+1 as usual.
+      await this.crashCloseLiveArena(arena.id);
+      this.reconcilingCrashClosedMatch = true;
+      return;
     }
     if (arena.status === "cancelled") {
       if (arena.cancelledReason === "no_show") {
@@ -132,6 +138,39 @@ export class Cs2SeriesOrchestrator {
     opened.runtime.openRoundOne(latestMatch.startTime);
   }
 
+  /**
+   * A live arena can't resume: settling a locked round needs the in-memory lock snapshot (ADR-0009).
+   * Unsettled rounds are voided and the still-active players split the pool, as in a tie.
+   */
+  private async crashCloseLiveArena(arenaId: Uuid): Promise<void> {
+    const now = new Date().toISOString();
+    const unsettled = (await predictionRoundRepository.listByArenaId(arenaId)).filter(
+      (round) => round.status === "open" || round.status === "locked",
+    );
+    for (const round of unsettled) await predictionRoundRepository.upsert({ ...round, status: "voided", settledAt: now });
+
+    const winnerIds = await arenaPlayerRepository.getActivePlayerIds(arenaId);
+    if (winnerIds.length === 0) {
+      const passes = await entryPassRepository.listByArenaId(arenaId);
+      if (passes.some((pass) => pass.status === "paid")) {
+        // A normal game never ends with paid entries and nobody active; leave it to an operator.
+        logger.error({ arenaId }, "cs2: live arena at restore has paid entries but no active players; left live");
+        return;
+      }
+    }
+    for (const userId of winnerIds) await arenaPlayerRepository.setStatus(arenaId, userId, "winner");
+
+    if ((await arenaRepository.setFinishedIfLive(arenaId)) === undefined) {
+      logger.warn({ arenaId }, "cs2: live arena at restore is no longer live; not finishing or paying");
+      return;
+    }
+    await payoutService.settleArena(arenaId, winnerIds);
+    logger.info(
+      { arenaId, winners: winnerIds.length, voidedRounds: unsettled.length },
+      "cs2: crash-closed a live arena on restore",
+    );
+  }
+
   /** Must be read before a poll can open the next arena. */
   currentBus(): MatchSignalBus | undefined {
     return this.currentArena()?.bus;
@@ -155,11 +194,22 @@ export class Cs2SeriesOrchestrator {
     if (this.reconcilingFinishedMatch && snapshot?.hasLiveGame === true) {
       throw new Error(`Cannot safely restore active CS2 series ${this.series.id}: its next map is already live`);
     }
+    // Map k ended during the outage and k+1 is live: following it as map k would shift every later arena by one map.
+    if (
+      this.reconcilingCrashClosedMatch &&
+      snapshot?.hasLiveGame === true &&
+      snapshot.teams[0].score + snapshot.teams[1].score >= this.lifecycleState.openedThrough
+    ) {
+      throw new Error(`Cannot safely resume CS2 series ${this.series.id}: the map after the crash-closed one is already live`);
+    }
     const { state, actions } = processCs2SeriesPoll(this.lifecycleState, snapshot, now);
     // Commit only once every action applied: a failure leaves the old state, so the next poll re-emits them.
     for (const action of actions) await this.apply(action, snapshot, now);
     this.lifecycleState = state;
-    if (snapshot !== undefined) this.reconcilingFinishedMatch = false;
+    if (snapshot !== undefined) {
+      this.reconcilingFinishedMatch = false;
+      this.reconcilingCrashClosedMatch = false;
+    }
     if (snapshot !== undefined && snapshot.mapNames.length > 0) {
       await seriesRepository.setMapNames(this.series.id, snapshot.mapNames);
     }
@@ -296,9 +346,11 @@ export class Cs2SeriesOrchestrator {
   }
 
   private async markMatchFinished(matchIndex: number): Promise<void> {
-    const opened = this.arenasByMatchIndex.get(matchIndex);
-    // A startAfterMap1 join has no arena for map 1, so its end is a no-op here.
-    if (opened !== undefined) await matchRepository.setStatus(opened.matchId, "finished");
+    // A crash-closed map has no runtime, so fall back to the DB. A startAfterMap1 join has no match for map 1 at all.
+    const matchId =
+      this.arenasByMatchIndex.get(matchIndex)?.matchId ??
+      (await matchRepository.findBySeriesMatchIndex(this.series.id, matchIndex))?.id;
+    if (matchId !== undefined) await matchRepository.setStatus(matchId, "finished");
   }
 
   private async cancelArena(matchIndex: number, reason: "no_show" | "series_decided" | "forfeit"): Promise<void> {
