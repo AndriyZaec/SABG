@@ -13,7 +13,7 @@ import { sleep } from "../shared/sleep.js";
 import { Cs2LivePoller } from "./live-poller.js";
 import { Cs2RawRecorder } from "./raw-recorder.js";
 import { decideSeriesEntry } from "./series-entry.js";
-import { Cs2SeriesOrchestrator } from "./series-orchestrator.js";
+import { Cs2SeriesOrchestrator, Cs2SeriesOvertakenError } from "./series-orchestrator.js";
 import { parseGridSeriesSnapshot, type GridCs2SeriesSnapshot } from "./series-snapshot.js";
 import { buildCs2TeamIdentityMap } from "./team-identity.js";
 
@@ -30,6 +30,13 @@ export interface Cs2SeriesRunnerStartOptions {
   rawRecordingEnabled: boolean;
   signal: AbortSignal;
   gridClient?: Cs2SeriesGridClient;
+  /** Give up priming at this time and skip the series (the autopilot); without it, priming retries until aborted. */
+  primingDeadline?: IsoDateTime;
+  /**
+   * Called from the poll loop once the series is over (`complete`) or can't be followed (`overtaken`).
+   * Must not await `stop()`: the poll that reports it is still running.
+   */
+  onEnd?: (outcome: "complete" | "overtaken") => void;
 }
 
 export type Cs2SeriesRunnerStartResult =
@@ -41,9 +48,10 @@ async function primeSeries(
   client: Cs2SeriesGridClient,
   gridSeriesId: string,
   signal: AbortSignal,
+  deadline: IsoDateTime | undefined,
 ): Promise<GridCs2SeriesSnapshot | undefined> {
   let errorStreak = 0;
-  while (!signal.aborted) {
+  while (!signal.aborted && (deadline === undefined || Date.now() < Date.parse(deadline))) {
     try {
       const result = await client.fetchSeriesState(gridSeriesId, signal);
       const snapshot = parseGridSeriesSnapshot(result.data);
@@ -54,7 +62,8 @@ async function primeSeries(
       logger.error({ err, gridSeriesId }, "cs2: priming poll failed");
       errorStreak += 1;
     }
-    await sleep(errorStreak > 0 ? nextBackoffMs(errorStreak) : gridConfig.grid.pollIntervalMs, signal);
+    const delay = errorStreak > 0 ? nextBackoffMs(errorStreak) : gridConfig.grid.pollIntervalMs;
+    await sleep(deadline === undefined ? delay : Math.max(0, Math.min(delay, Date.parse(deadline) - Date.now())), signal);
   }
   return undefined;
 }
@@ -66,6 +75,7 @@ export class Cs2SeriesRunner {
   private constructor(
     readonly seriesId: string,
     readonly gridSeriesId: string,
+    private readonly orchestrator: Cs2SeriesOrchestrator,
     private readonly poller: Cs2LivePoller,
     private readonly writeQueue: WriteQueue,
     private readonly releaseLock: ReleaseFixtureRuntimeLock,
@@ -79,8 +89,15 @@ export class Cs2SeriesRunner {
     let handedOff = false;
     try {
       const client = options.gridClient ?? new GridClient();
-      const primed = await primeSeries(client, gridSeriesId, signal);
-      if (signal.aborted || primed?.format === undefined) return { kind: "aborted" };
+      const primed = await primeSeries(client, gridSeriesId, signal, options.primingDeadline);
+      if (signal.aborted) return { kind: "aborted" };
+      if (primed?.format === undefined) {
+        // Past the deadline: GRID never gave a usable state, e.g. it deleted or cancelled the series.
+        const known = await seriesRepository.findByGridSeriesId(gridSeriesId);
+        if (known !== undefined) await seriesRepository.setStatus(known.id, "skipped");
+        logger.warn({ gridSeriesId }, "cs2: series skipped, no series state before the priming deadline");
+        return { kind: "skipped", reason: "no_series_state" };
+      }
 
       const series = await seriesRepository.upsertByGridSeriesId(gridSeriesId, {
         format: primed.format,
@@ -122,8 +139,26 @@ export class Cs2SeriesRunner {
         }
       }
 
+      let ended = false;
+      const end = (outcome: "complete" | "overtaken") => {
+        if (ended) return;
+        ended = true;
+        options.onEnd?.(outcome);
+      };
       const poller = new Cs2LivePoller({
-        target: orchestrator,
+        target: {
+          currentBus: () => orchestrator.currentBus(),
+          updateLiveScore: (snapshot) => orchestrator.updateLiveScore(snapshot),
+          poll: async (snapshot, now) => {
+            try {
+              await orchestrator.poll(snapshot, now);
+            } catch (err) {
+              if (err instanceof Cs2SeriesOvertakenError) end("overtaken");
+              throw err;
+            }
+            if (options.onEnd !== undefined && (await orchestrator.isComplete())) end("complete");
+          },
+        },
         fetchSeriesState: (pollSignal) => client.fetchSeriesState(gridSeriesId, pollSignal),
         pollIntervalMs: gridConfig.grid.pollIntervalMs,
         teamIdentities,
@@ -132,10 +167,17 @@ export class Cs2SeriesRunner {
       poller.start();
       logger.info({ gridSeriesId }, "cs2: live poller started");
       handedOff = true;
-      return { kind: "started", runner: new Cs2SeriesRunner(series.id, gridSeriesId, poller, options.writeQueue, releaseLock) };
+      return {
+        kind: "started",
+        runner: new Cs2SeriesRunner(series.id, gridSeriesId, orchestrator, poller, options.writeQueue, releaseLock),
+      };
     } finally {
       if (!handedOff) await releaseLock();
     }
+  }
+
+  openedArenaIds(): string[] {
+    return this.orchestrator.openedArenaIds();
   }
 
   /** Stops GRID polling only; call `stop()` once nothing else can write to the series' arenas. */

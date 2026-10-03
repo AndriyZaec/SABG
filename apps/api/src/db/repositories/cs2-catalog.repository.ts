@@ -65,17 +65,17 @@ function validateInput(input: Cs2CatalogSeriesInput): void {
 async function readSupportedSeries(
   tournamentIds: readonly string[],
   id?: Uuid,
-  activeGridSeriesId: string | undefined = cs2CatalogConfig.activeGridSeriesId,
 ): Promise<Array<Cs2SeriesSummary & { mapNames: string[] }>> {
   if (tournamentIds.length === 0) return [];
   const catalogRows = await db
     .select({
       id: series.id,
-      gridSeriesId: series.gridSeriesId,
       format: series.format,
       scheduledStartTime: series.scheduledStartTime,
       lifecycle: series.catalogLifecycle,
       mapNames: series.mapNames,
+      // Joinable now: one of its arenas is open (the autopilot runs at most one series).
+      hasOpenArena: sql<boolean>`exists (select 1 from ${arenas} inner join ${matches} on ${matches.id} = ${arenas.matchId} where ${matches.seriesId} = ${series.id} and ${inArray(arenas.status, ["lobby", "live"])})`,
       competitionName: cs2Competitions.name,
       competitionShortName: cs2Competitions.shortName,
       competitionLogoUrl: cs2Competitions.logoUrl,
@@ -130,7 +130,7 @@ async function readSupportedSeries(
 
   return catalogRows.map((row) => ({
     id: row.id,
-    availability: row.gridSeriesId === activeGridSeriesId ? "available" : "soon",
+    availability: row.hasOpenArena ? "available" : "soon",
     participants: participantsBySeries.get(row.id) ?? [
       { state: "tbd", displayOrder: 1, seriesScore: null },
       { state: "tbd", displayOrder: 2, seriesScore: null },
@@ -148,6 +148,31 @@ async function readSupportedSeries(
 }
 
 export const cs2CatalogRepository = {
+  /** `active` series of the configured tournaments that already ran an arena, for the autopilot's resume. */
+  async listActiveRunSeries(
+    tournamentIds: readonly string[] = cs2CatalogConfig.tournamentIds,
+  ): Promise<{ seriesId: Uuid; gridSeriesId: string; scheduledStartTime: string; hasOpenArena: boolean }[]> {
+    if (tournamentIds.length === 0) return [];
+    const arenaOfSeries = (open: boolean) =>
+      sql<boolean>`exists (select 1 from ${arenas} inner join ${matches} on ${matches.id} = ${arenas.matchId} where ${matches.seriesId} = ${series.id}${open ? sql` and ${inArray(arenas.status, ["lobby", "live"])}` : sql``})`;
+    const rows = await db
+      .select({
+        seriesId: series.id,
+        gridSeriesId: series.gridSeriesId,
+        scheduledStartTime: series.scheduledStartTime,
+        hasOpenArena: arenaOfSeries(true),
+      })
+      .from(series)
+      .innerJoin(cs2Competitions, eq(series.competitionId, cs2Competitions.id))
+      .where(and(
+        eq(series.status, "active"),
+        inArray(cs2Competitions.gridTournamentId, [...tournamentIds]),
+        arenaOfSeries(false),
+      ))
+      .orderBy(asc(series.scheduledStartTime));
+    return rows.map((row) => ({ ...row, scheduledStartTime: row.scheduledStartTime.toISOString() }));
+  },
+
   /** The autopilot launcher's candidates (`selectNextSeries`) in the configured tournaments. */
   async listAutopilotCandidates(
     tournamentIds: readonly string[] = cs2CatalogConfig.tournamentIds,
@@ -186,18 +211,16 @@ export const cs2CatalogRepository = {
 
   async listSupported(
     tournamentIds: readonly string[] = cs2CatalogConfig.tournamentIds,
-    activeGridSeriesId: string | undefined = cs2CatalogConfig.activeGridSeriesId,
   ): Promise<Cs2SeriesSummary[]> {
-    const rows = await readSupportedSeries(tournamentIds, undefined, activeGridSeriesId);
+    const rows = await readSupportedSeries(tournamentIds);
     return rows.map(({ mapNames: _mapNames, ...summary }) => summary);
   },
 
   async findSupportedById(
     id: Uuid,
     tournamentIds: readonly string[] = cs2CatalogConfig.tournamentIds,
-    activeGridSeriesId: string | undefined = cs2CatalogConfig.activeGridSeriesId,
   ): Promise<Cs2SeriesSummary | undefined> {
-    const [catalogSeries] = await readSupportedSeries(tournamentIds, id, activeGridSeriesId);
+    const [catalogSeries] = await readSupportedSeries(tournamentIds, id);
     if (catalogSeries === undefined) return undefined;
     const { mapNames: _mapNames, ...summary } = catalogSeries;
     return summary;
@@ -206,9 +229,8 @@ export const cs2CatalogRepository = {
   async findSupportedDetailById(
     id: Uuid,
     tournamentIds: readonly string[] = cs2CatalogConfig.tournamentIds,
-    activeGridSeriesId: string | undefined = cs2CatalogConfig.activeGridSeriesId,
   ): Promise<Cs2SeriesDetail | undefined> {
-    const [catalogSeries] = await readSupportedSeries(tournamentIds, id, activeGridSeriesId);
+    const [catalogSeries] = await readSupportedSeries(tournamentIds, id);
     if (catalogSeries === undefined) return undefined;
     const { mapNames } = catalogSeries;
 

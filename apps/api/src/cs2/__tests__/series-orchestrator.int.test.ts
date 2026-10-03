@@ -229,6 +229,32 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     expect((await seriesRepository.findById(series.id))?.status).toBe("invalid");
   });
 
+  it("is complete only once the series is terminal and none of its arenas is open", async () => {
+    const at = clockFrom(new Date(Date.now() + 48 * 60 * MIN).toISOString());
+    const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
+      format: 3,
+      scheduledStartTime: new Date(at(0)),
+    });
+    seriesIds.push(series.id);
+    const matchTeamIds = await synchronizeTestTeams(series.id);
+
+    const writeQueue = new WriteQueue();
+    const orchestrator = await Cs2SeriesOrchestrator.create(series, { writeQueue, entryFeeLamports: 1000 });
+    expect(await orchestrator.isComplete()).toBe(false);
+
+    await orchestrator.poll(snapshot(matchTeamIds, {}), at(-10));
+    const match1 = (await matchRepository.listBySeriesId(series.id))[0]!;
+    matchIds.push(match1.id);
+    const arena1 = (await arenaRepository.findByMatchId(match1.id))!;
+    arenaIds.push(arena1.id);
+    expect(orchestrator.openedArenaIds()).toEqual([arena1.id]);
+    expect(await orchestrator.isComplete()).toBe(false);
+
+    await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: false }), at(61));
+    expect(await orchestrator.isComplete()).toBe(true);
+    await writeQueue.drain();
+  });
+
   it("finishes a live arena on match end and settles its payout", async () => {
     const at = clockFrom(new Date(Date.now() + 27 * 60 * MIN).toISOString());
     const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {

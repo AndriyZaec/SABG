@@ -70,9 +70,10 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
       ],
     });
     expect(first.participantCount).toBe(1);
-    await expect(repository.findSupportedById(first.seriesId, [gridTournamentId], gridSeriesId)).resolves.toMatchObject({
+    // No arena yet, so not joinable regardless of any env series id.
+    await expect(repository.findSupportedById(first.seriesId, [gridTournamentId])).resolves.toMatchObject({
       id: first.seriesId,
-      availability: "available",
+      availability: "soon",
       participants: [
         { state: "known", displayOrder: 1, team: { name: "Team A" }, seriesScore: 0 },
         { state: "tbd", displayOrder: 2, seriesScore: null },
@@ -162,6 +163,11 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
       startTime: new Date("2026-09-01T13:00:00.000Z"),
     });
     seriesMatchIds.push(secondMap.id);
+
+    // Map 1's arena is in lobby, so the series is joinable now.
+    await expect(repository.findSupportedById(first.seriesId, [gridTournamentId])).resolves.toMatchObject({
+      availability: "available",
+    });
 
     const detail = await repository.findSupportedDetailById(first.seriesId, [gridTournamentId]);
     expect(detail?.maps).toEqual([

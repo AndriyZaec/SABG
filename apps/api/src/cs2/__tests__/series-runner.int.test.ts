@@ -97,8 +97,13 @@ describe.skipIf(!RUN)("Cs2SeriesRunner (integration, requires DATABASE_URL)", ()
     return { gridSeriesId, gridIds: [`grid-a-${suffix}`, `grid-b-${suffix}`] as const };
   }
 
-  async function start(gridSeriesId: string, raw: unknown) {
+  async function start(
+    gridSeriesId: string,
+    raw: unknown,
+    extra: { primingDeadline?: string; onEnd?: (outcome: "complete" | "overtaken") => void } = {},
+  ) {
     const result = await Cs2SeriesRunner.start({
+      ...extra,
       gridSeriesId,
       scheduledStartTime: new Date(Date.now() + 60 * MIN).toISOString(),
       wsGateway: new GatewayWebSocketServer(),
@@ -172,6 +177,48 @@ describe.skipIf(!RUN)("Cs2SeriesRunner (integration, requires DATABASE_URL)", ()
 
       expect(result.kind).toBe("started");
       expect((await seriesRepository.findById(series.id))?.status).toBe("active");
+      expect((await arenaRepository.findById(arena.id))?.status).toBe("finished");
+    } finally {
+      settleSpy.mockRestore();
+    }
+  });
+
+  it("skips a series with no series state once the priming deadline passes, and releases the lock", async () => {
+    const { gridSeriesId } = newSeries();
+    const series = await seriesRepository.upsertByGridSeriesId(gridSeriesId, {
+      format: 3,
+      scheduledStartTime: new Date(Date.now() - 31 * MIN),
+    });
+
+    const result = await start(gridSeriesId, { data: { seriesState: null } }, {
+      primingDeadline: new Date(Date.now() + 200).toISOString(),
+    });
+
+    expect(result).toEqual({ kind: "skipped", reason: "no_series_state" });
+    expect((await seriesRepository.findById(series.id))?.status).toBe("skipped");
+    await expectLockFree(gridSeriesId);
+  });
+
+  it("reports overtaken when the map after a crash-closed one is already live", async () => {
+    const { gridSeriesId, gridIds } = newSeries();
+    const series = await seriesRepository.upsertByGridSeriesId(gridSeriesId, {
+      format: 3,
+      scheduledStartTime: new Date(Date.now() - 60 * MIN),
+    });
+    const teams = await cs2IdentityRepository.synchronizeSeriesTeams(series.id, [
+      { gridTeamId: gridIds[0], name: "Team A", score: 0 },
+      { gridTeamId: gridIds[1], name: "Team B", score: 0 },
+    ]);
+    const match = await matchRepository.upsertForSeriesMap(series.id, 1, { teams, startTime: new Date() });
+    const arena = await arenaRepository.upsertForMatch(match.id, { entryFeeLamports: 1000, prizePoolLamports: 0 });
+    expect(await arenaRepository.setLiveIfOpen(arena.id)).toBeDefined();
+
+    const settleSpy = vi.spyOn(payoutService, "settleArena").mockResolvedValue(undefined);
+    try {
+      const ended = new Promise<string>((resolve) => {
+        void start(gridSeriesId, rawSeries(gridIds, { format: "best-of-3", teams: [1, 0], live: true }), { onEnd: resolve });
+      });
+      await expect(ended).resolves.toBe("overtaken");
       expect((await arenaRepository.findById(arena.id))?.status).toBe("finished");
     } finally {
       settleSpy.mockRestore();

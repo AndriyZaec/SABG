@@ -38,6 +38,9 @@ export interface Cs2SeriesOrchestratorOptions {
   startAfterMap1?: true;
 }
 
+/** The poll can't tell which map it follows after a crash close; the series must be abandoned, not retried. */
+export class Cs2SeriesOvertakenError extends Error {}
+
 interface OpenedArena {
   matchId: Uuid;
   arenaId: Uuid;
@@ -171,6 +174,22 @@ export class Cs2SeriesOrchestrator {
     );
   }
 
+  openedArenaIds(): Uuid[] {
+    return [...this.arenasByMatchIndex.values()].map((opened) => opened.arenaId);
+  }
+
+  /** The series reached a terminal status and none of its arenas is still open, so its runner can stop. */
+  async isComplete(): Promise<boolean> {
+    if (!this.lifecycleState.decided && !this.lifecycleState.invalid) {
+      if ((await seriesRepository.findById(this.series.id))?.status === "active") return false;
+    }
+    for (const arenaId of this.openedArenaIds()) {
+      const status = (await arenaRepository.findById(arenaId))?.status;
+      if (status === "lobby" || status === "live") return false;
+    }
+    return true;
+  }
+
   /** Must be read before a poll can open the next arena. */
   currentBus(): MatchSignalBus | undefined {
     return this.currentArena()?.bus;
@@ -200,7 +219,9 @@ export class Cs2SeriesOrchestrator {
       snapshot?.hasLiveGame === true &&
       snapshot.teams[0].score + snapshot.teams[1].score >= this.lifecycleState.openedThrough
     ) {
-      throw new Error(`Cannot safely resume CS2 series ${this.series.id}: the map after the crash-closed one is already live`);
+      throw new Cs2SeriesOvertakenError(
+        `Cannot safely resume CS2 series ${this.series.id}: the map after the crash-closed one is already live`,
+      );
     }
     const { state, actions } = processCs2SeriesPoll(this.lifecycleState, snapshot, now);
     // Commit only once every action applied: a failure leaves the old state, so the next poll re-emits them.
