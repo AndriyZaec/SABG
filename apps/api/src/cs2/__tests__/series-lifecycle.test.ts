@@ -268,3 +268,31 @@ describe("processCs2SeriesPoll — terminal states ignore further polls", () => 
     expect(actions).toEqual([]);
   });
 });
+
+describe("processCs2SeriesPoll — joining after a live map 1 (startAfterMap1)", () => {
+  const joined = () => initialCs2SeriesLifecycleState(START, { startAfterMap1: true });
+
+  it("emits nothing while map 1 stays live, even past the no-show timeout", () => {
+    let state = joined();
+    for (const [offset, teams] of [
+      [5, [0, 0]],
+      [70, [0, 0]],
+      [90, [0, 0]],
+    ] as const) {
+      const result = poll(state, snapshot({ teams: [...teams], hasLiveGame: true }), offset);
+      expect(result.actions).toEqual([]);
+      state = result.state;
+    }
+    expect(state.openedThrough).toBe(1);
+  });
+
+  it.each([3, 5])("opens arena #2 when map 1 of a Bo%i ends", (format) => {
+    const live = poll(joined(), snapshot({ format, hasLiveGame: true }), 5).state;
+    const { state, actions } = poll(live, snapshot({ format, teams: [1, 0], hasLiveGame: false }), 50);
+    expect(actions).toEqual([
+      { type: "match_ended", matchIndex: 1 },
+      { type: "open_arena", matchIndex: 2 },
+    ]);
+    expect(state).toMatchObject({ openedThrough: 2, openedThroughAt: at(50), matchLiveDetected: false, decided: false });
+  });
+});

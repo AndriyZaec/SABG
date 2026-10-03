@@ -33,6 +33,8 @@ export interface Cs2SeriesOrchestratorOptions {
   entryFeeLamports: number;
   broadcaster?: GatewayBroadcaster;
   onArenaOpened?: (arenaId: Uuid, runtime: Cs2ArenaRuntime) => void;
+  /** Join after map 1, which is already live (the 0:0 rule, `decideSeriesEntry`). */
+  startAfterMap1?: true;
 }
 
 interface OpenedArena {
@@ -54,7 +56,10 @@ export class Cs2SeriesOrchestrator {
     private readonly options: Cs2SeriesOrchestratorOptions,
   ) {
     this.lifecycleState = {
-      ...initialCs2SeriesLifecycleState(series.scheduledStartTime),
+      ...initialCs2SeriesLifecycleState(
+        series.scheduledStartTime,
+        options.startAfterMap1 === true ? { startAfterMap1: true } : {},
+      ),
       format: series.format,
       decided: series.status === "decided",
       invalid: series.status === "invalid",
@@ -292,6 +297,7 @@ export class Cs2SeriesOrchestrator {
 
   private async markMatchFinished(matchIndex: number): Promise<void> {
     const opened = this.arenasByMatchIndex.get(matchIndex);
+    // A startAfterMap1 join has no arena for map 1, so its end is a no-op here.
     if (opened !== undefined) await matchRepository.setStatus(opened.matchId, "finished");
   }
 

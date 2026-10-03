@@ -27,14 +27,22 @@ export interface Cs2SeriesLifecycleState {
   readonly invalid: boolean;
 }
 
-export function initialCs2SeriesLifecycleState(scheduledStartTime: IsoDateTime): Cs2SeriesLifecycleState {
+/**
+ * `startAfterMap1` joins a series whose map 1 is already live: map 1 counts as opened and live, with no arena,
+ * so its end opens arena #2 (`match_ended(1)` finds no arena to finish).
+ */
+export function initialCs2SeriesLifecycleState(
+  scheduledStartTime: IsoDateTime,
+  options: { startAfterMap1?: true } = {},
+): Cs2SeriesLifecycleState {
+  const afterMap1 = options.startAfterMap1 === true;
   return {
     scheduledStartTime,
     format: undefined,
-    openedThrough: 0,
+    openedThrough: afterMap1 ? 1 : 0,
     openedThroughAt: scheduledStartTime,
-    matchLiveDetected: false,
-    lastHasLiveGame: false,
+    matchLiveDetected: afterMap1,
+    lastHasLiveGame: afterMap1,
     forfeitPendingPolls: 0,
     decided: false,
     invalid: false,
