@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, lte, notInArray, sql } from "drizzle-orm";
 import type {
   Cs2SeriesDetail,
   Cs2SeriesLifecycle,
@@ -148,6 +148,37 @@ async function readSupportedSeries(
 }
 
 export const cs2CatalogRepository = {
+  /**
+   * Marks unsupported the not-yet-run `active` series of these tournaments, scheduled inside the window, that GRID
+   * no longer publishes. The next sync that sees one again restores `is_supported` from its live-data level.
+   */
+  async withdrawUnpublishedSeries(
+    tournamentIds: readonly string[],
+    window: { from: Date; to: Date },
+    publishedGridSeriesIds: readonly string[],
+  ): Promise<number> {
+    if (tournamentIds.length === 0) return 0;
+    const competitionIds = db
+      .select({ id: cs2Competitions.id })
+      .from(cs2Competitions)
+      .where(inArray(cs2Competitions.gridTournamentId, [...tournamentIds]));
+    const rows = await db
+      .update(series)
+      .set({ isSupported: false })
+      .where(and(
+        eq(series.status, "active"),
+        eq(series.isSupported, true),
+        inArray(series.competitionId, competitionIds),
+        gte(series.scheduledStartTime, window.from),
+        lte(series.scheduledStartTime, window.to),
+        publishedGridSeriesIds.length > 0 ? notInArray(series.gridSeriesId, [...publishedGridSeriesIds]) : undefined,
+        // A series that already ran keeps its row as is: its arenas and refunds don't depend on the catalog.
+        sql`not exists (select 1 from ${arenas} inner join ${matches} on ${matches.id} = ${arenas.matchId} where ${matches.seriesId} = ${series.id})`,
+      ))
+      .returning({ id: series.id });
+    return rows.length;
+  },
+
   /** `active` series of the configured tournaments that already ran an arena, for the autopilot's resume. */
   async listActiveRunSeries(
     tournamentIds: readonly string[] = cs2CatalogConfig.tournamentIds,

@@ -9,6 +9,11 @@ export interface Cs2CatalogSource {
 
 export interface Cs2CatalogStore {
   synchronizeSeries(input: Cs2CatalogSeriesInput): Promise<{ seriesId: string; participantCount: number }>;
+  withdrawUnpublishedSeries(
+    tournamentIds: readonly string[],
+    window: GridCatalogWindow,
+    publishedGridSeriesIds: readonly string[],
+  ): Promise<number>;
 }
 
 export interface Cs2CatalogSyncResult {
@@ -16,6 +21,8 @@ export interface Cs2CatalogSyncResult {
   persisted: number;
   supported: number;
   incompleteParticipants: number;
+  /** Series GRID stopped publishing (deleted or cancelled upstream), now unsupported so the autopilot won't pick them. */
+  withdrawn: number;
 }
 
 function catalogLifecycle(series: GridCatalogSeries, now: Date): Cs2SeriesLifecycle {
@@ -37,7 +44,7 @@ export async function synchronizeCs2Catalog(
   const source = options.source ?? new GridCentralDataClient();
   const store = options.store ?? cs2CatalogRepository;
   const tournamentIds = [...new Set(options.tournamentIds ?? cs2CatalogConfig.tournamentIds)];
-  if (tournamentIds.length === 0) return { discovered: 0, persisted: 0, supported: 0, incompleteParticipants: 0 };
+  if (tournamentIds.length === 0) return { discovered: 0, persisted: 0, supported: 0, incompleteParticipants: 0, withdrawn: 0 };
   const selectedTournamentIds = new Set(tournamentIds);
   const providerSeries = await source.fetchSeries(window, tournamentIds, options.signal);
   const discovered = providerSeries.filter((series) => selectedTournamentIds.has(series.competition.gridTournamentId));
@@ -63,5 +70,8 @@ export async function synchronizeCs2Catalog(
     if (series.participants.some((slot) => slot.state === "tbd")) incompleteParticipants += 1;
   }
 
-  return { discovered: discovered.length, persisted, supported, incompleteParticipants };
+  // Only after a complete, successful fetch: a failed one threw above and changes nothing.
+  const withdrawn = await store.withdrawUnpublishedSeries(tournamentIds, window, [...seen]);
+
+  return { discovered: discovered.length, persisted, supported, incompleteParticipants, withdrawn };
 }

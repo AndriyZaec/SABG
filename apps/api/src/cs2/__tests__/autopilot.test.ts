@@ -5,8 +5,9 @@ vi.mock("../../db/repositories/cs2-catalog.repository.js", () => ({ cs2CatalogRe
 vi.mock("../../db/repositories/series.repository.js", () => ({ seriesRepository: {} }));
 vi.mock("../../db/repositories/settings.repository.js", () => ({ settingsRepository: {} }));
 vi.mock("../series-runner.js", () => ({ Cs2SeriesRunner: {} }));
+vi.mock("../catalog-synchronizer.js", () => ({ synchronizeCs2Catalog: vi.fn() }));
 
-const { Cs2Autopilot } = await import("../autopilot.js");
+const { Cs2Autopilot, runCs2CatalogSync } = await import("../autopilot.js");
 type Deps = import("../autopilot.js").Cs2AutopilotDeps;
 type StartInput = Parameters<Deps["startRunner"]>[0];
 
@@ -249,3 +250,68 @@ describe("Cs2Autopilot shutdown", () => {
     expect(starts).toEqual([]);
   });
 });
+
+describe("Cs2Autopilot series-end notification", () => {
+  it("notifies once when a running series ends, so a catalog sync can be queued", async () => {
+    const { autopilot, starts } = setup();
+    const listener = vi.fn();
+    autopilot.onSeriesEnded(listener);
+    await autopilot.tick();
+    expect(listener).not.toHaveBeenCalled();
+    starts[0]!.onEnd("complete");
+    await settle();
+    expect(listener).toHaveBeenCalledOnce();
+  });
+
+  it("notifies when priming skips the series", async () => {
+    const { autopilot } = setup({ startResult: "skipped" });
+    const listener = vi.fn();
+    autopilot.onSeriesEnded(listener);
+    await autopilot.tick();
+    expect(listener).toHaveBeenCalledOnce();
+  });
+});
+
+describe("runCs2CatalogSync", () => {
+  const now = new Date("2026-10-04T09:00:00.000Z");
+
+  it("doesn't sync while a series runs (one GRID budget)", async () => {
+    const synchronize = vi.fn();
+    await runCs2CatalogSync({ hasRunner: true }, { synchronize, now, tournamentIds: ["830797"] });
+    expect(synchronize).not.toHaveBeenCalled();
+  });
+
+  it("syncs the configured tournaments over the discovery window when idle", async () => {
+    const synchronize = vi.fn().mockResolvedValue({ discovered: 0, persisted: 0, supported: 0, incompleteParticipants: 0, withdrawn: 0 });
+    await runCs2CatalogSync({ hasRunner: false }, { synchronize, now, tournamentIds: ["830797"] });
+    expect(synchronize).toHaveBeenCalledOnce();
+    const [window, options] = synchronize.mock.calls[0]!;
+    expect(options).toEqual({ now, tournamentIds: ["830797"] });
+    expect(window.from.getTime()).toBeLessThan(now.getTime());
+    expect(window.to.getTime()).toBeGreaterThan(now.getTime());
+  });
+
+  it("logs a failed sync instead of throwing", async () => {
+    const synchronize = vi.fn().mockRejectedValue(new Error("GRID down"));
+    await expect(runCs2CatalogSync({ hasRunner: false }, { synchronize, now, tournamentIds: ["830797"] })).resolves.toBeUndefined();
+  });
+});
+
+describe("Cs2Autopilot.hasRunner", () => {
+  it("is true while a launched series is still priming, so the catalog sync stays off GRID", async () => {
+    const { autopilot, deps } = setup();
+    let finishPriming: () => void = () => {};
+    vi.mocked(deps.startRunner).mockImplementationOnce(
+      () => new Promise((resolve) => {
+        finishPriming = () => resolve({ kind: "skipped", reason: "already_started" });
+      }),
+    );
+    const tick = autopilot.tick();
+    await settle();
+    expect(autopilot.hasRunner).toBe(true);
+    finishPriming();
+    await tick;
+    expect(autopilot.hasRunner).toBe(false);
+  });
+});
+

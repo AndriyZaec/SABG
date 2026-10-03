@@ -11,11 +11,15 @@ import type { GatewayWebSocketServer } from "../gateway/ws.js";
 import { logger } from "../grid/logger.js";
 import { LATE_START_WINDOW_MS, selectNextSeries, type Cs2SeriesCandidate } from "./next-series.js";
 import { Cs2SeriesRunner, type Cs2SeriesRunnerStartOptions } from "./series-runner.js";
+import { cs2CatalogConfig } from "./catalog-config.js";
+import { synchronizeCs2Catalog } from "./catalog-synchronizer.js";
+import { operatorDiscoveryWindow } from "./operator-discovery.js";
 
 /** The `settings` row that switches the autopilot on and off (seeded by migration 0016). */
 export const CS2_AUTOPILOT_SETTING = "cs2_autopilot";
 
 const LAUNCH_QUEUE = "cs2-autopilot-launch";
+const CATALOG_SYNC_QUEUE = "cs2-catalog-sync";
 
 export interface Cs2AutopilotRunner {
   readonly seriesId: Uuid;
@@ -89,8 +93,21 @@ export class Cs2Autopilot {
   /** resume, tick and a runner's end run one at a time, so a launch never races a resume or a teardown. */
   private queue: Promise<void> = Promise.resolve();
   private readonly abortController = new AbortController();
+  private seriesEndListener: (() => void) | undefined;
+  /** A runner is being started: its priming polls GRID, which counts as running a series. */
+  private launching = false;
 
   constructor(private readonly deps: Cs2AutopilotDeps) {}
+
+  /** While a series is primed or runs, GRID requests go to it alone (ADR-0008 §4). */
+  get hasRunner(): boolean {
+    return this.launching || this.runner !== undefined;
+  }
+
+  /** Called when a series stops being run (complete, skipped on priming, or abandoned). */
+  onSeriesEnded(listener: () => void): void {
+    this.seriesEndListener = listener;
+  }
 
   /** On process start: rebuild the series that has an open arena; abandon one that died between maps. */
   resume(): Promise<void> {
@@ -157,6 +174,7 @@ export class Cs2Autopilot {
     primingDeadline: IsoDateTime | undefined,
     message: string,
   ): Promise<void> {
+    this.launching = true;
     try {
       const result = await this.deps.startRunner({
         gridSeriesId,
@@ -170,9 +188,12 @@ export class Cs2Autopilot {
         logger.info({ gridSeriesId }, message);
       } else if (result.kind === "skipped") {
         logger.info({ gridSeriesId, reason: result.reason }, "autopilot: series skipped");
+        this.seriesEndListener?.();
       }
     } catch (err) {
       logger.error({ err, gridSeriesId }, "autopilot: failed to start the series runner");
+    } finally {
+      this.launching = false;
     }
   }
 
@@ -193,6 +214,7 @@ export class Cs2Autopilot {
       this.runner = undefined;
       for (const arenaId of this.retainedArenaIds) this.deps.releaseArena(arenaId);
       this.retainedArenaIds = runner.openedArenaIds();
+      this.seriesEndListener?.();
     }
   }
 
@@ -203,12 +225,43 @@ export class Cs2Autopilot {
   }
 }
 
-/** Registers the every-minute launcher job; passed to `startScheduler` so the scheduler stays CS2-agnostic. */
+/** The catalog sync job: refresh the tournaments' series, but never while a series is being polled. */
+export async function runCs2CatalogSync(
+  autopilot: Pick<Cs2Autopilot, "hasRunner">,
+  options: { synchronize?: typeof synchronizeCs2Catalog; now?: Date; tournamentIds?: readonly string[] } = {},
+): Promise<void> {
+  if (autopilot.hasRunner) {
+    logger.debug("cs2: catalog sync skipped, a series is running");
+    return;
+  }
+  const now = options.now ?? new Date();
+  try {
+    const result = await (options.synchronize ?? synchronizeCs2Catalog)(operatorDiscoveryWindow(now), {
+      now,
+      tournamentIds: options.tournamentIds ?? cs2CatalogConfig.tournamentIds,
+    });
+    logger.debug(result, "cs2: catalog synced");
+  } catch (err) {
+    logger.error({ err }, "cs2: catalog sync failed");
+  }
+}
+
+/** Registers the every-minute launcher and catalog sync jobs; passed to `startScheduler` so it stays CS2-agnostic. */
 export async function registerCs2AutopilotJobs(boss: PgBoss, autopilot: Cs2Autopilot): Promise<void> {
-  // exclusive: a launch that waits on priming never piles up ticks behind it.
+  // exclusive: a launch that waits on priming, or a slow sync, never piles up runs behind it.
   await boss.createQueue(LAUNCH_QUEUE, { policy: "exclusive" });
   await boss.schedule(LAUNCH_QUEUE, "* * * * *");
   await boss.work(LAUNCH_QUEUE, async () => {
     await autopilot.tick();
+  });
+
+  await boss.createQueue(CATALOG_SYNC_QUEUE, { policy: "exclusive" });
+  await boss.schedule(CATALOG_SYNC_QUEUE, "* * * * *");
+  await boss.work(CATALOG_SYNC_QUEUE, async () => {
+    await runCs2CatalogSync(autopilot);
+  });
+  // The next series' start time is fresh without waiting up to a minute.
+  autopilot.onSeriesEnded(() => {
+    void boss.send(CATALOG_SYNC_QUEUE, {}).catch((err: unknown) => logger.error({ err }, "cs2: failed to queue a catalog sync"));
   });
 }

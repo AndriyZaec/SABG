@@ -117,4 +117,43 @@ describe.skipIf(!RUN)("cs2CatalogRepository.listAutopilotCandidates (integration
   it("returns nothing for no configured tournaments", async () => {
     expect(await repository.listAutopilotCandidates([])).toEqual([]);
   });
+
+  it("withdraws only not-yet-run active series inside the window that GRID no longer publishes", async () => {
+    const gone = await seed("gone", { isSupported: true, secondSlotKnown: true });
+    const kept = await seed("kept", { isSupported: true, secondSlotKnown: true });
+    const ran = await seed("ran", { isSupported: true, secondSlotKnown: true });
+    const late = await seed("late", { isSupported: true, secondSlotKnown: true });
+    await db.update(schema.series).set({ scheduledStartTime: new Date("2026-11-30T09:00:00.000Z") }).where(eq(schema.series.id, late));
+    const participants = await db
+      .select({ teamId: schema.cs2SeriesParticipants.teamId })
+      .from(schema.cs2SeriesParticipants)
+      .where(eq(schema.cs2SeriesParticipants.seriesId, ran))
+      .orderBy(schema.cs2SeriesParticipants.displayOrder);
+    const match = await matchRepository.upsertForSeriesMap(ran, 1, {
+      teams: [
+        { teamId: participants[0]!.teamId, name: "ran A" },
+        { teamId: participants[1]!.teamId, name: "ran B" },
+      ],
+      startTime: new Date("2026-10-04T09:00:00.000Z"),
+    });
+    matchIds.push(match.id);
+    await arenaRepository.upsertForMatch(match.id, { entryFeeLamports: 1000, prizePoolLamports: 0 });
+    const keptGridId = (await db.select().from(schema.series).where(eq(schema.series.id, kept)))[0]!.gridSeriesId;
+
+    const window = { from: new Date("2026-10-03T00:00:00.000Z"), to: new Date("2026-10-10T00:00:00.000Z") };
+    const withdrawn = await repository.withdrawUnpublishedSeries([gridTournamentId], window, [keptGridId]);
+
+    const supported = async (id: string) =>
+      (await db.select({ isSupported: schema.series.isSupported }).from(schema.series).where(eq(schema.series.id, id)))[0]!.isSupported;
+    expect(await supported(gone)).toBe(false);
+    expect(await supported(kept)).toBe(true);
+    expect(await supported(ran)).toBe(true);
+    expect(await supported(late)).toBe(true);
+    // The first test's series are in this tournament too: "ready" and "tbd" were not published either.
+    expect(withdrawn).toBeGreaterThanOrEqual(1);
+
+    // Republished: the next sync restores support from its live-data level.
+    await seed("gone", { isSupported: true, secondSlotKnown: true });
+    expect(await supported(gone)).toBe(true);
+  });
 });
