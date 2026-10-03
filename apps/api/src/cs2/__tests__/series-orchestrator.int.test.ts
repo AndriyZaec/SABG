@@ -47,6 +47,7 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
   let Cs2SeriesOrchestrator: typeof import("../series-orchestrator.js")["Cs2SeriesOrchestrator"];
   let userRepository: typeof import("../../db/repositories/user.repository.js")["userRepository"];
   let cs2SeriesFollowRepository: typeof import("../../db/repositories/cs2-series-follow.repository.js")["cs2SeriesFollowRepository"];
+  let payoutService: typeof import("../../payout/index.js")["payoutService"];
 
   const arenaIds: string[] = [];
   const matchIds: string[] = [];
@@ -67,6 +68,7 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     ({ Cs2SeriesOrchestrator } = await import("../series-orchestrator.js"));
     ({ userRepository } = await import("../../db/repositories/user.repository.js"));
     ({ cs2SeriesFollowRepository } = await import("../../db/repositories/cs2-series-follow.repository.js"));
+    ({ payoutService } = await import("../../payout/index.js"));
   });
 
   beforeEach(() => {
@@ -222,6 +224,68 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     // Once the game is over, the no-show cancel is re-emitted and completes.
     await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: false }), at(90));
     expect((await seriesRepository.findById(series.id))?.status).toBe("invalid");
+  });
+
+  it("finishes a live arena on match end and settles its payout", async () => {
+    const at = clockFrom(new Date(Date.now() + 27 * 60 * MIN).toISOString());
+    const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
+      format: 3,
+      scheduledStartTime: new Date(at(0)),
+    });
+    seriesIds.push(series.id);
+    const matchTeamIds = await synchronizeTestTeams(series.id);
+
+    const writeQueue = new WriteQueue();
+    const orchestrator = await Cs2SeriesOrchestrator.create(series, { writeQueue, entryFeeLamports: 1000 });
+    await orchestrator.poll(snapshot(matchTeamIds, {}), at(-10));
+    const match1 = (await matchRepository.listBySeriesId(series.id))[0]!;
+    matchIds.push(match1.id);
+    const arena1 = (await arenaRepository.findByMatchId(match1.id))!;
+    arenaIds.push(arena1.id);
+    await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: true }), at(1));
+
+    const settleSpy = vi.spyOn(payoutService, "settleArena").mockResolvedValue(undefined);
+    try {
+      orchestrator.currentBus()!.publish({ kind: "cs2_match_end", timestamp: at(40) });
+      await writeQueue.drain();
+      expect((await arenaRepository.findById(arena1.id))?.status).toBe("finished");
+      expect(settleSpy).toHaveBeenCalledWith(arena1.id, []);
+    } finally {
+      settleSpy.mockRestore();
+    }
+  });
+
+  it("never finishes or pays a cancelled arena whose runtime still gets a match end", async () => {
+    const at = clockFrom(new Date(Date.now() + 30 * 60 * MIN).toISOString());
+    const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
+      format: 3,
+      scheduledStartTime: new Date(at(0)),
+    });
+    seriesIds.push(series.id);
+    const matchTeamIds = await synchronizeTestTeams(series.id);
+
+    const writeQueue = new WriteQueue();
+    const orchestrator = await Cs2SeriesOrchestrator.create(series, { writeQueue, entryFeeLamports: 1000 });
+    await orchestrator.poll(snapshot(matchTeamIds, {}), at(-10));
+    const match1 = (await matchRepository.listBySeriesId(series.id))[0]!;
+    matchIds.push(match1.id);
+    const arena1 = (await arenaRepository.findByMatchId(match1.id))!;
+    arenaIds.push(arena1.id);
+    // Captured before the cancel: the runtime stays subscribed to it.
+    const arena1Bus = orchestrator.currentBus()!;
+
+    await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: false }), at(61));
+    expect((await arenaRepository.findById(arena1.id))?.status).toBe("cancelled");
+
+    const settleSpy = vi.spyOn(payoutService, "settleArena").mockResolvedValue(undefined);
+    try {
+      arena1Bus.publish({ kind: "cs2_match_end", timestamp: at(100) });
+      await writeQueue.drain();
+      expect((await arenaRepository.findById(arena1.id))?.status).toBe("cancelled");
+      expect(settleSpy).not.toHaveBeenCalled();
+    } finally {
+      settleSpy.mockRestore();
+    }
   });
 
   it("restores the same lobby arena, round, roster, and answer without creating a duplicate match", async () => {

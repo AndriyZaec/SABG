@@ -242,7 +242,11 @@ export class Cs2SeriesOrchestrator {
       },
       finishArena: (arenaId, winners) => {
         void this.options.writeQueue.enqueue(arenaId, async () => {
-          await arenaRepository.setStatus(arenaId, "finished");
+          // Pay only after our own live -> finished transition (specs/conventions/arena-state-transitions.md).
+          if ((await arenaRepository.setFinishedIfLive(arenaId)) === undefined) {
+            logger.warn({ arenaId }, "cs2: match end for an arena that isn't live; not finishing or paying");
+            return;
+          }
           await payoutService.settleArena(arenaId, winners);
         });
       },
