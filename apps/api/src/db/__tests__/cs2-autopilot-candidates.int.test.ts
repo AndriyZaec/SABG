@@ -108,6 +108,7 @@ describe.skipIf(!RUN)("cs2CatalogRepository.listAutopilotCandidates (integration
       status: "active",
       hasArena: false,
       skipRequested: false,
+      format: 3,
     });
     expect(byId.get(tbd)).toMatchObject({ selectable: false, followerCount: 0, hasArena: false });
     expect(byId.get(unsupported)).toMatchObject({ selectable: false, hasArena: false });

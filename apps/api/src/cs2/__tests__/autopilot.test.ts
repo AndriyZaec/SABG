@@ -35,6 +35,7 @@ function candidateOf(s: Series) {
     status: "active" as const,
     hasArena: false,
     skipRequested: false,
+    format: 3,
   };
 }
 

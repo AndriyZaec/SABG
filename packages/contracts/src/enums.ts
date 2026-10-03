@@ -61,8 +61,13 @@ export const CS2_SERIES_LIFECYCLES = [
 ] as const;
 export type Cs2SeriesLifecycle = (typeof CS2_SERIES_LIFECYCLES)[number];
 
-export const CS2_SERIES_AVAILABILITIES = ["available", "soon"] as const;
-export type Cs2SeriesAvailability = (typeof CS2_SERIES_AVAILABILITIES)[number];
+/**
+ * Whether a series gets an arena: `running` (joinable now), `expected` / `unlikely` (a forecast from the
+ * autopilot's schedule), `unknown` (no forecast yet: its teams aren't known), `ended` (it ran and is over),
+ * or `none` (final: never run, skipped, or past).
+ */
+export const CS2_SERIES_ARENA_FORECASTS = ["running", "expected", "unlikely", "unknown", "ended", "none"] as const;
+export type Cs2SeriesArenaForecast = (typeof CS2_SERIES_ARENA_FORECASTS)[number];
 
 export const ENTRY_PASS_STATUSES = ["paid", "refunded"] as const;
 export type EntryPassStatus = (typeof ENTRY_PASS_STATUSES)[number];

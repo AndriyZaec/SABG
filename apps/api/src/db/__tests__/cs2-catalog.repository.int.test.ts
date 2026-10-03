@@ -70,10 +70,10 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
       ],
     });
     expect(first.participantCount).toBe(1);
-    // No arena yet, so not joinable regardless of any env series id.
+    // Its start is long past and it never ran, so the forecast is final.
     await expect(repository.findSupportedById(first.seriesId, [gridTournamentId])).resolves.toMatchObject({
       id: first.seriesId,
-      availability: "soon",
+      arena: "none",
       participants: [
         { state: "known", displayOrder: 1, team: { name: "Team A" }, seriesScore: 0 },
         { state: "tbd", displayOrder: 2, seriesScore: null },
@@ -166,7 +166,7 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
 
     // Map 1's arena is in lobby, so the series is joinable now.
     await expect(repository.findSupportedById(first.seriesId, [gridTournamentId])).resolves.toMatchObject({
-      availability: "available",
+      arena: "running",
     });
 
     const detail = await repository.findSupportedDetailById(first.seriesId, [gridTournamentId]);

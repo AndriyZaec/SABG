@@ -8,10 +8,12 @@ import type {
   Uuid,
 } from "@arena/contracts";
 import { cs2CatalogConfig } from "../../cs2/catalog-config.js";
+import { forecastArenas } from "../../cs2/arena-forecast.js";
 import type { Cs2SeriesCandidate } from "../../cs2/next-series.js";
 import { db } from "../client.js";
 import { arenas, cs2Competitions, cs2SeriesFollows, cs2SeriesParticipants, cs2Teams, matches, series } from "../schema.js";
 import { matchRepository } from "./match.repository.js";
+import { CS2_AUTOPILOT_SETTING, settingsRepository } from "./settings.repository.js";
 import { reconcileSeriesParticipants } from "./cs2-participant-lifecycle.repository.js";
 
 export interface Cs2CatalogCompetitionInput {
@@ -74,8 +76,6 @@ async function readSupportedSeries(
       scheduledStartTime: series.scheduledStartTime,
       lifecycle: series.catalogLifecycle,
       mapNames: series.mapNames,
-      // Joinable now: one of its arenas is open (the autopilot runs at most one series).
-      hasOpenArena: sql<boolean>`exists (select 1 from ${arenas} inner join ${matches} on ${matches.id} = ${arenas.matchId} where ${matches.seriesId} = ${series.id} and ${inArray(arenas.status, ["lobby", "live"])})`,
       competitionName: cs2Competitions.name,
       competitionShortName: cs2Competitions.shortName,
       competitionLogoUrl: cs2Competitions.logoUrl,
@@ -89,6 +89,10 @@ async function readSupportedSeries(
     ))
     .orderBy(asc(series.scheduledStartTime));
   if (catalogRows.length === 0) return [];
+  // Forecast over the whole tournament, so one series' answer accounts for the others.
+  const forecast = forecastArenas(await cs2CatalogRepository.listAutopilotCandidates(tournamentIds), new Date().toISOString(), {
+    autopilotEnabled: await settingsRepository.isEnabled(CS2_AUTOPILOT_SETTING),
+  });
 
   const participantRows = await db
     .select({
@@ -130,7 +134,7 @@ async function readSupportedSeries(
 
   return catalogRows.map((row) => ({
     id: row.id,
-    availability: row.hasOpenArena ? "available" : "soon",
+    arena: forecast.get(row.id) ?? "none",
     participants: participantsBySeries.get(row.id) ?? [
       { state: "tbd", displayOrder: 1, seriesScore: null },
       { state: "tbd", displayOrder: 2, seriesScore: null },
@@ -220,6 +224,7 @@ export const cs2CatalogRepository = {
         priority: series.priority,
         skipRequested: series.skipRequested,
         status: series.status,
+        format: series.format,
         isSupported: series.isSupported,
         knownTeams,
         followerCount,
@@ -237,6 +242,7 @@ export const cs2CatalogRepository = {
       status: row.status,
       hasArena: row.hasArena,
       skipRequested: row.skipRequested,
+      format: row.format,
     }));
   },
 

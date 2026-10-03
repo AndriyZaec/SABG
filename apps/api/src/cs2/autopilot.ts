@@ -4,7 +4,7 @@ import type { IsoDateTime, Series, Uuid } from "@arena/contracts";
 import type { PgBoss } from "pg-boss";
 import { cs2CatalogRepository } from "../db/repositories/cs2-catalog.repository.js";
 import { seriesRepository } from "../db/repositories/series.repository.js";
-import { settingsRepository } from "../db/repositories/settings.repository.js";
+import { CS2_AUTOPILOT_SETTING, settingsRepository } from "../db/repositories/settings.repository.js";
 import { releaseEntryGate } from "../gateway/entry-prepare-store.js";
 import type { WriteQueue } from "../gateway/stores/write-queue.js";
 import type { GatewayWebSocketServer } from "../gateway/ws.js";
@@ -14,9 +14,6 @@ import { Cs2SeriesRunner, type Cs2SeriesRunnerStartOptions } from "./series-runn
 import { cs2CatalogConfig } from "./catalog-config.js";
 import { synchronizeCs2Catalog } from "./catalog-synchronizer.js";
 import { operatorDiscoveryWindow } from "./operator-discovery.js";
-
-/** The `settings` row that switches the autopilot on and off (seeded by migration 0016). */
-export const CS2_AUTOPILOT_SETTING = "cs2_autopilot";
 
 const LAUNCH_QUEUE = "cs2-autopilot-launch";
 const CATALOG_SYNC_QUEUE = "cs2-catalog-sync";

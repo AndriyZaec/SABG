@@ -18,6 +18,7 @@ function candidate(seriesId: string, overrides: Partial<Cs2SeriesCandidate> = {}
     status: "active",
     hasArena: false,
     skipRequested: false,
+    format: 3,
     ...overrides,
   };
 }

@@ -16,6 +16,8 @@ export interface Cs2SeriesCandidate {
   status: SeriesStatus;
   hasArena: boolean;
   skipRequested: boolean;
+  /** Best-of; the forecast uses it for the expected duration. */
+  format: number;
 }
 
 export type Cs2NextSeries =
@@ -23,32 +25,40 @@ export type Cs2NextSeries =
   | { kind: "wait"; seriesId: Uuid; at: IsoDateTime }
   | { kind: "none" };
 
+/** The launcher may still start it: selectable, active, never run, not skipped, start at most 30 min ago. */
+export function isLaunchCandidate(c: Cs2SeriesCandidate, nowMs: number): boolean {
+  return (
+    c.selectable &&
+    c.status === "active" &&
+    !c.hasArena &&
+    !c.skipRequested &&
+    Date.parse(c.scheduledStartTime) >= nowMs - LATE_START_WINDOW_MS
+  );
+}
+
+/** Launch order without the random tie-break: earliest start, then priority, then more followers. */
+export function compareLaunchOrder(a: Cs2SeriesCandidate, b: Cs2SeriesCandidate): number {
+  return (
+    Date.parse(a.scheduledStartTime) - Date.parse(b.scheduledStartTime) ||
+    Number(b.priority) - Number(a.priority) ||
+    b.followerCount - a.followerCount
+  );
+}
+
 export function selectNextSeries(
   candidates: readonly Cs2SeriesCandidate[],
   now: IsoDateTime,
   random: () => number,
 ): Cs2NextSeries {
   const nowMs = Date.parse(now);
-  const eligible = candidates.filter(
-    (c) =>
-      c.selectable &&
-      c.status === "active" &&
-      !c.hasArena &&
-      !c.skipRequested &&
-      Date.parse(c.scheduledStartTime) >= nowMs - LATE_START_WINDOW_MS,
-  );
+  const eligible = candidates.filter((c) => isLaunchCandidate(c, nowMs));
   if (eligible.length === 0) return { kind: "none" };
 
   const earliest = Math.min(...eligible.map((c) => Date.parse(c.scheduledStartTime)));
   const tied = eligible
     .filter((c) => Date.parse(c.scheduledStartTime) === earliest)
     .map((c) => ({ c, tiebreak: random() }))
-    .sort(
-      (a, b) =>
-        Number(b.c.priority) - Number(a.c.priority) ||
-        b.c.followerCount - a.c.followerCount ||
-        a.tiebreak - b.tiebreak,
-    );
+    .sort((a, b) => compareLaunchOrder(a.c, b.c) || a.tiebreak - b.tiebreak);
   const winner = tied[0]!.c;
 
   const launchAt = earliest - LOBBY_OPEN_BEFORE_START_MS;
