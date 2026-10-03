@@ -3,7 +3,7 @@
 import type { IsoDateTime } from "@arena/contracts";
 import type { Cs2SeriesSnapshot, Cs2SeriesTeam } from "./series-snapshot.js";
 
-const LOBBY_OPEN_BEFORE_START_MS = 10 * 60 * 1_000;
+export const LOBBY_OPEN_BEFORE_START_MS = 10 * 60 * 1_000;
 const NO_SHOW_TIMEOUT_MS = 60 * 60 * 1_000;
 
 export type Cs2LifecycleAction =

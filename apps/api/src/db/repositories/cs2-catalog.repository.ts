@@ -8,8 +8,9 @@ import type {
   Uuid,
 } from "@arena/contracts";
 import { cs2CatalogConfig } from "../../cs2/catalog-config.js";
+import type { Cs2SeriesCandidate } from "../../cs2/next-series.js";
 import { db } from "../client.js";
-import { arenas, cs2Competitions, cs2SeriesParticipants, cs2Teams, series } from "../schema.js";
+import { arenas, cs2Competitions, cs2SeriesFollows, cs2SeriesParticipants, cs2Teams, matches, series } from "../schema.js";
 import { matchRepository } from "./match.repository.js";
 import { reconcileSeriesParticipants } from "./cs2-participant-lifecycle.repository.js";
 
@@ -147,6 +148,42 @@ async function readSupportedSeries(
 }
 
 export const cs2CatalogRepository = {
+  /** The autopilot launcher's candidates (`selectNextSeries`) in the configured tournaments. */
+  async listAutopilotCandidates(
+    tournamentIds: readonly string[] = cs2CatalogConfig.tournamentIds,
+  ): Promise<Cs2SeriesCandidate[]> {
+    if (tournamentIds.length === 0) return [];
+    // Only known slots have participant rows, and (series_id, team_id) is the key, so 2 rows means two distinct teams.
+    const knownTeams = sql<number>`(select count(*) from ${cs2SeriesParticipants} where ${cs2SeriesParticipants.seriesId} = ${series.id})::int`;
+    const followerCount = sql<number>`(select count(*) from ${cs2SeriesFollows} where ${cs2SeriesFollows.seriesId} = ${series.id})::int`;
+    const hasArena = sql<boolean>`exists (select 1 from ${arenas} inner join ${matches} on ${matches.id} = ${arenas.matchId} where ${matches.seriesId} = ${series.id})`;
+    const rows = await db
+      .select({
+        seriesId: series.id,
+        scheduledStartTime: series.scheduledStartTime,
+        priority: series.priority,
+        skipRequested: series.skipRequested,
+        status: series.status,
+        isSupported: series.isSupported,
+        knownTeams,
+        followerCount,
+        hasArena,
+      })
+      .from(series)
+      .innerJoin(cs2Competitions, eq(series.competitionId, cs2Competitions.id))
+      .where(inArray(cs2Competitions.gridTournamentId, [...tournamentIds]));
+    return rows.map((row) => ({
+      seriesId: row.seriesId,
+      scheduledStartTime: row.scheduledStartTime.toISOString(),
+      priority: row.priority,
+      followerCount: row.followerCount,
+      selectable: row.isSupported && row.knownTeams === 2,
+      status: row.status,
+      hasArena: row.hasArena,
+      skipRequested: row.skipRequested,
+    }));
+  },
+
   async listSupported(
     tournamentIds: readonly string[] = cs2CatalogConfig.tournamentIds,
     activeGridSeriesId: string | undefined = cs2CatalogConfig.activeGridSeriesId,
