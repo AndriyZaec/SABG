@@ -70,7 +70,7 @@ describe("GridRecorder state machine", () => {
       frame([0, 0]),
     ];
     let call = 0;
-    mocks.fetchSeriesState.mockImplementation((signal?: AbortSignal) => {
+    mocks.fetchSeriesState.mockImplementation((_gridSeriesId: string, signal?: AbortSignal) => {
       const next = feed[call];
       call += 1;
       if (next) return Promise.resolve(next);

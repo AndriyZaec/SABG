@@ -7,7 +7,12 @@ export type Cs2SeriesEntry =
   | { kind: "enter_after_map_1" }
   | { kind: "skip"; reason: "already_started" | "bo1_in_progress" | "finished" };
 
-export function decideSeriesEntry(snapshot: Cs2SeriesSnapshot): Cs2SeriesEntry {
+// Structural, so it takes the priming snapshot before team identities are mapped.
+type EntrySnapshot = Pick<Cs2SeriesSnapshot, "format" | "finished" | "hasLiveGame"> & {
+  teams: readonly [{ score: number }, { score: number }];
+};
+
+export function decideSeriesEntry(snapshot: EntrySnapshot): Cs2SeriesEntry {
   // GRID can end a series at 0:0 (abandoned upstream); an arena for it would only take entry fees.
   if (snapshot.finished) return { kind: "skip", reason: "finished" };
   if (snapshot.teams[0].score !== 0 || snapshot.teams[1].score !== 0) return { kind: "skip", reason: "already_started" };

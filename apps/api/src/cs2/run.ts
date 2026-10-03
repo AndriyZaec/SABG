@@ -1,27 +1,13 @@
-import { GridClient } from "../grid/grid-client.js";
 import { gridConfig } from "../grid/config/env.js";
 import { logger } from "../grid/logger.js";
-import { nextBackoffMs } from "../grid/backoff.js";
-import { sleep } from "../shared/sleep.js";
-import {
-  checkDatabaseConnection,
-  closeDatabaseConnection,
-  tryAcquireSeriesRuntimeLock,
-  type ReleaseFixtureRuntimeLock,
-} from "../db/client.js";
-import { seriesRepository } from "../db/repositories/series.repository.js";
-import { cs2IdentityRepository } from "../db/repositories/cs2-identity.repository.js";
+import { checkDatabaseConnection, closeDatabaseConnection } from "../db/client.js";
 import { WriteQueue } from "../gateway/stores/write-queue.js";
 import { createGatewayServer } from "../gateway/server.js";
 import { closeHttpServer, listenHttpServer } from "../gateway/http-lifecycle.js";
 import { startScheduler, stopScheduler, type Scheduler } from "../scheduler/index.js";
 import { cs2Config } from "./config/env.js";
-import { Cs2LivePoller } from "./live-poller.js";
-import { parseGridSeriesSnapshot, type GridCs2SeriesSnapshot } from "./series-snapshot.js";
-import { Cs2SeriesOrchestrator } from "./series-orchestrator.js";
-import { Cs2RawRecorder } from "./raw-recorder.js";
+import { Cs2SeriesRunner, type Cs2SeriesRunnerStartResult } from "./series-runner.js";
 import { MongoService } from "../grid/mongo/mongo.service.js";
-import { buildCs2TeamIdentityMap } from "./team-identity.js";
 
 const CS2_ENTRY_FEE_LAMPORTS = 10_000_000;
 
@@ -30,29 +16,10 @@ if (cs2Config.mode !== "live") {
 }
 const liveConfig = cs2Config;
 
-async function primeSeries(client: GridClient, signal: AbortSignal): Promise<GridCs2SeriesSnapshot | undefined> {
-  let errorStreak = 0;
-  while (!signal.aborted) {
-    try {
-      const result = await client.fetchSeriesState(signal);
-      const snapshot = parseGridSeriesSnapshot(result.data);
-      if (snapshot?.format !== undefined) return snapshot;
-      logger.warn("cs2: priming poll had no parseable Series format yet — retrying");
-      errorStreak = 0;
-    } catch (err) {
-      logger.error({ err }, "cs2: priming poll failed");
-      errorStreak += 1;
-    }
-    await sleep(errorStreak > 0 ? nextBackoffMs(errorStreak) : gridConfig.grid.pollIntervalMs, signal);
-  }
-  return undefined;
-}
-
 async function main(): Promise<void> {
   const abortController = new AbortController();
   const writeQueue = new WriteQueue();
-  let releaseLock: ReleaseFixtureRuntimeLock | undefined;
-  let poller: Cs2LivePoller | undefined;
+  let starting: Promise<Cs2SeriesRunnerStartResult> | undefined;
   let gatewayServer: ReturnType<typeof createGatewayServer> | undefined;
   let scheduler: Scheduler | undefined;
   let shutdownPromise: Promise<void> | undefined;
@@ -62,11 +29,15 @@ async function main(): Promise<void> {
     abortController.abort();
     shutdownPromise = (async () => {
       logger.info({ signal }, "cs2: shutting down");
-      await poller?.shutdown();
+      // An aborted start settles quickly and releases its own lock; the DB must outlive it.
+      const started = await starting?.catch(() => undefined);
+      const runner = started?.kind === "started" ? started.runner : undefined;
+      await runner?.stopPolling();
       await gatewayServer?.wsGateway.close();
       if (gatewayServer !== undefined) await closeHttpServer(gatewayServer.httpServer);
+      // The lock goes last, once this process can no longer write to the arenas.
+      await runner?.stop();
       await writeQueue.drain();
-      await releaseLock?.();
       if (scheduler !== undefined) await stopScheduler(scheduler);
       await closeDatabaseConnection();
       await MongoService.quit();
@@ -90,60 +61,30 @@ async function main(): Promise<void> {
     // A signal during startup already ran shutdown() without the scheduler.
     if (abortController.signal.aborted) return await stopScheduler(scheduler);
 
-    releaseLock = await tryAcquireSeriesRuntimeLock(gridConfig.grid.seriesId);
-    if (!releaseLock) {
-      throw new Error(`Series ${gridConfig.grid.seriesId} already has an active CS2 live poller`);
-    }
-    if (abortController.signal.aborted) return;
-
-    const client = new GridClient();
-    const primedSeries = await primeSeries(client, abortController.signal);
-    if (abortController.signal.aborted || primedSeries?.format === undefined) return;
-
-    const series = await seriesRepository.upsertByGridSeriesId(gridConfig.grid.seriesId, {
-      format: primedSeries.format,
-      scheduledStartTime: new Date(liveConfig.scheduledStartTime),
-    });
-    if (abortController.signal.aborted) return;
-    const persistedTeams = await cs2IdentityRepository.synchronizeSeriesTeams(series.id, primedSeries.teams);
-    const teamIdentities = buildCs2TeamIdentityMap(persistedTeams);
-    logger.info({ seriesId: series.id, gridSeriesId: series.gridSeriesId, format: primedSeries.format }, "cs2: series ready");
-
     gatewayServer = createGatewayServer({
       runtimeConfig: { gameSource: "live", sourceLabel: "CS2 LIVE FEED" },
     });
     const { httpServer, wsGateway } = gatewayServer;
-
-    const orchestrator = await Cs2SeriesOrchestrator.create(series, {
-      writeQueue,
-      entryFeeLamports: CS2_ENTRY_FEE_LAMPORTS,
-      broadcaster: wsGateway,
-      onArenaOpened: (arenaId, runtime) => wsGateway.registerRuntime(arenaId, runtime),
-    });
 
     // Accept joins before polling can open the first arena.
     await listenHttpServer(httpServer, liveConfig.gatewayPort, abortController.signal);
     if (abortController.signal.aborted) return;
     logger.info({ port: liveConfig.gatewayPort }, `cs2: gateway listening — REST/WS http://localhost:${liveConfig.gatewayPort}`);
 
-    let rawRecorder: Cs2RawRecorder | undefined;
-    if (liveConfig.rawRecordingEnabled) {
-      if (gridConfig.mongo.uri === undefined) {
-        logger.warn("cs2: CS2_RAW_RECORDING_ENABLED is true but MONGODB_URI is unset — running without raw recording");
-      } else {
-        rawRecorder = new Cs2RawRecorder(gridConfig.grid.seriesId);
-      }
-    }
-
-    poller = new Cs2LivePoller({
-      target: orchestrator,
-      fetchSeriesState: (signal) => client.fetchSeriesState(signal),
-      pollIntervalMs: gridConfig.grid.pollIntervalMs,
-      teamIdentities,
-      rawRecorder,
+    starting = Cs2SeriesRunner.start({
+      gridSeriesId: gridConfig.grid.seriesId,
+      scheduledStartTime: liveConfig.scheduledStartTime,
+      wsGateway,
+      writeQueue,
+      entryFeeLamports: CS2_ENTRY_FEE_LAMPORTS,
+      rawRecordingEnabled: liveConfig.rawRecordingEnabled,
+      signal: abortController.signal,
     });
-    poller.start();
-    logger.info({ gridSeriesId: series.gridSeriesId }, "cs2: live poller started");
+    const result = await starting;
+    if (result.kind === "skipped") {
+      // Staying up avoids a restart loop that would re-prime and skip again; the operator switches back to catalog.
+      logger.error({ gridSeriesId: gridConfig.grid.seriesId, reason: result.reason }, "cs2: configured series was skipped; nothing to run");
+    }
   } catch (err) {
     const interruptedBySignal = abortController.signal.aborted;
     await shutdown("runtime failure").catch(() => undefined);
