@@ -100,6 +100,47 @@ assert_no_active_cs2_arenas() {
     || fail "$active_arenas unfinished CS2 arena(s) exist; deploy refused (run autopilot-off and wait for the running series to end)"
 }
 
+# A series between maps has no open arena, but a restart abandons it: count active series of the configured
+# tournaments that already ran an arena. Run after inspect_active_cs2_arenas, which starts PostgreSQL.
+inspect_running_cs2_series() {
+  tournaments=
+  old_ifs=$IFS
+  IFS=,
+  for id in $catalog_tournament_ids; do
+    case "$id" in
+      ''|*[!A-Za-z0-9._:-]*) fail "CS2_CATALOG_TOURNAMENT_IDS contains an invalid id" ;;
+    esac
+    tournaments="${tournaments:+$tournaments,}'$id'"
+  done
+  IFS=$old_ifs
+  if [ -z "$tournaments" ]; then
+    printf '0\n'
+    return 0
+  fi
+  # shellcheck disable=SC2016
+  competition_table=$(printf '%s\n' "SELECT to_regclass('public.cs2_competition');" | compose exec -T postgres sh -ec \
+    'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -v ON_ERROR_STOP=1') \
+    || fail "could not verify current series status"
+  if [ -z "$competition_table" ]; then
+    printf '0\n'
+    return 0
+  fi
+  # shellcheck disable=SC2016
+  printf "SELECT count(DISTINCT s.id) FROM series s JOIN cs2_competition c ON c.id = s.competition_id JOIN \"match\" m ON m.series_id = s.id JOIN arena a ON a.match_id = m.id WHERE s.status = 'active' AND c.grid_tournament_id IN (%s);\n" \
+    "$tournaments" | compose exec -T postgres sh -ec \
+    'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -v ON_ERROR_STOP=1' \
+    || fail "could not verify current series status"
+}
+
+assert_no_running_cs2_series() {
+  running_series=${1:-0}
+  case "$running_series" in
+    *[!0-9]*|'') fail "CS2 series safety query returned an invalid result" ;;
+  esac
+  [ "$running_series" = 0 ] \
+    || fail "a CS2 series is still running; deploy refused (run autopilot-off and wait for it to end, or skip it)"
+}
+
 staging_dir="$deploy_path/.deploy-$revision"
 rm -rf "$staging_dir"
 mkdir -p "$staging_dir"
@@ -109,6 +150,7 @@ migration_may_have_started=false
 vapid_public_key=
 vapid_private_key=
 vapid_subject=
+catalog_tournament_ids=
 vapid_public_key_count=0
 vapid_private_key_count=0
 vapid_subject_count=0
@@ -185,6 +227,7 @@ while IFS='=' read -r key value || [ -n "$key" ]; do
     VAPID_PUBLIC_KEY) vapid_public_key=$value; vapid_public_key_count=$((vapid_public_key_count + 1)) ;;
     VAPID_PRIVATE_KEY) vapid_private_key=$value; vapid_private_key_count=$((vapid_private_key_count + 1)) ;;
     VAPID_SUBJECT) vapid_subject=$value; vapid_subject_count=$((vapid_subject_count + 1)) ;;
+    CS2_CATALOG_TOURNAMENT_IDS) catalog_tournament_ids=$value ;;
   esac
 done < "$deploy_path/deploy/app.env"
 [ "$vapid_public_key_count" -eq 1 ] || fail "deploy/app.env must contain VAPID_PUBLIC_KEY exactly once"
@@ -245,6 +288,8 @@ docker run --rm --network none --read-only --tmpfs /tmp --env-file "$deploy_path
 if [ -f "$deploy_path/compose.yml" ]; then
   active_cs2_arenas=$(inspect_active_cs2_arenas)
   assert_no_active_cs2_arenas "$active_cs2_arenas"
+  running_cs2_series=$(inspect_running_cs2_series)
+  assert_no_running_cs2_series "$running_cs2_series"
 fi
 
 mkdir -p "$deploy_path/deploy"
@@ -278,6 +323,8 @@ if [ "$had_compose" = true ]; then
   compose stop --timeout 60 app
   active_cs2_arenas=$(inspect_active_cs2_arenas)
   assert_no_active_cs2_arenas "$active_cs2_arenas"
+  running_cs2_series=$(inspect_running_cs2_series)
+  assert_no_running_cs2_series "$running_cs2_series"
 fi
 install -m 0644 "$staging_dir/compose.yml" "$deploy_path/compose.yml"
 install -m 0644 "$staging_dir/deploy/Caddyfile" "$deploy_path/deploy/Caddyfile"
