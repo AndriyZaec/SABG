@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Arena, ArenaCancelledReason, Uuid, WalletAddress } from "@arena/contracts";
 import { db } from "../client.js";
 import { arenas } from "../schema.js";
@@ -76,6 +76,16 @@ export const arenaRepository = {
       .update(arenas)
       .set({ activePlayersCount: 0, prizePoolLamports: 0 })
       .where(and(eq(arenas.id, id), eq(arenas.status, "cancelled")));
+  },
+
+  // A cancelled or finished arena must never go live again; live stays allowed so a retry is idempotent.
+  async setLiveIfOpen(id: Uuid): Promise<Arena | undefined> {
+    const [row] = await db
+      .update(arenas)
+      .set({ status: "live" })
+      .where(and(eq(arenas.id, id), inArray(arenas.status, ["lobby", "live"])))
+      .returning();
+    return row ? arenaRowToEntity(row) : undefined;
   },
 
   async cancelIfLobby(id: Uuid, reason: ArenaCancelledReason): Promise<Arena | undefined> {

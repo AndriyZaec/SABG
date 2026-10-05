@@ -152,25 +152,12 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     arenaIds.push(arena2!.id);
     expect(openedArenas).toEqual([{ arenaId: arena1Id }, { arenaId: arena2!.id }]);
 
-    const walletAddress = `int-test-wallet-${randomUUID()}`;
-    const user = await userRepository.upsertByWallet(walletAddress, "int-test-user");
-    userIds.push(user.id);
-    const entryPass = await entryPassRepository.create({
-      arenaId: arena2!.id,
-      userId: user.id,
-      walletAddress,
-      amountLamports: 1000,
-      txSignature: `sig-${randomUUID()}`,
-    });
-
-    // The series-score jump resolves a map that never appeared live.
+    // The series-score jump resolves a map that never appeared live; it must hold for 2 polls.
     await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: false, teams: [2, 0], finished: true }), at(22));
+    await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: false, teams: [2, 0], finished: true }), at(22.2));
 
     const cancelledArena2 = await arenaRepository.findById(arena2!.id);
     expect(cancelledArena2).toMatchObject({ status: "cancelled", cancelledReason: "series_decided" });
-
-    const refundedPass = await entryPassRepository.listByArenaId(arena2!.id);
-    expect(refundedPass.find((p) => p.id === entryPass.id)?.status).toBe("refunded");
 
     const decidedSeries = await seriesRepository.findById(series.id);
     expect(decidedSeries?.status).toBe("decided");
@@ -199,6 +186,42 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
 
     const invalidSeries = await seriesRepository.findById(series.id);
     expect(invalidSeries?.status).toBe("invalid");
+  });
+
+  it("keeps a no-show cancelled arena cancelled when the teams go live on the next poll", async () => {
+    const at = clockFrom(new Date(Date.now() + 24 * 60 * MIN).toISOString());
+    const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
+      format: 3,
+      scheduledStartTime: new Date(at(0)),
+    });
+    seriesIds.push(series.id);
+    const matchTeamIds = await synchronizeTestTeams(series.id);
+
+    const writeQueue = new WriteQueue();
+    const orchestrator = await Cs2SeriesOrchestrator.create(series, { writeQueue, entryFeeLamports: 1000 });
+    await orchestrator.poll(snapshot(matchTeamIds, {}), at(-10));
+    const match1 = (await matchRepository.listBySeriesId(series.id))[0]!;
+    matchIds.push(match1.id);
+    const arena1 = (await arenaRepository.findByMatchId(match1.id))!;
+    arenaIds.push(arena1.id);
+
+    // The series-status write after cancelIfLobby fails, so the cancel doesn't commit.
+    const seriesStatusSpy = vi.spyOn(seriesRepository, "setStatus").mockRejectedValueOnce(new Error("db unavailable"));
+    try {
+      await expect(orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: false }), at(61))).rejects.toThrow("db unavailable");
+    } finally {
+      seriesStatusSpy.mockRestore();
+    }
+    expect(await arenaRepository.findById(arena1.id)).toMatchObject({ status: "cancelled", cancelledReason: "no_show" });
+
+    // The teams go live: the cancelled arena must not.
+    await expect(orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: true }), at(61.2))).rejects.toThrow("no longer open");
+    expect((await arenaRepository.findById(arena1.id))?.status).toBe("cancelled");
+    expect((await matchRepository.findById(match1.id))?.status).toBe("scheduled");
+
+    // Once the game is over, the no-show cancel is re-emitted and completes.
+    await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: false }), at(90));
+    expect((await seriesRepository.findById(series.id))?.status).toBe("invalid");
   });
 
   it("restores the same lobby arena, round, roster, and answer without creating a duplicate match", async () => {
@@ -306,6 +329,50 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     );
   });
 
+  it("does not reopen an arena when a poll retries after a later action failed", async () => {
+    const at = clockFrom(new Date(Date.now() + 18 * 60 * MIN).toISOString());
+    const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
+      format: 3,
+      scheduledStartTime: new Date(at(0)),
+    });
+    seriesIds.push(series.id);
+    const matchTeamIds = await synchronizeTestTeams(series.id);
+
+    const follower = await userRepository.upsertByWallet(`int-test-wallet-${randomUUID()}`, "follower");
+    userIds.push(follower.id);
+    await cs2SeriesFollowRepository.follow(follower.id, series.id);
+
+    const writeQueue = new WriteQueue();
+    const openedArenas: { arenaId: string }[] = [];
+    const orchestrator = await Cs2SeriesOrchestrator.create(series, {
+      writeQueue,
+      entryFeeLamports: 1000,
+      onArenaOpened: (arenaId) => openedArenas.push({ arenaId }),
+    });
+
+    // The first poll lands mid-game: [open_arena(1), match_live_detected(1)], and the second action fails.
+    const setStatusSpy = vi.spyOn(arenaRepository, "setLiveIfOpen").mockRejectedValueOnce(new Error("db unavailable"));
+    try {
+      await expect(orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: true }), at(5))).rejects.toThrow("db unavailable");
+      await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: true }), at(5.2));
+    } finally {
+      setStatusSpy.mockRestore();
+    }
+
+    const match1 = (await matchRepository.listBySeriesId(series.id))[0]!;
+    matchIds.push(match1.id);
+    const arena1 = (await arenaRepository.findByMatchId(match1.id))!;
+    arenaIds.push(arena1.id);
+    expect(arena1.status).toBe("live");
+    expect(openedArenas).toEqual([{ arenaId: arena1.id }]);
+
+    await writeQueue.drain();
+    const rounds = await predictionRoundRepository.listByArenaId(arena1.id);
+    expect(rounds.filter((round) => round.roundNumber === 1)).toHaveLength(1);
+
+    await vi.waitFor(() => expect(pushMocks.sendPushToUser).toHaveBeenCalledTimes(1));
+  });
+
   it("does not block or fail arena opening when the push send throws", async () => {
     const at = clockFrom(new Date(Date.now() + 15 * 60 * MIN).toISOString());
     const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
@@ -337,5 +404,150 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     arenaIds.push(arena1!.id);
     expect(arena1?.status).toBe("lobby");
     expect(openedArenas).toEqual([{ arenaId: arena1!.id }]);
+  });
+
+  it("cancels a forfeited, never-live map as forfeit and runs the next map in a fresh arena", async () => {
+    const at = clockFrom(new Date(Date.now() + 21 * 60 * MIN).toISOString());
+    const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
+      format: 3,
+      scheduledStartTime: new Date(at(0)),
+    });
+    seriesIds.push(series.id);
+    const matchTeamIds = await synchronizeTestTeams(series.id);
+
+    const writeQueue = new WriteQueue();
+    const orchestrator = await Cs2SeriesOrchestrator.create(series, { writeQueue, entryFeeLamports: 1000 });
+    await orchestrator.poll(snapshot(matchTeamIds, {}), at(-10));
+    const match1 = (await matchRepository.listBySeriesId(series.id))[0]!;
+    matchIds.push(match1.id);
+    const arena1 = (await arenaRepository.findByMatchId(match1.id))!;
+    arenaIds.push(arena1.id);
+
+    await orchestrator.poll(snapshot(matchTeamIds, { teams: [1, 0] }), at(15));
+    expect((await arenaRepository.findById(arena1.id))?.status).toBe("lobby");
+    await orchestrator.poll(snapshot(matchTeamIds, { teams: [1, 0] }), at(15.2));
+
+    expect(await arenaRepository.findById(arena1.id)).toMatchObject({ status: "cancelled", cancelledReason: "forfeit" });
+
+    const match2 = (await matchRepository.listBySeriesId(series.id)).find((m) => m.id !== match1.id)!;
+    matchIds.push(match2.id);
+    const arena2 = (await arenaRepository.findByMatchId(match2.id))!;
+    arenaIds.push(arena2.id);
+    expect(arena2.status).toBe("lobby");
+
+    await orchestrator.poll(snapshot(matchTeamIds, { teams: [1, 0], hasLiveGame: true }), at(20));
+    expect((await arenaRepository.findById(arena2.id))?.status).toBe("live");
+    expect((await arenaRepository.findById(arena1.id))?.status).toBe("cancelled");
+    expect((await seriesRepository.findById(series.id))?.status).toBe("active");
+    await writeQueue.drain();
+  });
+
+  it("still opens the next arena when a forfeit cancel fails once", async () => {
+    const at = clockFrom(new Date(Date.now() + 27 * 60 * MIN).toISOString());
+    const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
+      format: 3,
+      scheduledStartTime: new Date(at(0)),
+    });
+    seriesIds.push(series.id);
+    const matchTeamIds = await synchronizeTestTeams(series.id);
+
+    const writeQueue = new WriteQueue();
+    const orchestrator = await Cs2SeriesOrchestrator.create(series, { writeQueue, entryFeeLamports: 1000 });
+    await orchestrator.poll(snapshot(matchTeamIds, {}), at(-10));
+    const match1 = (await matchRepository.listBySeriesId(series.id))[0]!;
+    matchIds.push(match1.id);
+    const arena1 = (await arenaRepository.findByMatchId(match1.id))!;
+    arenaIds.push(arena1.id);
+
+    const cancelSpy = vi.spyOn(arenaRepository, "cancelIfLobby").mockRejectedValueOnce(new Error("db unavailable"));
+    try {
+      await orchestrator.poll(snapshot(matchTeamIds, { teams: [1, 0] }), at(15));
+      await expect(orchestrator.poll(snapshot(matchTeamIds, { teams: [1, 0] }), at(15.2))).rejects.toThrow(
+        "db unavailable",
+      );
+      expect((await arenaRepository.findById(arena1.id))?.status).toBe("lobby");
+
+      await orchestrator.poll(snapshot(matchTeamIds, { teams: [1, 0] }), at(15.4));
+    } finally {
+      cancelSpy.mockRestore();
+    }
+
+    expect(await arenaRepository.findById(arena1.id)).toMatchObject({ status: "cancelled", cancelledReason: "forfeit" });
+    const match2 = (await matchRepository.listBySeriesId(series.id)).find((m) => m.id !== match1.id)!;
+    matchIds.push(match2.id);
+    const arena2 = (await arenaRepository.findByMatchId(match2.id))!;
+    arenaIds.push(arena2.id);
+    expect(arena2.status).toBe("lobby");
+    await writeQueue.drain();
+  });
+
+  it("does not no-show a restored lobby Arena #2 by measuring from the Series' scheduled start", async () => {
+    const at = clockFrom(new Date(Date.now() + 24 * 60 * MIN).toISOString());
+    const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
+      format: 3,
+      scheduledStartTime: new Date(at(0)),
+    });
+    seriesIds.push(series.id);
+    const matchTeamIds = await synchronizeTestTeams(series.id);
+
+    const writeQueue = new WriteQueue();
+    const first = await Cs2SeriesOrchestrator.create(series, { writeQueue, entryFeeLamports: 1000 });
+    await first.poll(snapshot(matchTeamIds, {}), at(-10));
+    await first.poll(snapshot(matchTeamIds, { hasLiveGame: true }), at(0));
+    await first.poll(snapshot(matchTeamIds, { teams: [1, 0] }), at(90));
+    const matches = await matchRepository.listBySeriesId(series.id);
+    expect(matches).toHaveLength(2);
+    matchIds.push(...matches.map((m) => m.id));
+    for (const m of matches) arenaIds.push((await arenaRepository.findByMatchId(m.id))!.id);
+    await writeQueue.drain();
+
+    const restored = await Cs2SeriesOrchestrator.create(series, { writeQueue, entryFeeLamports: 1000 });
+    await restored.poll(snapshot(matchTeamIds, { teams: [1, 0] }), at(100));
+
+    const match2 = matches.find((m) => m.discipline === "cs2" && m.seriesMatchIndex === 2)!;
+    expect((await arenaRepository.findByMatchId(match2.id))?.status).toBe("lobby");
+    expect((await seriesRepository.findById(series.id))?.status).toBe("active");
+  });
+
+  it("restores over a forfeit-cancelled arena without ending the Series", async () => {
+    const at = clockFrom(new Date(Date.now() + 18 * 60 * MIN).toISOString());
+    const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
+      format: 3,
+      scheduledStartTime: new Date(at(0)),
+    });
+    seriesIds.push(series.id);
+    const matchTeamIds = await synchronizeTestTeams(series.id);
+
+    const writeQueue = new WriteQueue();
+    const first = await Cs2SeriesOrchestrator.create(series, { writeQueue, entryFeeLamports: 1000 });
+    await first.poll(snapshot(matchTeamIds, {}), at(-10));
+    const match1 = (await matchRepository.listBySeriesId(series.id))[0]!;
+    matchIds.push(match1.id);
+    const arena1 = (await arenaRepository.findByMatchId(match1.id))!;
+    arenaIds.push(arena1.id);
+    await writeQueue.drain();
+
+    // Simulates a crash after the forfeit cancellation committed but before the next arena opened.
+    expect(await arenaRepository.cancelIfLobby(arena1.id, "forfeit")).toBeDefined();
+
+    const restored = await Cs2SeriesOrchestrator.create(series, { writeQueue, entryFeeLamports: 1000 });
+    expect((await seriesRepository.findById(series.id))?.status).toBe("active");
+
+    await restored.poll(snapshot(matchTeamIds, {}), at(1));
+    expect((await seriesRepository.findById(series.id))?.status).toBe("active");
+    expect(await matchRepository.listBySeriesId(series.id)).toHaveLength(1);
+
+    // Self-heal: the still-visible forfeit score re-drives the cancel (a no-op now) and opens map 2.
+    await restored.poll(snapshot(matchTeamIds, { teams: [1, 0] }), at(15));
+    await restored.poll(snapshot(matchTeamIds, { teams: [1, 0] }), at(15.2));
+    const match2 = (await matchRepository.listBySeriesId(series.id)).find((m) => m.id !== match1.id)!;
+    matchIds.push(match2.id);
+    const arena2 = (await arenaRepository.findByMatchId(match2.id))!;
+    arenaIds.push(arena2.id);
+
+    await restored.poll(snapshot(matchTeamIds, { teams: [1, 0], hasLiveGame: true }), at(20));
+    expect((await arenaRepository.findById(arena2.id))?.status).toBe("live");
+    expect((await seriesRepository.findById(series.id))?.status).toBe("active");
+    await writeQueue.drain();
   });
 });

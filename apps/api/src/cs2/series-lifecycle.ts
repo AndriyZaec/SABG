@@ -11,14 +11,18 @@ export type Cs2LifecycleAction =
   | { type: "match_live_detected"; matchIndex: number }
   | { type: "match_ended"; matchIndex: number }
   | { type: "series_decided"; reason: "clinch" | "all_maps_played" }
-  | { type: "cancel_arena"; matchIndex: number; reason: "no_show" | "series_decided" };
+  | { type: "cancel_arena"; matchIndex: number; reason: "no_show" | "series_decided" | "forfeit" };
 
 export interface Cs2SeriesLifecycleState {
   readonly scheduledStartTime: IsoDateTime;
   readonly format: number | undefined;
   readonly openedThrough: number;
+  /** When `openedThrough` last advanced; arena #2+'s no-show timeout measures from here. */
+  readonly openedThroughAt: IsoDateTime;
   readonly matchLiveDetected: boolean;
   readonly lastHasLiveGame: boolean;
+  /** Consecutive polls the forfeit signal has held; resets to 0 when it doesn't. */
+  readonly forfeitPendingPolls: number;
   readonly decided: boolean;
   readonly invalid: boolean;
 }
@@ -28,8 +32,10 @@ export function initialCs2SeriesLifecycleState(scheduledStartTime: IsoDateTime):
     scheduledStartTime,
     format: undefined,
     openedThrough: 0,
+    openedThroughAt: scheduledStartTime,
     matchLiveDetected: false,
     lastHasLiveGame: false,
+    forfeitPendingPolls: 0,
     decided: false,
     invalid: false,
   };
@@ -74,31 +80,48 @@ export function processCs2SeriesPoll(
       return { state: next, actions };
     }
     actions.push({ type: "open_arena", matchIndex: 1 });
-    next = { ...next, openedThrough: 1 };
+    next = { ...next, openedThrough: 1, openedThroughAt: now };
   }
 
   const k = next.openedThrough;
 
-  // Only the first arena has a scheduled start from which to measure no-show.
-  if (k === 1 && !next.matchLiveDetected && snapshot?.hasLiveGame !== true) {
-    if (Date.parse(now) - Date.parse(next.scheduledStartTime) > NO_SHOW_TIMEOUT_MS) {
-      actions.push({ type: "cancel_arena", matchIndex: 1, reason: "no_show" });
+  // Arena #1 measures from the scheduled start; #2+ has no schedule, so from when it opened.
+  if (!next.matchLiveDetected && snapshot?.hasLiveGame !== true) {
+    const since = k === 1 ? next.scheduledStartTime : next.openedThroughAt;
+    if (Date.parse(now) - Date.parse(since) > NO_SHOW_TIMEOUT_MS) {
+      actions.push({ type: "cancel_arena", matchIndex: k, reason: "no_show" });
       return { state: { ...next, invalid: true }, actions };
     }
   }
 
   if (snapshot === undefined) return { state: next, actions };
 
-  if (!next.matchLiveDetected) {
-    const matchesCompleted = k - 1;
-    if (isSeriesDecided(next.format, matchesCompleted, snapshot.teams)) {
-      actions.push({ type: "cancel_arena", matchIndex: k, reason: "series_decided" });
-      actions.push({ type: "series_decided", reason: decidedReason(next.format as number, snapshot.teams) });
-      return { state: { ...next, decided: true }, actions };
+  // GRID counts match k as decided although we never saw it live: a forfeit (ADR-0006).
+  const scoredMaps = snapshot.teams[0].score + snapshot.teams[1].score;
+  const forfeitSignal = !next.matchLiveDetected && scoredMaps >= k;
+  if (forfeitSignal) {
+    const forfeitPendingPolls = next.forfeitPendingPolls + 1;
+    if (forfeitPendingPolls >= 2) {
+      const decided = isSeriesDecided(next.format, scoredMaps, snapshot.teams);
+      actions.push({ type: "cancel_arena", matchIndex: k, reason: decided ? "series_decided" : "forfeit" });
+      if (decided) {
+        actions.push({ type: "series_decided", reason: decidedReason(next.format as number, snapshot.teams) });
+        return { state: { ...next, decided: true, forfeitPendingPolls: 0 }, actions };
+      }
+      actions.push({ type: "open_arena", matchIndex: k + 1 });
+      return {
+        state: { ...next, openedThrough: k + 1, openedThroughAt: now, matchLiveDetected: false, forfeitPendingPolls: 0 },
+        actions,
+      };
     }
+    next = { ...next, forfeitPendingPolls };
+  } else if (next.forfeitPendingPolls !== 0) {
+    next = { ...next, forfeitPendingPolls: 0 };
   }
 
   if (snapshot.hasLiveGame && !next.lastHasLiveGame) {
+    // This live game belongs to k+1; leave the edge unrecorded so it fires for k+1 after the advance.
+    if (forfeitSignal) return { state: next, actions };
     actions.push({ type: "match_live_detected", matchIndex: k });
     next = { ...next, matchLiveDetected: true };
   } else if (!snapshot.hasLiveGame && next.lastHasLiveGame) {
@@ -108,7 +131,7 @@ export function processCs2SeriesPoll(
       next = { ...next, decided: true };
     } else {
       actions.push({ type: "open_arena", matchIndex: k + 1 });
-      next = { ...next, openedThrough: k + 1, matchLiveDetected: false };
+      next = { ...next, openedThrough: k + 1, openedThroughAt: now, matchLiveDetected: false };
     }
   }
 

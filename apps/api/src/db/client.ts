@@ -6,10 +6,11 @@ import * as schema from "./schema.js";
 
 dotenv.config();
 
-const databaseUrl = process.env["DATABASE_URL"];
-if (!databaseUrl) {
+const url = process.env["DATABASE_URL"];
+if (!url) {
   throw new Error("DATABASE_URL is not set (see .env.example)");
 }
+export const databaseUrl: string = url;
 
 const queryClient = postgres(databaseUrl);
 

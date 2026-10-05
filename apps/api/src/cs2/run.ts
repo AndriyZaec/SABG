@@ -14,6 +14,7 @@ import { cs2IdentityRepository } from "../db/repositories/cs2-identity.repositor
 import { WriteQueue } from "../gateway/stores/write-queue.js";
 import { createGatewayServer } from "../gateway/server.js";
 import { closeHttpServer, listenHttpServer } from "../gateway/http-lifecycle.js";
+import { startScheduler, stopScheduler, type Scheduler } from "../scheduler/index.js";
 import { cs2Config } from "./config/env.js";
 import { Cs2LivePoller } from "./live-poller.js";
 import { parseGridSeriesSnapshot, type GridCs2SeriesSnapshot } from "./series-snapshot.js";
@@ -53,6 +54,7 @@ async function main(): Promise<void> {
   let releaseLock: ReleaseFixtureRuntimeLock | undefined;
   let poller: Cs2LivePoller | undefined;
   let gatewayServer: ReturnType<typeof createGatewayServer> | undefined;
+  let scheduler: Scheduler | undefined;
   let shutdownPromise: Promise<void> | undefined;
 
   const shutdown = (signal: string): Promise<void> => {
@@ -65,6 +67,7 @@ async function main(): Promise<void> {
       if (gatewayServer !== undefined) await closeHttpServer(gatewayServer.httpServer);
       await writeQueue.drain();
       await releaseLock?.();
+      if (scheduler !== undefined) await stopScheduler(scheduler);
       await closeDatabaseConnection();
       await MongoService.quit();
       logger.info({ signal }, "cs2: shutdown complete");
@@ -83,6 +86,9 @@ async function main(): Promise<void> {
   try {
     await checkDatabaseConnection();
     if (abortController.signal.aborted) return;
+    scheduler = await startScheduler();
+    // A signal during startup already ran shutdown() without the scheduler.
+    if (abortController.signal.aborted) return await stopScheduler(scheduler);
 
     releaseLock = await tryAcquireSeriesRuntimeLock(gridConfig.grid.seriesId);
     if (!releaseLock) {
