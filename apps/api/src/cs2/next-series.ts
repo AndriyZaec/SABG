@@ -25,7 +25,6 @@ export type Cs2NextSeries =
   | { kind: "wait"; seriesId: Uuid; at: IsoDateTime }
   | { kind: "none" };
 
-/** The launcher may still start it: selectable, active, never run, not skipped, start at most 30 min ago. */
 export function isLaunchCandidate(c: Cs2SeriesCandidate, nowMs: number): boolean {
   return (
     c.selectable &&
@@ -36,7 +35,6 @@ export function isLaunchCandidate(c: Cs2SeriesCandidate, nowMs: number): boolean
   );
 }
 
-/** Launch order without the random tie-break: earliest start, then priority, then more followers. */
 export function compareLaunchOrder(a: Cs2SeriesCandidate, b: Cs2SeriesCandidate): number {
   return (
     Date.parse(a.scheduledStartTime) - Date.parse(b.scheduledStartTime) ||

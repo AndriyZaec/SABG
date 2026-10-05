@@ -106,7 +106,6 @@ function Cs2ArenaLobby({
   );
 }
 
-/** The series' stream, when the operator set one; it floats over every state of the arena page. */
 function Cs2SeriesStream({ seriesId }: { seriesId: string }) {
   const [seriesResult] = useCs2Series(seriesId);
   const streamUrl = seriesResult.state === "ready" ? seriesResult.value.streamUrl : undefined;

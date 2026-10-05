@@ -218,7 +218,6 @@ export const cs2CatalogRepository = {
     return rows.map((row) => ({ ...row, scheduledStartTime: row.scheduledStartTime.toISOString() }));
   },
 
-  /** The autopilot launcher's candidates (`selectNextSeries`) in the configured tournaments. */
   async listAutopilotCandidates(
     tournamentIds: readonly string[] = cs2CatalogConfig.tournamentIds,
   ): Promise<Cs2SeriesCandidate[]> {
@@ -256,7 +255,6 @@ export const cs2CatalogRepository = {
     }));
   },
 
-  /** `runningSeriesId`: the series the autopilot runs, live even before its first arena opens. */
   async listSupported(options: CatalogReadOptions = {}): Promise<Cs2SeriesSummary[]> {
     const { tournamentIds = cs2CatalogConfig.tournamentIds, runningSeriesId } = options;
     const rows = await readSupportedSeries(tournamentIds, { runningSeriesId });

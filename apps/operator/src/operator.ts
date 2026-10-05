@@ -28,7 +28,7 @@ export interface RuntimeStatus {
   tournamentId: string;
   /** `on`, `off` or `unknown` (database not reachable or not migrated yet). */
   autopilot: string;
-  /** GRID ids of the series with an open arena; normally at most one. */
+  /** GRID ids of the series the autopilot runs, between maps too; normally at most one. */
   runningSeries: string[];
   /** GRID ids of upcoming prioritized series, earliest first. */
   prioritySeries: string[];

@@ -177,7 +177,6 @@ export class Cs2SeriesOrchestrator {
     return [...this.arenasByMatchIndex.values()].map((opened) => opened.arenaId);
   }
 
-  /** The series reached a terminal status and none of its arenas is still open, so its runner can stop. */
   async isComplete(): Promise<boolean> {
     if (!this.lifecycleState.decided && !this.lifecycleState.invalid) {
       if ((await seriesRepository.findById(this.series.id))?.status === "active") return false;

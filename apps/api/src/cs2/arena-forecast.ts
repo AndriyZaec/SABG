@@ -6,7 +6,6 @@ import { compareLaunchOrder, isLaunchCandidate, LATE_START_WINDOW_MS, type Cs2Se
 
 const MIN = 60_000;
 
-/** Expected length of a series: Bo1 90 min, Bo3 240 min, Bo5 360 min, otherwise 90 min per map. */
 export function expectedSeriesDurationMs(format: number): number {
   if (format === 3) return 240 * MIN;
   if (format === 5) return 360 * MIN;
@@ -37,7 +36,6 @@ export function forecastArenas(
   for (const c of queue) {
     const start = Date.parse(c.scheduledStartTime);
     // The launcher still takes a series whose start passed up to 30 min before the slot frees.
-    // Switched off, it launches nothing new until the operator turns it back on.
     if (options.autopilotEnabled && start + LATE_START_WINDOW_MS >= freeAt) {
       forecast.set(c.seriesId, "expected");
       freeAt = Math.max(start, freeAt) + expectedSeriesDurationMs(c.format);

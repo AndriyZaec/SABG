@@ -271,7 +271,6 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     const arena1 = (await arenaRepository.findByMatchId(match1.id))!;
     arenaIds.push(arena1.id);
     if (options.live === true) await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: true }), at(1));
-    // The operator sets this over SQL (phase 12).
     await db.update(schema.series).set({ skipRequested: true }).where(eq(schema.series.id, series.id));
     return { series, orchestrator, writeQueue, arena1 };
   }

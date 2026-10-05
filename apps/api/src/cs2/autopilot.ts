@@ -107,7 +107,6 @@ export class Cs2Autopilot {
     return this.runner?.seriesId;
   }
 
-  /** Called when a series stops being run (complete, skipped on priming, or abandoned). */
   onSeriesEnded(listener: () => void): void {
     this.seriesEndListener = listener;
   }
@@ -127,7 +126,6 @@ export class Cs2Autopilot {
     });
   }
 
-  /** The launcher job, every minute: start the next series when none is running. */
   tick(): Promise<void> {
     return this.enqueue(async () => {
       if (this.abortController.signal.aborted) return;
@@ -237,7 +235,6 @@ export class Cs2Autopilot {
   }
 }
 
-/** The catalog sync job: refresh the tournaments' series, but never while a series is being polled. */
 export async function runCs2CatalogSync(
   autopilot: Pick<Cs2Autopilot, "hasRunner">,
   options: { synchronize?: typeof synchronizeCs2Catalog; now?: Date; tournamentIds?: readonly string[] } = {},
@@ -258,7 +255,6 @@ export async function runCs2CatalogSync(
   }
 }
 
-/** Registers the every-minute launcher and catalog sync jobs; passed to `startScheduler` so it stays CS2-agnostic. */
 export async function registerCs2AutopilotJobs(boss: PgBoss, autopilot: Cs2Autopilot): Promise<void> {
   // exclusive: a launch that waits on priming, or a slow sync, never piles up runs behind it.
   await boss.createQueue(LAUNCH_QUEUE, { policy: "exclusive" });

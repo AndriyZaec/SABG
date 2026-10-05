@@ -61,7 +61,6 @@ function clampWidth(width: number, extra: number): number {
   return Math.min(Math.max(width, MIN_WIDTH), max);
 }
 
-/** Keeps a box of this size inside the viewport, MARGIN from the edges when it fits. */
 function clampPosition(position: Position, width: number, height: number): Position {
   const maxLeft = Math.max(0, window.innerWidth - width - MARGIN);
   const maxTop = Math.max(0, window.innerHeight - height - MARGIN);

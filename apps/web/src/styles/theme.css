@@ -695,9 +695,7 @@ a { color: var(--ink); text-decoration: none; }
 .cs2-stream-pip__frame { display: block; width: 100%; aspect-ratio: 16 / 9; border: 0; }
 /* The iframe would swallow pointer moves while dragging or resizing over it. */
 .cs2-stream-pip--gesturing .cs2-stream-pip__frame { pointer-events: none; }
-/* Bottom-left resize handle: a yellow corner triangle, big enough for a thumb. */
 .cs2-stream-pip__resize { position: absolute; left: 0; bottom: 0; width: 24px; height: 24px; background: linear-gradient(45deg, var(--yellow) 50%, transparent 50%); cursor: nesw-resize; touch-action: none; }
-/* Collapsed: always the same corner, wherever the player was. */
 .cs2-stream-pip__expand { position: fixed; z-index: 25; right: 16px; bottom: 16px; border: var(--bw) solid var(--ink); background: var(--yellow); color: var(--ink); box-shadow: var(--shadow-sm); padding: 8px 12px; font: 700 0.7rem var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; }
 .cs2-back { justify-self: start; font-size: 0.76rem; font-weight: 700; letter-spacing: 0.06em; text-decoration: underline; text-transform: uppercase; text-underline-offset: 4px; }
 .cs2-match-hero { border: var(--bw-thick) solid var(--ink); box-shadow: var(--shadow-lg); background: var(--white); }

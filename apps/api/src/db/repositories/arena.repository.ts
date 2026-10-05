@@ -88,7 +88,6 @@ export const arenaRepository = {
     return row ? arenaRowToEntity(row) : undefined;
   },
 
-  // Only a live arena finishes; a cancelled one must never flip to finished or pay out.
   async setFinishedIfLive(id: Uuid): Promise<Arena | undefined> {
     const [row] = await db
       .update(arenas)

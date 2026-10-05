@@ -1,6 +1,5 @@
 import type { Cs2SeriesLifecycle, IsoDateTime } from "@arena/contracts";
 
-/** The lifecycle the catalog shows: the stored one, corrected for the clock and for the series the autopilot runs. */
 export function catalogLifecycleOnRead(
   stored: Cs2SeriesLifecycle,
   scheduledStartTime: IsoDateTime,
