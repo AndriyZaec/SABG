@@ -161,12 +161,11 @@ export class Cs2SeriesOrchestrator {
         return;
       }
     }
-    for (const userId of winnerIds) await arenaPlayerRepository.setStatus(arenaId, userId, "winner");
-
     if ((await arenaRepository.setFinishedIfLive(arenaId)) === undefined) {
       logger.warn({ arenaId }, "cs2: live arena at restore is no longer live; not finishing or paying");
       return;
     }
+    for (const userId of winnerIds) await arenaPlayerRepository.setStatus(arenaId, userId, "winner");
     await payoutService.settleArena(arenaId, winnerIds);
     logger.info(
       { arenaId, winners: winnerIds.length, voidedRounds: unsettled.length },
