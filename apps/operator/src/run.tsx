@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import {
   assertGridId,
   loadOperatorConfig,
+  normalizeStreamUrl,
   parseDiscovery,
   parseDiscoverySeries,
   parseRuntimeStatus,
@@ -26,6 +27,7 @@ type PendingOperation = {
   command: RemoteCommand;
   argument?: string;
   confirmation?: string;
+  value?: string;
 };
 
 type Screen =
@@ -33,7 +35,8 @@ type Screen =
   | { type: "menu" }
   | { type: "tournaments"; operation: "publish" | "prioritize"; tournaments: DiscoveredTournament[] }
   | { type: "series"; tournament: DiscoveredTournament }
-  | { type: "series-id"; value: string }
+  | { type: "series-id"; operation: "prioritize" | "stream"; value: string }
+  | { type: "stream-url"; id: string; details: string[]; value: string }
   | { type: "confirm"; operation: PendingOperation }
   | { type: "output"; title: string; lines: string[]; failed: boolean; running?: boolean };
 
@@ -99,6 +102,7 @@ function App(): React.JSX.Element {
         operation.command,
         operation.argument,
         operation.confirmation,
+        operation.value,
         (chunk) => {
           lines.push(...chunk.split(/\r?\n/u).filter(Boolean));
           setScreen({ type: "output", title: operation.title, lines: lines.slice(-30), failed: false, running: true });
@@ -167,6 +171,7 @@ function App(): React.JSX.Element {
     { label: autopilotOn ? "Turn autopilot off" : "Turn autopilot on", value: "autopilot", disabled: status?.autopilot === "unknown" },
     { label: "Prioritize or unprioritize an upcoming Series", value: "prioritize" },
     { label: "Prioritize or unprioritize by exact Series ID", value: "prioritize-id" },
+    { label: "Set or clear a Series stream", value: "stream" },
     { label: `Skip running Series${running === undefined ? "" : ` ${running}`}`, value: "skip", disabled: running === undefined },
     { label: "Publish upcoming tournament", value: "publish", disabled: running !== undefined },
     { label: "Recent CS2 logs", value: "logs" },
@@ -185,10 +190,35 @@ function App(): React.JSX.Element {
     } });
   };
 
+  const confirmStream = (id: string, details: string[], input: string): void => {
+    if (input === "") {
+      setScreen({ type: "confirm", operation: {
+        title: "Clear CS2 Series stream",
+        details: [...details, "Its arena pages stop showing a player on the next page load."],
+        command: "clear-stream-cs2",
+        argument: id,
+      } });
+      return;
+    }
+    try {
+      const url = normalizeStreamUrl(input);
+      setScreen({ type: "confirm", operation: {
+        title: "Set CS2 Series stream",
+        details: [...details, `Stream: ${url}`, "Its arena pages show this player on the next page load."],
+        command: "set-stream-cs2",
+        argument: id,
+        value: url,
+      } });
+    } catch (error) {
+      setScreen({ type: "output", title: "Invalid stream URL", lines: [error instanceof Error ? error.message : String(error)], failed: true });
+    }
+  };
+
   const chooseMenu = (choice: string): void => {
     if (choice === "exit") return exit();
     if (choice === "publish" || choice === "prioritize") return void discover(choice);
-    if (choice === "prioritize-id") return setScreen({ type: "series-id", value: "" });
+    if (choice === "prioritize-id") return setScreen({ type: "series-id", operation: "prioritize", value: "" });
+    if (choice === "stream") return setScreen({ type: "series-id", operation: "stream", value: "" });
     if (choice === "autopilot") {
       setScreen({ type: "confirm", operation: autopilotOn
         ? { title: "Turn autopilot off", details: ["The running Series plays to its end; no new Series launch."], command: "autopilot-off" }
@@ -260,7 +290,7 @@ function App(): React.JSX.Element {
   } else if (screen.type === "series-id") {
     content = <Box flexDirection="column">
       <Text>GRID Series ID:</Text>
-      <TextInput value={screen.value} onChange={(value) => setScreen({ type: "series-id", value })} onSubmit={(value) => {
+      <TextInput value={screen.value} onChange={(value) => setScreen({ ...screen, value })} onSubmit={(value) => {
         if (config === undefined) return;
         void (async () => {
         try {
@@ -269,17 +299,27 @@ function App(): React.JSX.Element {
           const discovered = parseDiscoverySeries(await runRemote(config, remoteScriptPath, "inspect-cs2", id));
           const series = discovered.find((item) => item.id === id);
           if (series === undefined) throw new Error(`GRID Series ${id} was not found in the discovery window`);
-          confirmPriority(id, [
+          const details = [
             `Tournament: ${series.tournamentName}`,
             `Series: ${series.teams}`,
             `GRID Series ID: ${id}`,
             `Schedule: ${new Date(series.scheduledStartTime).toLocaleString()} | Bo${series.format} | ${series.selectable ? series.serviceLevel : series.reason}`,
-          ]);
+          ];
+          if (screen.operation === "stream") return setScreen({ type: "stream-url", id, details, value: "" });
+          confirmPriority(id, details);
         } catch (error) {
           setScreen({ type: "output", title: "Series lookup failed", lines: [error instanceof Error ? error.message : String(error)], failed: true });
         }
         })();
       }} />
+    </Box>;
+  } else if (screen.type === "stream-url") {
+    const current = status?.seriesStreams[screen.id];
+    content = <Box flexDirection="column">
+      {screen.details.map((detail) => <Text key={detail}>{detail}</Text>)}
+      <Text>Current stream: {current ?? "none or unknown (status lists only the running and prioritized Series)"}</Text>
+      <Text>Twitch or Kick channel link (empty to clear):</Text>
+      <TextInput value={screen.value} onChange={(value) => setScreen({ ...screen, value })} onSubmit={(value) => confirmStream(screen.id, screen.details, value.trim())} />
     </Box>;
   } else if (screen.type === "confirm") {
     content = <Confirmation operation={screen.operation} onYes={() => void execute(screen.operation)} onNo={() => setScreen({ type: "menu" })} />;
@@ -298,7 +338,7 @@ function App(): React.JSX.Element {
 
   return <Box flexDirection="column" paddingX={1}>
     <Text bold color="cyan">SABG CS2 Operator</Text>
-    {status !== undefined && <Text dimColor>Autopilot: {status.autopilot} | Health: {status.appHealth} | Running: {status.runningSeries.join(", ") || "none"} | Priority: {status.prioritySeries.join(", ") || "none"} | Rev: {status.revision.slice(0, 8)}</Text>}
+    {status !== undefined && <Text dimColor>Autopilot: {status.autopilot} | Health: {status.appHealth} | Running: {status.runningSeries.join(", ") || "none"} | Priority: {status.prioritySeries.join(", ") || "none"}{running !== undefined && status.seriesStreams[running] !== undefined ? ` | Stream: ${status.seriesStreams[running]}` : ""} | Rev: {status.revision.slice(0, 8)}</Text>}
     <Box marginTop={1} flexDirection="column">{content}</Box>
   </Box>;
 }
