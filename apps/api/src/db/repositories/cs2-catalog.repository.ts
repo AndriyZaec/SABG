@@ -73,7 +73,7 @@ interface CatalogReadOptions {
 async function readSupportedSeries(
   tournamentIds: readonly string[],
   options: { id?: Uuid; runningSeriesId?: Uuid | undefined } = {},
-): Promise<Array<Cs2SeriesSummary & { mapNames: string[] }>> {
+): Promise<Array<Cs2SeriesSummary & { mapNames: string[]; streamUrl: string | null }>> {
   if (tournamentIds.length === 0) return [];
   const catalogRows = await db
     .select({
@@ -82,6 +82,7 @@ async function readSupportedSeries(
       scheduledStartTime: series.scheduledStartTime,
       lifecycle: series.catalogLifecycle,
       mapNames: series.mapNames,
+      streamUrl: series.streamUrl,
       competitionName: cs2Competitions.name,
       competitionShortName: cs2Competitions.shortName,
       competitionLogoUrl: cs2Competitions.logoUrl,
@@ -156,6 +157,7 @@ async function readSupportedSeries(
     scheduledStartTime: row.scheduledStartTime.toISOString(),
     lifecycle: catalogLifecycleOnRead(row.lifecycle, row.scheduledStartTime.toISOString(), now, row.id === options.runningSeriesId),
     mapNames: row.mapNames ?? [],
+    streamUrl: row.streamUrl,
   }));
 }
 
@@ -258,14 +260,14 @@ export const cs2CatalogRepository = {
   async listSupported(options: CatalogReadOptions = {}): Promise<Cs2SeriesSummary[]> {
     const { tournamentIds = cs2CatalogConfig.tournamentIds, runningSeriesId } = options;
     const rows = await readSupportedSeries(tournamentIds, { runningSeriesId });
-    return rows.map(({ mapNames: _mapNames, ...summary }) => summary);
+    return rows.map(({ mapNames: _mapNames, streamUrl: _streamUrl, ...summary }) => summary);
   },
 
   async findSupportedById(id: Uuid, options: CatalogReadOptions = {}): Promise<Cs2SeriesSummary | undefined> {
     const { tournamentIds = cs2CatalogConfig.tournamentIds, runningSeriesId } = options;
     const [catalogSeries] = await readSupportedSeries(tournamentIds, { id, runningSeriesId });
     if (catalogSeries === undefined) return undefined;
-    const { mapNames: _mapNames, ...summary } = catalogSeries;
+    const { mapNames: _mapNames, streamUrl: _streamUrl, ...summary } = catalogSeries;
     return summary;
   },
 
@@ -273,7 +275,8 @@ export const cs2CatalogRepository = {
     const { tournamentIds = cs2CatalogConfig.tournamentIds, runningSeriesId } = options;
     const [catalogSeries] = await readSupportedSeries(tournamentIds, { id, runningSeriesId });
     if (catalogSeries === undefined) return undefined;
-    const { mapNames } = catalogSeries;
+    const { streamUrl, ...catalogDetail } = catalogSeries;
+    const { mapNames } = catalogDetail;
 
     const seriesMatches = await matchRepository.listBySeriesId(id);
     if (seriesMatches.some((match) => match.discipline !== "cs2")) {
@@ -331,7 +334,7 @@ export const cs2CatalogRepository = {
       };
     }
 
-    return { ...catalogSeries, maps };
+    return { ...catalogDetail, maps, ...(streamUrl !== null ? { streamUrl } : {}) };
   },
 
   async synchronizeSeries(input: Cs2CatalogSeriesInput): Promise<{ seriesId: Uuid; participantCount: number }> {

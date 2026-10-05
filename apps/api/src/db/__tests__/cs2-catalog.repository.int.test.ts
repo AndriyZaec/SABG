@@ -20,6 +20,7 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
   const unsupportedGridSeriesId = `catalog-unsupported-series-${runId}`;
   const legacyGridSeriesId = `catalog-legacy-series-${runId}`;
   const mapNamesGridSeriesId = `catalog-map-names-series-${runId}`;
+  const streamGridSeriesId = `catalog-stream-series-${runId}`;
   const gridTournamentId = `catalog-tournament-${runId}`;
   const firstGridTeamId = `catalog-team-a-${runId}`;
   const secondGridTeamId = `catalog-team-b-${runId}`;
@@ -42,7 +43,7 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
     }
     await db.delete(schema.series).where(inArray(
       schema.series.gridSeriesId,
-      [gridSeriesId, unsupportedGridSeriesId, legacyGridSeriesId, mapNamesGridSeriesId],
+      [gridSeriesId, unsupportedGridSeriesId, legacyGridSeriesId, mapNamesGridSeriesId, streamGridSeriesId],
     ));
     await db.delete(schema.cs2Teams).where(inArray(schema.cs2Teams.gridTeamId, [
       firstGridTeamId,
@@ -278,5 +279,38 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
       { seriesMatchIndex: 2, mapName: "inferno" },
       { seriesMatchIndex: 3, mapName: undefined },
     ]);
+  });
+
+  it("returns the operator's stream with the detail, keeps it across a sync, and rejects a non-normalized URL", async () => {
+    const input = {
+      gridSeriesId: streamGridSeriesId,
+      competition: { gridTournamentId, name: "Major" },
+      format: 3,
+      scheduledStartTime: new Date("2026-09-03T12:00:00.000Z"),
+      lifecycle: "upcoming" as const,
+      isSupported: true,
+      participants: [{ state: "tbd", displayOrder: 1 }, { state: "tbd", displayOrder: 2 }] as const,
+    };
+    const { seriesId } = await repository.synchronizeSeries({ ...input, participants: [...input.participants] });
+    const read = () => repository.findSupportedDetailById(seriesId, { tournamentIds: [gridTournamentId] });
+    const setStream = (streamUrl: string) =>
+      db.update(schema.series).set({ streamUrl }).where(eq(schema.series.id, seriesId));
+
+    expect(await read()).not.toHaveProperty("streamUrl");
+
+    await setStream("https://kick.com/user-name");
+    await expect(read()).resolves.toMatchObject({ streamUrl: "https://kick.com/user-name" });
+    const [summary] = (await repository.listSupported({ tournamentIds: [gridTournamentId] })).filter((s) => s.id === seriesId);
+    expect(summary).not.toHaveProperty("streamUrl");
+
+    // The catalog sync owns other columns; the operator's stream survives it.
+    await repository.synchronizeSeries({ ...input, participants: [...input.participants] });
+    await expect(read()).resolves.toMatchObject({ streamUrl: "https://kick.com/user-name" });
+
+    const rejectedByCheck = { cause: { constraint_name: "series_stream_url_check" } };
+    await expect(setStream("https://youtube.com/watch?v=abc")).rejects.toMatchObject(rejectedByCheck);
+    await expect(setStream("https://twitch.tv/eslcs/videos")).rejects.toMatchObject(rejectedByCheck);
+    await expect(setStream("https://twitchXtv/eslcs")).rejects.toMatchObject(rejectedByCheck);
+    await expect(read()).resolves.toMatchObject({ streamUrl: "https://kick.com/user-name" });
   });
 });

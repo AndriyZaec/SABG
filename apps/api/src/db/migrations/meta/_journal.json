@@ -120,6 +120,13 @@
       "when": 1791045557856,
       "tag": "0016_greedy_vector",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1791215702679,
+      "tag": "0017_late_alex_power",
+      "breakpoints": true
     }
   ]
 }
