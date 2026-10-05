@@ -128,7 +128,7 @@ function reduce(view: Cs2ArenaView, msg: ServerMessage, myUserId?: string): Cs2A
       return {
         ...view,
         ...(iWon ? { myStatus: "winner" as const } : {}),
-        feed: prependFeedItem(view.feed, { id: `fin-${Date.now()}`, kind: "info", text: "Series finished" }),
+        feed: prependFeedItem(view.feed, { id: "arena-finished", kind: "info", text: "Arena finished" }),
       };
     }
     default:

@@ -8,7 +8,7 @@ export function WinnerBanner() {
       </span>
       <div>
         <p className="nb-winner__title">You won!</p>
-        <p className="nb-winner__subtitle">You survived to the final whistle — your winnings are on the way.</p>
+        <p className="nb-winner__subtitle">You survived to the end — your winnings are on the way.</p>
       </div>
     </div>
   );
