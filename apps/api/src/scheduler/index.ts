@@ -8,13 +8,19 @@ export type Scheduler = PgBoss;
 
 const REFUND_QUEUE = "refund-cancelled-arenas";
 
+/** `registerJobs` adds a runtime's own jobs, so this module doesn't depend on them. */
+export interface SchedulerOptions {
+  registerJobs?: (boss: PgBoss) => Promise<void>;
+}
+
 // Fails when the pgboss schema is missing or behind: run the migrate step first.
-export async function startScheduler(): Promise<Scheduler> {
+export async function startScheduler(options: SchedulerOptions = {}): Promise<Scheduler> {
   const boss = new PgBoss({ connectionString: databaseUrl, migrate: false, createSchema: false });
   boss.on("error", (err) => logger.error({ err }, "scheduler: pg-boss error"));
   try {
     await boss.start();
     await registerJobs(boss);
+    await options.registerJobs?.(boss);
   } catch (err) {
     // start() opens the pool before checking the schema; close it so a failed startup can exit.
     await boss.stop({ graceful: false }).catch(() => undefined);

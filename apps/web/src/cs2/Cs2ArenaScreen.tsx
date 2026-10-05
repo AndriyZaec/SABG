@@ -6,6 +6,8 @@ import { Cs2RoundCard } from "./live/Cs2RoundCard.js";
 import { Cs2EntryCard } from "./Cs2EntryCard.js";
 import { TeamLogo } from "./TeamLogo.js";
 import { useCs2Series } from "./useCs2Catalog.js";
+import { StreamPip } from "./stream/StreamPip.js";
+import { streamEmbed } from "./stream/streamEmbed.js";
 import { useCs2ArenaEntry } from "./useCs2ArenaEntry.js";
 import { useCs2RoundAlerts, type Cs2NewRoundSignal } from "./live/useCs2RoundAlerts.js";
 import { useCs2VictoryAlert } from "./live/useCs2VictoryAlert.js";
@@ -104,6 +106,13 @@ function Cs2ArenaLobby({
   );
 }
 
+function Cs2SeriesStream({ seriesId }: { seriesId: string }) {
+  const [seriesResult] = useCs2Series(seriesId);
+  const streamUrl = seriesResult.state === "ready" ? seriesResult.value.streamUrl : undefined;
+  const embed = streamUrl === undefined ? undefined : streamEmbed(streamUrl, window.location.hostname);
+  return embed === undefined ? null : <StreamPip embed={embed} />;
+}
+
 export function Cs2ArenaScreen() {
   const { arenaId = "" } = useParams();
   const { detail, loadError, retry, view, connected, answerSubmission, submitAnswer, newRoundSignal, victorySignal } =
@@ -139,16 +148,19 @@ export function Cs2ArenaScreen() {
     return <div className="nb-container"><Panel accent="red">This is not a CS2 arena.</Panel></div>;
   }
 
+  // Always the second child, so moving from lobby to live keeps the same player instead of reloading it.
+  const withStream = (body: React.JSX.Element) => <>{body}<Cs2SeriesStream seriesId={match.seriesId} /></>;
+
   if (arena.status === "cancelled") {
-    return (
+    return withStream(
       <div className="nb-container">
         <Panel accent="red">This arena was cancelled ({arena.cancelledReason ?? "cancelled"}).</Panel>
-      </div>
+      </div>,
     );
   }
 
   if (arena.status === "lobby") {
-    return (
+    return withStream(
       <Cs2ArenaLobby
         arena={arena}
         match={match}
@@ -157,19 +169,19 @@ export function Cs2ArenaScreen() {
         answerSubmission={answerSubmission}
         submitAnswer={submitAnswer}
         newRoundSignal={newRoundSignal}
-      />
+      />,
     );
   }
 
   if (!view) {
-    return <div className="nb-container"><Loading label="Loading arena…" /></div>;
+    return withStream(<div className="nb-container"><Loading label="Loading arena…" /></div>);
   }
 
   if (view.cancelled) {
-    return <div className="nb-container"><Panel accent="red">This arena was cancelled ({view.cancelled.reason}).</Panel></div>;
+    return withStream(<div className="nb-container"><Panel accent="red">This arena was cancelled ({view.cancelled.reason}).</Panel></div>);
   }
 
-  return (
+  return withStream(
     <Cs2ArenaLive
       view={view}
       connected={connected}
@@ -177,7 +189,7 @@ export function Cs2ArenaScreen() {
       submitAnswer={submitAnswer}
       newRoundSignal={newRoundSignal}
       victorySignal={victorySignal}
-    />
+    />,
   );
 }
 

@@ -1,0 +1,2 @@
+ALTER TABLE "series" ADD COLUMN "stream_url" text;--> statement-breakpoint
+ALTER TABLE "series" ADD CONSTRAINT "series_stream_url_check" CHECK ("series"."stream_url" is null or "series"."stream_url" ~ '^https://(twitch\.tv|kick\.com)/[A-Za-z0-9_-]+$');

@@ -53,6 +53,12 @@ export class GatewayWebSocketServer implements GatewayBroadcaster, ArenaRuntimeL
     this.runtimes.set(arenaId, runtime);
   }
 
+  /** Drops a finished series' arena from memory; its clients already got the terminal message. */
+  unregisterRuntime(arenaId: Uuid): void {
+    this.runtimes.delete(arenaId);
+    this.cacheByArena.delete(arenaId);
+  }
+
   getRuntime(arenaId: Uuid): ArenaRuntimeLike | undefined {
     return this.runtimes.get(arenaId);
   }

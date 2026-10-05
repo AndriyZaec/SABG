@@ -3,7 +3,7 @@
 import type { IsoDateTime } from "@arena/contracts";
 import type { Cs2SeriesSnapshot, Cs2SeriesTeam } from "./series-snapshot.js";
 
-const LOBBY_OPEN_BEFORE_START_MS = 10 * 60 * 1_000;
+export const LOBBY_OPEN_BEFORE_START_MS = 10 * 60 * 1_000;
 const NO_SHOW_TIMEOUT_MS = 60 * 60 * 1_000;
 
 export type Cs2LifecycleAction =
@@ -27,14 +27,22 @@ export interface Cs2SeriesLifecycleState {
   readonly invalid: boolean;
 }
 
-export function initialCs2SeriesLifecycleState(scheduledStartTime: IsoDateTime): Cs2SeriesLifecycleState {
+/**
+ * `startAfterMap1` joins a series whose map 1 is already live: map 1 counts as opened and live, with no arena,
+ * so its end opens arena #2 (`match_ended(1)` finds no arena to finish).
+ */
+export function initialCs2SeriesLifecycleState(
+  scheduledStartTime: IsoDateTime,
+  options: { startAfterMap1?: true } = {},
+): Cs2SeriesLifecycleState {
+  const afterMap1 = options.startAfterMap1 === true;
   return {
     scheduledStartTime,
     format: undefined,
-    openedThrough: 0,
+    openedThrough: afterMap1 ? 1 : 0,
     openedThroughAt: scheduledStartTime,
-    matchLiveDetected: false,
-    lastHasLiveGame: false,
+    matchLiveDetected: afterMap1,
+    lastHasLiveGame: afterMap1,
     forfeitPendingPolls: 0,
     decided: false,
     invalid: false,
@@ -96,7 +104,7 @@ export function processCs2SeriesPoll(
 
   if (snapshot === undefined) return { state: next, actions };
 
-  // GRID counts match k as decided although we never saw it live: a forfeit (ADR-0006).
+  // GRID counts match k as decided although we never saw it live: a forfeit.
   const scoredMaps = snapshot.teams[0].score + snapshot.teams[1].score;
   const forfeitSignal = !next.matchLiveDetected && scoredMaps >= k;
   if (forfeitSignal) {

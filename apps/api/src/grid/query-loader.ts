@@ -3,11 +3,11 @@ import { resolve } from "node:path";
 
 const SERIES_ID_PATTERN = /seriesState\(\s*id:\s*"[^"]*"\s*\)/;
 
-let cachedQuery: string | undefined;
+let cachedTemplate: string | undefined;
 
-/** Query-file failures are startup errors, not transient poll failures. */
+/** Query-file failures are startup errors, not transient poll failures. The id is substituted per call. */
 export function loadSeriesStateQuery(queryFilePath: string, seriesId: string): string {
-  if (cachedQuery === undefined) {
+  if (cachedTemplate === undefined) {
     const absolutePath = resolve(queryFilePath);
     let raw: string;
     try {
@@ -20,11 +20,11 @@ export function loadSeriesStateQuery(queryFilePath: string, seriesId: string): s
       throw new Error(`GraphQL query file at ${absolutePath} does not contain a seriesState(id: "...") argument`);
     }
 
-    cachedQuery = raw.replace(SERIES_ID_PATTERN, `seriesState(id: "${seriesId}")`);
+    cachedTemplate = raw;
   }
-  return cachedQuery;
+  return cachedTemplate.replace(SERIES_ID_PATTERN, `seriesState(id: "${seriesId}")`);
 }
 
 export function __resetQueryCacheForTests(): void {
-  cachedQuery = undefined;
+  cachedTemplate = undefined;
 }

@@ -39,7 +39,7 @@ describe("GridClient.fetchSeriesState", () => {
       .mockResolvedValueOnce({ status: 200, headers: { "x-ratelimit-remaining": "10" }, data: { data: {} } });
 
     const client = new GridClient();
-    const result = await client.fetchSeriesState();
+    const result = await client.fetchSeriesState("series-1");
 
     expect(mocks.post).toHaveBeenCalledTimes(2);
     expect(sleep).toHaveBeenCalledTimes(1);
@@ -50,7 +50,7 @@ describe("GridClient.fetchSeriesState", () => {
     mocks.post.mockResolvedValue({ status: 429, headers: {}, data: {} });
 
     const client = new GridClient();
-    await expect(client.fetchSeriesState()).rejects.toThrow(RateLimitExhaustedError);
+    await expect(client.fetchSeriesState("series-1")).rejects.toThrow(RateLimitExhaustedError);
     expect(mocks.post).toHaveBeenCalledTimes(6);
   });
 
@@ -58,7 +58,7 @@ describe("GridClient.fetchSeriesState", () => {
     mocks.post.mockResolvedValue({ status: 500, headers: {}, data: { error: "boom" } });
 
     const client = new GridClient();
-    await expect(client.fetchSeriesState()).rejects.toThrow(UpstreamApiError);
+    await expect(client.fetchSeriesState("series-1")).rejects.toThrow(UpstreamApiError);
   });
 });
 

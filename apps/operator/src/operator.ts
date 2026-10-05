@@ -3,7 +3,19 @@ import { createReadStream } from "node:fs";
 import { readFile } from "node:fs/promises";
 import type { Cs2OperatorDiscoveryPayload } from "@arena/contracts";
 
-export type RemoteCommand = "status" | "discover-cs2" | "inspect-cs2" | "publish-cs2" | "start-cs2" | "stop-cs2" | "logs";
+export type RemoteCommand =
+  | "status"
+  | "discover-cs2"
+  | "inspect-cs2"
+  | "publish-cs2"
+  | "prioritize-cs2"
+  | "unprioritize-cs2"
+  | "autopilot-on"
+  | "autopilot-off"
+  | "skip-cs2"
+  | "set-stream-cs2"
+  | "clear-stream-cs2"
+  | "logs";
 
 export interface OperatorConfig {
   host: string;
@@ -13,10 +25,15 @@ export interface OperatorConfig {
 }
 
 export interface RuntimeStatus {
-  mode: string;
   tournamentId: string;
-  seriesId: string;
-  scheduledStartTime: string;
+  /** `on`, `off` or `unknown` (database not reachable or not migrated yet). */
+  autopilot: string;
+  /** GRID ids of the series the autopilot runs, between maps too; normally at most one. */
+  runningSeries: string[];
+  /** GRID ids of upcoming prioritized series, earliest first. */
+  prioritySeries: string[];
+  /** Stream URL by GRID id, for the running and the prioritized series that have one. */
+  seriesStreams: Record<string, string>;
   revision: string;
   appHealth: string;
   unfinishedArenas: string;
@@ -91,11 +108,19 @@ export function parseRuntimeStatus(output: string): RuntimeStatus {
     const separator = line.indexOf("=");
     if (separator > 0) values.set(line.slice(0, separator), line.slice(separator + 1));
   }
+  const list = (key: string): string[] => (values.get(key) ?? "").split(",").filter((id) => id !== "");
+  // No prototype: a lookup by a typed-in id such as "constructor" must find nothing.
+  const seriesStreams: Record<string, string> = Object.create(null) as Record<string, string>;
+  for (const entry of list("SERIES_STREAMS")) {
+    const separator = entry.indexOf("=");
+    if (separator > 0) seriesStreams[entry.slice(0, separator)] = entry.slice(separator + 1);
+  }
   return {
-    mode: values.get("MODE") ?? "unknown",
     tournamentId: values.get("TOURNAMENT_ID") ?? "",
-    seriesId: values.get("SERIES_ID") ?? "",
-    scheduledStartTime: values.get("SCHEDULED_START_TIME") ?? "",
+    autopilot: values.get("AUTOPILOT") ?? "unknown",
+    runningSeries: list("RUNNING_SERIES"),
+    prioritySeries: list("PRIORITY_SERIES"),
+    seriesStreams,
     revision: values.get("REVISION") ?? "unknown",
     appHealth: values.get("APP_HEALTH") ?? "unknown",
     unfinishedArenas: values.get("UNFINISHED_ARENAS") ?? "unknown",
@@ -195,25 +220,53 @@ export function assertGridId(value: string): string {
   return value;
 }
 
+const STREAM_LINK = /^(?:https?:\/\/)?(?:www\.|m\.)?(twitch\.tv|kick\.com)\/([^/?#]*)\/?(?:[?#].*)?$/iu;
+const TWITCH_CHANNEL = /^[A-Za-z0-9][A-Za-z0-9_]{3,24}$/u;
+const KICK_CHANNEL = /^[A-Za-z0-9_-]{1,50}$/u;
+
+/** A pasted Twitch or Kick channel link as the one URL form the server and the web accept. */
+export function normalizeStreamUrl(input: string): string {
+  const match = STREAM_LINK.exec(input.trim());
+  if (match === null) throw new Error("Stream URL must be a Twitch or Kick channel link, e.g. https://twitch.tv/<channel>");
+  const host = match[1]!.toLowerCase();
+  const channel = match[2]!;
+  if (host === "twitch.tv") {
+    if (!TWITCH_CHANNEL.test(channel)) throw new Error("Twitch channel must be 4-25 letters, digits or _, not starting with _");
+    return `https://twitch.tv/${channel.toLowerCase()}`;
+  }
+  if (!KICK_CHANNEL.test(channel)) throw new Error("Kick channel must be 1-50 letters, digits, _ or -");
+  // Kick's channel URL turns the username's _ into -.
+  return `https://kick.com/${channel.replace(/_/gu, "-")}`;
+}
+
 export function buildSshInvocation(
   config: OperatorConfig,
   command: RemoteCommand,
   argument = "",
   confirmation = "",
+  value = "",
 ): { args: string[]; remote: string } {
   if (argument !== "") assertGridId(argument);
-  const expectedConfirmation = command === "start-cs2"
-    ? `START CS2 ${argument}`
-    : command === "stop-cs2"
-      ? `STOP CS2 ${argument}`
-      : undefined;
+  if (
+    (command === "prioritize-cs2" || command === "unprioritize-cs2" || command === "skip-cs2"
+      || command === "set-stream-cs2" || command === "clear-stream-cs2") && argument === ""
+  ) {
+    throw new Error(`${command} needs a GRID Series ID`);
+  }
+  if (command === "set-stream-cs2") {
+    // Only the normalized form travels: it is the one shape the remote script and the database accept.
+    if (value === "" || normalizeStreamUrl(value) !== value) throw new Error("set-stream-cs2 needs a normalized stream URL");
+  } else if (value !== "") {
+    throw new Error(`${command} takes no stream URL`);
+  }
+  const expectedConfirmation = command === "skip-cs2" ? `SKIP CS2 ${argument}` : undefined;
   if (expectedConfirmation !== undefined && confirmation !== expectedConfirmation) {
     throw new Error(`Invalid confirmation for ${command}`);
   }
   if (command === "publish-cs2" && !/^PUBLISH CS2 [A-Za-z0-9._:-]{1,200}$/u.test(confirmation)) {
     throw new Error("Invalid confirmation for publish-cs2");
   }
-  const remote = `sh -s -- '${config.deployPath}' '${command}' '${argument}' '${confirmation}'`;
+  const remote = `sh -s -- '${config.deployPath}' '${command}' '${argument}' '${confirmation}'${value === "" ? "" : ` '${value}'`}`;
   return {
     remote,
     args: [
@@ -237,9 +290,10 @@ export async function runRemote(
   command: RemoteCommand,
   argument = "",
   confirmation = "",
+  value = "",
   onOutput?: (chunk: string) => void,
 ): Promise<string> {
-  const invocation = buildSshInvocation(config, command, argument, confirmation);
+  const invocation = buildSshInvocation(config, command, argument, confirmation, value);
   const child = spawn("ssh", invocation.args, { stdio: ["pipe", "pipe", "pipe"] });
 
   let output = "";

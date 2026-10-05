@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, lte, notInArray, sql } from "drizzle-orm";
 import type {
   Cs2SeriesDetail,
   Cs2SeriesLifecycle,
@@ -8,9 +8,13 @@ import type {
   Uuid,
 } from "@arena/contracts";
 import { cs2CatalogConfig } from "../../cs2/catalog-config.js";
+import { forecastArenas } from "../../cs2/arena-forecast.js";
+import { catalogLifecycleOnRead } from "../../cs2/catalog-lifecycle.js";
+import type { Cs2SeriesCandidate } from "../../cs2/next-series.js";
 import { db } from "../client.js";
-import { arenas, cs2Competitions, cs2SeriesParticipants, cs2Teams, series } from "../schema.js";
+import { arenas, cs2Competitions, cs2SeriesFollows, cs2SeriesParticipants, cs2Teams, matches, series } from "../schema.js";
 import { matchRepository } from "./match.repository.js";
+import { CS2_AUTOPILOT_SETTING, settingsRepository } from "./settings.repository.js";
 import { reconcileSeriesParticipants } from "./cs2-participant-lifecycle.repository.js";
 
 export interface Cs2CatalogCompetitionInput {
@@ -61,20 +65,24 @@ function validateInput(input: Cs2CatalogSeriesInput): void {
   }
 }
 
+interface CatalogReadOptions {
+  tournamentIds?: readonly string[];
+  runningSeriesId?: Uuid | undefined;
+}
+
 async function readSupportedSeries(
   tournamentIds: readonly string[],
-  id?: Uuid,
-  activeGridSeriesId: string | undefined = cs2CatalogConfig.activeGridSeriesId,
-): Promise<Array<Cs2SeriesSummary & { mapNames: string[] }>> {
+  options: { id?: Uuid; runningSeriesId?: Uuid | undefined } = {},
+): Promise<Array<Cs2SeriesSummary & { mapNames: string[]; streamUrl: string | null }>> {
   if (tournamentIds.length === 0) return [];
   const catalogRows = await db
     .select({
       id: series.id,
-      gridSeriesId: series.gridSeriesId,
       format: series.format,
       scheduledStartTime: series.scheduledStartTime,
       lifecycle: series.catalogLifecycle,
       mapNames: series.mapNames,
+      streamUrl: series.streamUrl,
       competitionName: cs2Competitions.name,
       competitionShortName: cs2Competitions.shortName,
       competitionLogoUrl: cs2Competitions.logoUrl,
@@ -84,10 +92,16 @@ async function readSupportedSeries(
     .where(and(
       eq(series.isSupported, true),
       inArray(cs2Competitions.gridTournamentId, [...tournamentIds]),
-      id === undefined ? undefined : eq(series.id, id),
+      options.id === undefined ? undefined : eq(series.id, options.id),
     ))
     .orderBy(asc(series.scheduledStartTime));
   if (catalogRows.length === 0) return [];
+  // Forecast over the whole tournament, so one series' answer accounts for the others.
+  const now = new Date().toISOString();
+  const forecast = forecastArenas(await cs2CatalogRepository.listAutopilotCandidates(tournamentIds), now, {
+    autopilotEnabled: await settingsRepository.isEnabled(CS2_AUTOPILOT_SETTING),
+    ...(options.runningSeriesId !== undefined ? { runningSeriesId: options.runningSeriesId } : {}),
+  });
 
   const participantRows = await db
     .select({
@@ -129,7 +143,7 @@ async function readSupportedSeries(
 
   return catalogRows.map((row) => ({
     id: row.id,
-    availability: row.gridSeriesId === activeGridSeriesId ? "available" : "soon",
+    arena: forecast.get(row.id) ?? "none",
     participants: participantsBySeries.get(row.id) ?? [
       { state: "tbd", displayOrder: 1, seriesScore: null },
       { state: "tbd", displayOrder: 2, seriesScore: null },
@@ -141,39 +155,126 @@ async function readSupportedSeries(
     },
     format: row.format,
     scheduledStartTime: row.scheduledStartTime.toISOString(),
-    lifecycle: row.lifecycle,
+    lifecycle: catalogLifecycleOnRead(row.lifecycle, row.scheduledStartTime.toISOString(), now, row.id === options.runningSeriesId),
     mapNames: row.mapNames ?? [],
+    streamUrl: row.streamUrl,
   }));
 }
 
 export const cs2CatalogRepository = {
-  async listSupported(
-    tournamentIds: readonly string[] = cs2CatalogConfig.tournamentIds,
-    activeGridSeriesId: string | undefined = cs2CatalogConfig.activeGridSeriesId,
-  ): Promise<Cs2SeriesSummary[]> {
-    const rows = await readSupportedSeries(tournamentIds, undefined, activeGridSeriesId);
-    return rows.map(({ mapNames: _mapNames, ...summary }) => summary);
+  /**
+   * Marks unsupported the not-yet-run `active` series of these tournaments, scheduled inside the window, that GRID
+   * no longer publishes. The next sync that sees one again restores `is_supported` from its live-data level.
+   */
+  async withdrawUnpublishedSeries(
+    tournamentIds: readonly string[],
+    window: { from: Date; to: Date },
+    publishedGridSeriesIds: readonly string[],
+  ): Promise<number> {
+    if (tournamentIds.length === 0) return 0;
+    const competitionIds = db
+      .select({ id: cs2Competitions.id })
+      .from(cs2Competitions)
+      .where(inArray(cs2Competitions.gridTournamentId, [...tournamentIds]));
+    const rows = await db
+      .update(series)
+      .set({ isSupported: false })
+      .where(and(
+        eq(series.status, "active"),
+        eq(series.isSupported, true),
+        inArray(series.competitionId, competitionIds),
+        gte(series.scheduledStartTime, window.from),
+        lte(series.scheduledStartTime, window.to),
+        publishedGridSeriesIds.length > 0 ? notInArray(series.gridSeriesId, [...publishedGridSeriesIds]) : undefined,
+        // A series that already ran keeps its row as is: its arenas and refunds don't depend on the catalog.
+        sql`not exists (select 1 from ${arenas} inner join ${matches} on ${matches.id} = ${arenas.matchId} where ${matches.seriesId} = ${series.id})`,
+      ))
+      .returning({ id: series.id });
+    return rows.length;
   },
 
-  async findSupportedById(
-    id: Uuid,
+  /** `active` series of the configured tournaments that already ran an arena, for the autopilot's resume. */
+  async listActiveRunSeries(
     tournamentIds: readonly string[] = cs2CatalogConfig.tournamentIds,
-    activeGridSeriesId: string | undefined = cs2CatalogConfig.activeGridSeriesId,
-  ): Promise<Cs2SeriesSummary | undefined> {
-    const [catalogSeries] = await readSupportedSeries(tournamentIds, id, activeGridSeriesId);
+  ): Promise<{ seriesId: Uuid; gridSeriesId: string; scheduledStartTime: string; hasOpenArena: boolean }[]> {
+    if (tournamentIds.length === 0) return [];
+    const arenaOfSeries = (open: boolean) =>
+      sql<boolean>`exists (select 1 from ${arenas} inner join ${matches} on ${matches.id} = ${arenas.matchId} where ${matches.seriesId} = ${series.id}${open ? sql` and ${inArray(arenas.status, ["lobby", "live"])}` : sql``})`;
+    const rows = await db
+      .select({
+        seriesId: series.id,
+        gridSeriesId: series.gridSeriesId,
+        scheduledStartTime: series.scheduledStartTime,
+        hasOpenArena: arenaOfSeries(true),
+      })
+      .from(series)
+      .innerJoin(cs2Competitions, eq(series.competitionId, cs2Competitions.id))
+      .where(and(
+        eq(series.status, "active"),
+        inArray(cs2Competitions.gridTournamentId, [...tournamentIds]),
+        arenaOfSeries(false),
+      ))
+      .orderBy(asc(series.scheduledStartTime));
+    return rows.map((row) => ({ ...row, scheduledStartTime: row.scheduledStartTime.toISOString() }));
+  },
+
+  async listAutopilotCandidates(
+    tournamentIds: readonly string[] = cs2CatalogConfig.tournamentIds,
+  ): Promise<Cs2SeriesCandidate[]> {
+    if (tournamentIds.length === 0) return [];
+    // Only known slots have participant rows, and (series_id, team_id) is the key, so 2 rows means two distinct teams.
+    const knownTeams = sql<number>`(select count(*) from ${cs2SeriesParticipants} where ${cs2SeriesParticipants.seriesId} = ${series.id})::int`;
+    const followerCount = sql<number>`(select count(*) from ${cs2SeriesFollows} where ${cs2SeriesFollows.seriesId} = ${series.id})::int`;
+    const hasArena = sql<boolean>`exists (select 1 from ${arenas} inner join ${matches} on ${matches.id} = ${arenas.matchId} where ${matches.seriesId} = ${series.id})`;
+    const rows = await db
+      .select({
+        seriesId: series.id,
+        scheduledStartTime: series.scheduledStartTime,
+        priority: series.priority,
+        skipRequested: series.skipRequested,
+        status: series.status,
+        format: series.format,
+        isSupported: series.isSupported,
+        knownTeams,
+        followerCount,
+        hasArena,
+      })
+      .from(series)
+      .innerJoin(cs2Competitions, eq(series.competitionId, cs2Competitions.id))
+      .where(inArray(cs2Competitions.gridTournamentId, [...tournamentIds]));
+    return rows.map((row) => ({
+      seriesId: row.seriesId,
+      scheduledStartTime: row.scheduledStartTime.toISOString(),
+      priority: row.priority,
+      followerCount: row.followerCount,
+      selectable: row.isSupported && row.knownTeams === 2,
+      status: row.status,
+      hasArena: row.hasArena,
+      skipRequested: row.skipRequested,
+      format: row.format,
+    }));
+  },
+
+  async listSupported(options: CatalogReadOptions = {}): Promise<Cs2SeriesSummary[]> {
+    const { tournamentIds = cs2CatalogConfig.tournamentIds, runningSeriesId } = options;
+    const rows = await readSupportedSeries(tournamentIds, { runningSeriesId });
+    return rows.map(({ mapNames: _mapNames, streamUrl: _streamUrl, ...summary }) => summary);
+  },
+
+  async findSupportedById(id: Uuid, options: CatalogReadOptions = {}): Promise<Cs2SeriesSummary | undefined> {
+    const { tournamentIds = cs2CatalogConfig.tournamentIds, runningSeriesId } = options;
+    const [catalogSeries] = await readSupportedSeries(tournamentIds, { id, runningSeriesId });
     if (catalogSeries === undefined) return undefined;
-    const { mapNames: _mapNames, ...summary } = catalogSeries;
+    const { mapNames: _mapNames, streamUrl: _streamUrl, ...summary } = catalogSeries;
     return summary;
   },
 
-  async findSupportedDetailById(
-    id: Uuid,
-    tournamentIds: readonly string[] = cs2CatalogConfig.tournamentIds,
-    activeGridSeriesId: string | undefined = cs2CatalogConfig.activeGridSeriesId,
-  ): Promise<Cs2SeriesDetail | undefined> {
-    const [catalogSeries] = await readSupportedSeries(tournamentIds, id, activeGridSeriesId);
+  async findSupportedDetailById(id: Uuid, options: CatalogReadOptions = {}): Promise<Cs2SeriesDetail | undefined> {
+    const { tournamentIds = cs2CatalogConfig.tournamentIds, runningSeriesId } = options;
+    const [catalogSeries] = await readSupportedSeries(tournamentIds, { id, runningSeriesId });
     if (catalogSeries === undefined) return undefined;
-    const { mapNames } = catalogSeries;
+    const { streamUrl, ...catalogDetail } = catalogSeries;
+    const { mapNames } = catalogDetail;
 
     const seriesMatches = await matchRepository.listBySeriesId(id);
     if (seriesMatches.some((match) => match.discipline !== "cs2")) {
@@ -231,7 +332,7 @@ export const cs2CatalogRepository = {
       };
     }
 
-    return { ...catalogSeries, maps };
+    return { ...catalogDetail, maps, ...(streamUrl !== null ? { streamUrl } : {}) };
   },
 
   async synchronizeSeries(input: Cs2CatalogSeriesInput): Promise<{ seriesId: Uuid; participantCount: number }> {

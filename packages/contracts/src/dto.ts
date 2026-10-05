@@ -1,7 +1,7 @@
 // S2 — REST request/response DTOs (build plan §S2, P0.4).
 // The mock server and the real API both implement these shapes.
 
-import type { Answer, ArenaStatus, Cs2SeriesAvailability, Cs2SeriesLifecycle } from "./enums.js";
+import type { Answer, ArenaStatus, Cs2SeriesArenaForecast, Cs2SeriesLifecycle } from "./enums.js";
 import type {
   Arena,
   ArenaPlayer,
@@ -89,7 +89,7 @@ export interface Cs2CompetitionSummary {
 
 export interface Cs2SeriesSummary {
   id: Uuid;
-  availability: Cs2SeriesAvailability;
+  arena: Cs2SeriesArenaForecast;
   participants: [Cs2SeriesParticipant, Cs2SeriesParticipant];
   competition: Cs2CompetitionSummary;
   format: number;
@@ -126,6 +126,8 @@ export type Cs2SeriesMapSummary =
 
 export interface Cs2SeriesDetail extends Cs2SeriesSummary {
   maps: Cs2SeriesMapSummary[];
+  /** Normalized Twitch or Kick channel URL set by the operator, e.g. `https://twitch.tv/eslcs`. */
+  streamUrl?: string;
 }
 
 /** GET /series */

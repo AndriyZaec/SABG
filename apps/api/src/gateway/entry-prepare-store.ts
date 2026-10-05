@@ -48,6 +48,11 @@ export function beginEntrySubmission(arenaId: Uuid): (() => void) | undefined {
   };
 }
 
+/** Forgets a terminal arena's gate; the submit route already refuses any arena that isn't in lobby. */
+export function releaseEntryGate(arenaId: Uuid): void {
+  entryGates.delete(arenaId);
+}
+
 /** Stops new irreversible submits and waits for every accepted submit to finish seating. */
 export async function closeEntrySubmissions(arenaId: Uuid): Promise<void> {
   const gate = entryGates.get(arenaId) ?? { closed: false, active: 0, waiters: [] };

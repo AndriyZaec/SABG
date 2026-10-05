@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import dotenv from "dotenv";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Cs2GameSnapshot, MatchSignal } from "@arena/contracts";
 import type { Cs2ArenaRuntime } from "../arena-runtime.js";
 import type { Cs2SeriesSnapshot } from "../series-snapshot.js";
 
@@ -47,6 +48,8 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
   let Cs2SeriesOrchestrator: typeof import("../series-orchestrator.js")["Cs2SeriesOrchestrator"];
   let userRepository: typeof import("../../db/repositories/user.repository.js")["userRepository"];
   let cs2SeriesFollowRepository: typeof import("../../db/repositories/cs2-series-follow.repository.js")["cs2SeriesFollowRepository"];
+  let payoutService: typeof import("../../payout/index.js")["payoutService"];
+  let arenaPlayerRepository: typeof import("../../db/repositories/arena-player.repository.js")["arenaPlayerRepository"];
 
   const arenaIds: string[] = [];
   const matchIds: string[] = [];
@@ -67,6 +70,8 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     ({ Cs2SeriesOrchestrator } = await import("../series-orchestrator.js"));
     ({ userRepository } = await import("../../db/repositories/user.repository.js"));
     ({ cs2SeriesFollowRepository } = await import("../../db/repositories/cs2-series-follow.repository.js"));
+    ({ payoutService } = await import("../../payout/index.js"));
+    ({ arenaPlayerRepository } = await import("../../db/repositories/arena-player.repository.js"));
   });
 
   beforeEach(() => {
@@ -222,6 +227,397 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     // Once the game is over, the no-show cancel is re-emitted and completes.
     await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: false }), at(90));
     expect((await seriesRepository.findById(series.id))?.status).toBe("invalid");
+  });
+
+  it("is complete only once the series is terminal and none of its arenas is open", async () => {
+    const at = clockFrom(new Date(Date.now() + 48 * 60 * MIN).toISOString());
+    const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
+      format: 3,
+      scheduledStartTime: new Date(at(0)),
+    });
+    seriesIds.push(series.id);
+    const matchTeamIds = await synchronizeTestTeams(series.id);
+
+    const writeQueue = new WriteQueue();
+    const orchestrator = await Cs2SeriesOrchestrator.create(series, { writeQueue, entryFeeLamports: 1000 });
+    expect(await orchestrator.isComplete()).toBe(false);
+
+    await orchestrator.poll(snapshot(matchTeamIds, {}), at(-10));
+    const match1 = (await matchRepository.listBySeriesId(series.id))[0]!;
+    matchIds.push(match1.id);
+    const arena1 = (await arenaRepository.findByMatchId(match1.id))!;
+    arenaIds.push(arena1.id);
+    expect(orchestrator.openedArenaIds()).toEqual([arena1.id]);
+    expect(await orchestrator.isComplete()).toBe(false);
+
+    await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: false }), at(61));
+    expect(await orchestrator.isComplete()).toBe(true);
+    await writeQueue.drain();
+  });
+
+  async function openArenaOne(startInHours: number, options: { live?: boolean } = {}) {
+    const at = clockFrom(new Date(Date.now() + startInHours * 60 * MIN).toISOString());
+    const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
+      format: 3,
+      scheduledStartTime: new Date(at(0)),
+    });
+    seriesIds.push(series.id);
+    const matchTeamIds = await synchronizeTestTeams(series.id);
+    const writeQueue = new WriteQueue();
+    const orchestrator = await Cs2SeriesOrchestrator.create(series, { writeQueue, entryFeeLamports: 1000 });
+    await orchestrator.poll(snapshot(matchTeamIds, {}), at(-10));
+    const match1 = (await matchRepository.listBySeriesId(series.id))[0]!;
+    matchIds.push(match1.id);
+    const arena1 = (await arenaRepository.findByMatchId(match1.id))!;
+    arenaIds.push(arena1.id);
+    if (options.live === true) await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: true }), at(1));
+    await db.update(schema.series).set({ skipRequested: true }).where(eq(schema.series.id, series.id));
+    return { series, orchestrator, writeQueue, arena1 };
+  }
+
+  async function addPaidPass(arenaId: string) {
+    const user = await userRepository.upsertByWallet(`int-test-wallet-${randomUUID()}`, "skip-payer");
+    userIds.push(user.id);
+    await entryPassRepository.create({
+      arenaId,
+      userId: user.id,
+      walletAddress: user.walletAddress,
+      amountLamports: 1000,
+      txSignature: `int-test-tx-${randomUUID()}`,
+    });
+  }
+
+  it("operator skip cancels an empty lobby arena and skips the series", async () => {
+    const { series, orchestrator, writeQueue, arena1 } = await openArenaOne(51);
+    expect(await orchestrator.skip()).toBe("skipped");
+    expect(await arenaRepository.findById(arena1.id)).toMatchObject({ status: "cancelled", cancelledReason: "operator_skip" });
+    expect(await seriesRepository.findById(series.id)).toMatchObject({ status: "skipped", skipRequested: false });
+    expect(orchestrator.currentBus()).toBeUndefined();
+    await writeQueue.drain();
+  });
+
+  it("operator skip cancels an empty live arena and detaches it from the game", async () => {
+    const { series, orchestrator, writeQueue, arena1 } = await openArenaOne(54, { live: true });
+    expect((await arenaRepository.findById(arena1.id))?.status).toBe("live");
+    expect(await orchestrator.skip()).toBe("skipped");
+    expect(await arenaRepository.findById(arena1.id)).toMatchObject({ status: "cancelled", cancelledReason: "operator_skip" });
+    expect(await seriesRepository.findById(series.id)).toMatchObject({ status: "skipped", skipRequested: false });
+    expect(orchestrator.currentBus()).toBeUndefined();
+    expect(await orchestrator.isComplete()).toBe(true);
+    await writeQueue.drain();
+  });
+
+  it.each([false, true])("operator skip is refused when the open arena has a paid entry (live: %s)", async (live) => {
+    const { series, orchestrator, writeQueue, arena1 } = await openArenaOne(live ? 60 : 57, { live });
+    await addPaidPass(arena1.id);
+    expect(await orchestrator.skip()).toBe("refused");
+    expect((await arenaRepository.findById(arena1.id))?.status).toBe(live ? "live" : "lobby");
+    expect(await seriesRepository.findById(series.id)).toMatchObject({ status: "active", skipRequested: false });
+    expect(orchestrator.currentBus()).toBeDefined();
+    await writeQueue.drain();
+  });
+
+  it("operator skip between maps skips the series and changes no arena", async () => {
+    const at = clockFrom(new Date(Date.now() + 63 * 60 * MIN).toISOString());
+    const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
+      format: 3,
+      scheduledStartTime: new Date(at(0)),
+    });
+    seriesIds.push(series.id);
+    await synchronizeTestTeams(series.id);
+    const orchestrator = await Cs2SeriesOrchestrator.create(series, {
+      writeQueue: new WriteQueue(),
+      entryFeeLamports: 1000,
+      startAfterMap1: true,
+    });
+    expect(await orchestrator.skip()).toBe("skipped");
+    expect((await seriesRepository.findById(series.id))?.status).toBe("skipped");
+    expect(await matchRepository.listBySeriesId(series.id)).toEqual([]);
+  });
+
+  it("operator skip is refused for a restored live arena that still holds paid entries but has no runtime", async () => {
+    const seeded = await seedLiveArenaAtCrash(69, [{ status: "eliminated", paid: true }]);
+    const settleSpy = vi.spyOn(payoutService, "settleArena").mockResolvedValue(undefined);
+    try {
+      const restored = await Cs2SeriesOrchestrator.create(seeded.series, { writeQueue: new WriteQueue(), entryFeeLamports: 1000 });
+      expect((await arenaRepository.findById(seeded.arena.id))?.status).toBe("live");
+      await db.update(schema.series).set({ skipRequested: true }).where(eq(schema.series.id, seeded.series.id));
+
+      expect(await restored.skip()).toBe("refused");
+      expect((await arenaRepository.findById(seeded.arena.id))?.status).toBe("live");
+      expect(await seriesRepository.findById(seeded.series.id)).toMatchObject({ status: "active", skipRequested: false });
+    } finally {
+      settleSpy.mockRestore();
+    }
+  });
+
+  it("operator skip leaves a series the last poll already ended as it is", async () => {
+    const { series, orchestrator, writeQueue } = await openArenaOne(72);
+    await seriesRepository.setStatus(series.id, "decided");
+    expect(await orchestrator.skip()).toBe("skipped");
+    expect(await seriesRepository.findById(series.id)).toMatchObject({ status: "decided", skipRequested: false });
+    await writeQueue.drain();
+  });
+
+  it("cancelLiveIfEmpty leaves a live arena live once a paid entry exists", async () => {
+    const { orchestrator, writeQueue, arena1 } = await openArenaOne(66, { live: true });
+    await addPaidPass(arena1.id);
+    expect(await arenaRepository.cancelLiveIfEmpty(arena1.id, "operator_skip")).toBeUndefined();
+    expect((await arenaRepository.findById(arena1.id))?.status).toBe("live");
+    expect(orchestrator.currentBus()).toBeDefined();
+    await writeQueue.drain();
+  });
+
+  it("finishes a live arena on match end and settles its payout", async () => {
+    const at = clockFrom(new Date(Date.now() + 27 * 60 * MIN).toISOString());
+    const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
+      format: 3,
+      scheduledStartTime: new Date(at(0)),
+    });
+    seriesIds.push(series.id);
+    const matchTeamIds = await synchronizeTestTeams(series.id);
+
+    const writeQueue = new WriteQueue();
+    const orchestrator = await Cs2SeriesOrchestrator.create(series, { writeQueue, entryFeeLamports: 1000 });
+    await orchestrator.poll(snapshot(matchTeamIds, {}), at(-10));
+    const match1 = (await matchRepository.listBySeriesId(series.id))[0]!;
+    matchIds.push(match1.id);
+    const arena1 = (await arenaRepository.findByMatchId(match1.id))!;
+    arenaIds.push(arena1.id);
+    await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: true }), at(1));
+
+    const settleSpy = vi.spyOn(payoutService, "settleArena").mockResolvedValue(undefined);
+    try {
+      orchestrator.currentBus()!.publish({ kind: "cs2_match_end", timestamp: at(40) });
+      await writeQueue.drain();
+      expect((await arenaRepository.findById(arena1.id))?.status).toBe("finished");
+      expect(settleSpy).toHaveBeenCalledWith(arena1.id, []);
+    } finally {
+      settleSpy.mockRestore();
+    }
+  });
+
+  it("never finishes or pays a cancelled arena whose runtime still gets a match end", async () => {
+    const at = clockFrom(new Date(Date.now() + 30 * 60 * MIN).toISOString());
+    const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
+      format: 3,
+      scheduledStartTime: new Date(at(0)),
+    });
+    seriesIds.push(series.id);
+    const matchTeamIds = await synchronizeTestTeams(series.id);
+
+    const writeQueue = new WriteQueue();
+    const orchestrator = await Cs2SeriesOrchestrator.create(series, { writeQueue, entryFeeLamports: 1000 });
+    await orchestrator.poll(snapshot(matchTeamIds, {}), at(-10));
+    const match1 = (await matchRepository.listBySeriesId(series.id))[0]!;
+    matchIds.push(match1.id);
+    const arena1 = (await arenaRepository.findByMatchId(match1.id))!;
+    arenaIds.push(arena1.id);
+    // Captured before the cancel: the runtime stays subscribed to it.
+    const arena1Bus = orchestrator.currentBus()!;
+
+    await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: false }), at(61));
+    expect((await arenaRepository.findById(arena1.id))?.status).toBe("cancelled");
+
+    const settleSpy = vi.spyOn(payoutService, "settleArena").mockResolvedValue(undefined);
+    try {
+      arena1Bus.publish({ kind: "cs2_match_end", timestamp: at(100) });
+      await writeQueue.drain();
+      expect((await arenaRepository.findById(arena1.id))?.status).toBe("cancelled");
+      expect(settleSpy).not.toHaveBeenCalled();
+    } finally {
+      settleSpy.mockRestore();
+    }
+  });
+
+  it("stops feeding a no-show-cancelled arena when its game starts late", async () => {
+    const at = clockFrom(new Date(Date.now() + 33 * 60 * MIN).toISOString());
+    const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
+      format: 3,
+      scheduledStartTime: new Date(at(0)),
+    });
+    seriesIds.push(series.id);
+    const matchTeamIds = await synchronizeTestTeams(series.id);
+
+    const writeQueue = new WriteQueue();
+    const orchestrator = await Cs2SeriesOrchestrator.create(series, { writeQueue, entryFeeLamports: 1000 });
+    await orchestrator.poll(snapshot(matchTeamIds, {}), at(-10));
+    const match1 = (await matchRepository.listBySeriesId(series.id))[0]!;
+    matchIds.push(match1.id);
+    const arena1 = (await arenaRepository.findByMatchId(match1.id))!;
+    arenaIds.push(arena1.id);
+
+    await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: false }), at(61));
+    expect((await arenaRepository.findById(arena1.id))?.status).toBe("cancelled");
+    expect(orchestrator.currentBus()).toBeUndefined();
+
+    // The late game, delivered the way Cs2LivePoller does: tracker signals go to currentBus().
+    const game = (a: number, b: number): Cs2GameSnapshot => ({
+      teams: [
+        { teamId: matchTeamIds[0], name: "Team A", score: a, deaths: 0, weaponKills: [], players: [] },
+        { teamId: matchTeamIds[1], name: "Team B", score: b, deaths: 0, weaponKills: [], players: [] },
+      ],
+      clock: { ticking: true, currentSeconds: 20 },
+    });
+    const deliver = (signal: MatchSignal) => orchestrator.currentBus()?.publish(signal);
+    const settleSpy = vi.spyOn(payoutService, "settleArena").mockResolvedValue(undefined);
+    try {
+      await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: true }), at(70));
+      deliver({ kind: "cs2_round_lock", roundNumber: 1, timestamp: at(71) });
+      deliver({ kind: "cs2_round_end", roundNumber: 1, snapshot: game(1, 0), timestamp: at(72) });
+      deliver({ kind: "cs2_match_end", timestamp: at(120) });
+      await writeQueue.drain();
+
+      const rounds = await predictionRoundRepository.listByArenaId(arena1.id);
+      expect(rounds.map((round) => round.roundNumber)).toEqual([1]);
+      expect((await arenaRepository.findById(arena1.id))?.status).toBe("cancelled");
+      expect(settleSpy).not.toHaveBeenCalled();
+    } finally {
+      settleSpy.mockRestore();
+    }
+  });
+
+  // A live arena 1 as a crash leaves it: round 1 settled, round 2 locked, the given players joined.
+  async function seedLiveArenaAtCrash(startInHours: number, players: { status: "active" | "eliminated"; paid?: boolean }[]) {
+    const at = clockFrom(new Date(Date.now() + startInHours * 60 * MIN).toISOString());
+    const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
+      format: 3,
+      scheduledStartTime: new Date(at(0)),
+    });
+    seriesIds.push(series.id);
+    const matchTeamIds = await synchronizeTestTeams(series.id);
+
+    const writeQueue = new WriteQueue();
+    let runtime: Cs2ArenaRuntime | undefined;
+    const first = await Cs2SeriesOrchestrator.create(series, {
+      writeQueue,
+      entryFeeLamports: 1000,
+      onArenaOpened: (_arenaId, opened) => {
+        runtime = opened;
+      },
+    });
+    await first.poll(snapshot(matchTeamIds, {}), at(-10));
+    const match1 = (await matchRepository.listBySeriesId(series.id))[0]!;
+    matchIds.push(match1.id);
+    const arena = (await arenaRepository.findByMatchId(match1.id))!;
+    arenaIds.push(arena.id);
+
+    const users = [];
+    for (const [i, player] of players.entries()) {
+      const user = await userRepository.upsertByWallet(`int-test-wallet-${randomUUID()}`, `crash-player-${i}`);
+      userIds.push(user.id);
+      runtime!.join(user.id, user.username, at(-9));
+      users.push({ ...user, ...player });
+    }
+    await first.poll(snapshot(matchTeamIds, { hasLiveGame: true }), at(1));
+    await writeQueue.drain();
+    expect((await arenaRepository.findById(arena.id))?.status).toBe("live");
+
+    for (const user of users) {
+      if (user.status === "eliminated") await arenaPlayerRepository.setStatus(arena.id, user.id, "eliminated");
+      if (user.paid === true) {
+        await entryPassRepository.create({
+          arenaId: arena.id,
+          userId: user.id,
+          walletAddress: user.walletAddress,
+          amountLamports: 1000,
+          txSignature: `int-test-tx-${randomUUID()}`,
+        });
+      }
+    }
+    const round1 = (await predictionRoundRepository.listByArenaId(arena.id))[0]!;
+    const settledRound1 = await predictionRoundRepository.upsert({ ...round1, status: "settled", settledAt: at(5) });
+    const lockedRound2 = await predictionRoundRepository.upsert({
+      ...round1,
+      id: randomUUID(),
+      roundNumber: 2,
+      status: "locked",
+      lockedAt: at(6),
+    });
+
+    return { at, series, matchTeamIds, match1, arena, users, settledRound1, lockedRound2 };
+  }
+
+  it("crash-closes a live arena on restore: voids unsettled rounds and pays the active players", async () => {
+    const seeded = await seedLiveArenaAtCrash(36, [{ status: "active" }, { status: "active" }, { status: "eliminated" }]);
+    const settleSpy = vi.spyOn(payoutService, "settleArena").mockResolvedValue(undefined);
+    try {
+      await Cs2SeriesOrchestrator.create(seeded.series, { writeQueue: new WriteQueue(), entryFeeLamports: 1000 });
+
+      const rounds = await predictionRoundRepository.listByArenaId(seeded.arena.id);
+      expect(rounds.find((round) => round.id === seeded.lockedRound2.id)?.status).toBe("voided");
+      expect(rounds.find((round) => round.id === seeded.settledRound1.id)).toEqual(seeded.settledRound1);
+
+      const statuses = Object.fromEntries(
+        (await arenaPlayerRepository.list(seeded.arena.id)).map((player) => [player.userId, player.status]),
+      );
+      expect(statuses).toEqual({
+        [seeded.users[0]!.id]: "winner",
+        [seeded.users[1]!.id]: "winner",
+        [seeded.users[2]!.id]: "eliminated",
+      });
+      expect((await arenaRepository.findById(seeded.arena.id))?.status).toBe("finished");
+      expect(settleSpy).toHaveBeenCalledTimes(1);
+      expect(settleSpy.mock.calls[0]![0]).toBe(seeded.arena.id);
+      expect([...settleSpy.mock.calls[0]![1]].sort()).toEqual([seeded.users[0]!.id, seeded.users[1]!.id].sort());
+    } finally {
+      settleSpy.mockRestore();
+    }
+  });
+
+  it("continues the series after a crash close: map 1's end opens arena 2 and finishes match 1", async () => {
+    const seeded = await seedLiveArenaAtCrash(39, [{ status: "active" }]);
+    const settleSpy = vi.spyOn(payoutService, "settleArena").mockResolvedValue(undefined);
+    try {
+      const writeQueue = new WriteQueue();
+      const restored = await Cs2SeriesOrchestrator.create(seeded.series, { writeQueue, entryFeeLamports: 1000 });
+      await restored.poll(snapshot(seeded.matchTeamIds, { hasLiveGame: true }), seeded.at(20));
+      expect(await matchRepository.listBySeriesId(seeded.series.id)).toHaveLength(1);
+
+      await restored.poll(snapshot(seeded.matchTeamIds, { teams: [1, 0] }), seeded.at(40));
+      const match2 = (await matchRepository.listBySeriesId(seeded.series.id)).find((m) => m.id !== seeded.match1.id)!;
+      matchIds.push(match2.id);
+      const arena2 = (await arenaRepository.findByMatchId(match2.id))!;
+      arenaIds.push(arena2.id);
+
+      expect(arena2.status).toBe("lobby");
+      expect((await matchRepository.findById(seeded.match1.id))?.status).toBe("finished");
+      expect((await seriesRepository.findById(seeded.series.id))?.status).toBe("active");
+      await writeQueue.drain();
+    } finally {
+      settleSpy.mockRestore();
+    }
+  });
+
+  it("refuses to follow the next map as the crash-closed one when it is already live at the first poll", async () => {
+    const seeded = await seedLiveArenaAtCrash(45, [{ status: "active" }]);
+    const settleSpy = vi.spyOn(payoutService, "settleArena").mockResolvedValue(undefined);
+    try {
+      const restored = await Cs2SeriesOrchestrator.create(seeded.series, { writeQueue: new WriteQueue(), entryFeeLamports: 1000 });
+
+      await expect(
+        restored.poll(snapshot(seeded.matchTeamIds, { teams: [1, 0], hasLiveGame: true }), seeded.at(50)),
+      ).rejects.toThrow("already live");
+      await expect(
+        restored.poll(snapshot(seeded.matchTeamIds, { teams: [1, 0], hasLiveGame: true }), seeded.at(51)),
+      ).rejects.toThrow("already live");
+      expect(await matchRepository.listBySeriesId(seeded.series.id)).toHaveLength(1);
+    } finally {
+      settleSpy.mockRestore();
+    }
+  });
+
+  it("leaves a live arena live on restore when it has paid entries but no active player", async () => {
+    const seeded = await seedLiveArenaAtCrash(42, [{ status: "eliminated", paid: true }]);
+    const settleSpy = vi.spyOn(payoutService, "settleArena").mockResolvedValue(undefined);
+    try {
+      await Cs2SeriesOrchestrator.create(seeded.series, { writeQueue: new WriteQueue(), entryFeeLamports: 1000 });
+
+      expect((await arenaRepository.findById(seeded.arena.id))?.status).toBe("live");
+      expect(settleSpy).not.toHaveBeenCalled();
+    } finally {
+      settleSpy.mockRestore();
+    }
   });
 
   it("restores the same lobby arena, round, roster, and answer without creating a duplicate match", async () => {
@@ -434,6 +830,8 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     const arena2 = (await arenaRepository.findByMatchId(match2.id))!;
     arenaIds.push(arena2.id);
     expect(arena2.status).toBe("lobby");
+    // Arena 1 is detached, so the current bus can only be arena 2's.
+    expect(orchestrator.currentBus()).toBeDefined();
 
     await orchestrator.poll(snapshot(matchTeamIds, { teams: [1, 0], hasLiveGame: true }), at(20));
     expect((await arenaRepository.findById(arena2.id))?.status).toBe("live");

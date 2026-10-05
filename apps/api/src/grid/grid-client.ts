@@ -17,8 +17,8 @@ export class GridClient {
     });
   }
 
-  async fetchSeriesState(signal?: AbortSignal): Promise<GridFetchResult> {
-    const query = loadSeriesStateQuery(gridConfig.grid.queryFile, gridConfig.grid.seriesId);
-    return this.graphql.request(query, {}, signal, { seriesId: gridConfig.grid.seriesId });
+  async fetchSeriesState(gridSeriesId: string, signal?: AbortSignal): Promise<GridFetchResult> {
+    const query = loadSeriesStateQuery(gridConfig.grid.queryFile, gridSeriesId);
+    return this.graphql.request(query, {}, signal, { seriesId: gridSeriesId });
   }
 }

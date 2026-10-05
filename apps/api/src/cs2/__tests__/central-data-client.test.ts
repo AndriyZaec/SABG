@@ -100,6 +100,19 @@ describe("GridCentralDataClient", () => {
     ).resolves.toEqual([]);
   });
 
+  it("returns no series for an empty page without an end cursor", async () => {
+    const request = vi.fn()
+      .mockResolvedValueOnce(response({ data: { titles: [
+        { id: "title-cs2", name: "Counter-Strike 2", nameShortened: "CS2" },
+      ] } }))
+      .mockResolvedValueOnce(response({ data: { allSeries: { edges: [], pageInfo: { hasNextPage: false } } } }));
+    const client = new GridCentralDataClient({ request } as GridGraphqlRequester);
+
+    await expect(
+      client.fetchSeries({ from: new Date("2026-09-01"), to: new Date("2026-09-02") }, ["tournament-1"]),
+    ).resolves.toEqual([]);
+  });
+
   it("fails closed without selected tournaments", async () => {
     const request = vi.fn();
     const client = new GridCentralDataClient({ request } as GridGraphqlRequester);
