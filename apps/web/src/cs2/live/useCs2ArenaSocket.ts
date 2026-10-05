@@ -41,6 +41,7 @@ function initialView(d: ArenaDetailResponse): Cs2ArenaView {
           },
         }
       : {}),
+    ...(d.arena.status === "finished" ? { finished: true as const } : {}),
     feed: [],
     leaderboard: [],
   };
@@ -128,6 +129,7 @@ function reduce(view: Cs2ArenaView, msg: ServerMessage, myUserId?: string): Cs2A
       return {
         ...view,
         ...(iWon ? { myStatus: "winner" as const } : {}),
+        finished: true,
         feed: prependFeedItem(view.feed, { id: "arena-finished", kind: "info", text: "Arena finished" }),
       };
     }
@@ -191,7 +193,10 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
           you: myUserId.current != null && e.userId === myUserId.current,
         }));
         const feed = rounds ? feedFromRounds(rounds.rounds, myUserId.current) : [];
-        setView((v) => v ?? { ...initialView(detail), leaderboard: rows, feed });
+        setView((v) => {
+          if (!v) return { ...initialView(detail), leaderboard: rows, feed };
+          return detail.arena.status === "finished" ? { ...v, finished: true } : v;
+        });
       })
       .catch(() => {
         if (!cancelled) setLoadError(true);
