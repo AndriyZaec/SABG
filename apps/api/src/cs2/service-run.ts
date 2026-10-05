@@ -9,7 +9,7 @@ import { startScheduler, stopScheduler, type Scheduler } from "../scheduler/inde
 import { Cs2Autopilot, createCs2AutopilotDeps, registerCs2AutopilotJobs } from "./autopilot.js";
 import { cs2Config } from "./config/env.js";
 
-const CS2_ENTRY_FEE_LAMPORTS = 10_000_000;
+const CS2_ENTRY_FEE_LAMPORTS = 100_000_000; // 0.1 SOL
 
 async function main(): Promise<void> {
   const abortController = new AbortController();
