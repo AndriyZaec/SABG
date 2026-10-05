@@ -106,6 +106,23 @@ describe("forecastArenas", () => {
     expect(forecastArenas([...tied].reverse(), NOW).get("a")).toBe("expected");
   });
 
+  it("treats the runner's series as running before its first arena opens, past the late window", () => {
+    // Joined after map 1 at 11:40: no arena until map 2, and its start is past the 30-min window.
+    const forecast = forecastArenas([series("held", "11:20"), series("clash", "14:00"), series("after", "15:30")], NOW, {
+      autopilotEnabled: true,
+      runningSeriesId: "held",
+    });
+    expect(Object.fromEntries(forecast)).toEqual({ held: "running", clash: "unlikely", after: "expected" });
+  });
+
+  it("doesn't also expect the runner's series while its start is inside the late window", () => {
+    const forecast = forecastArenas([series("held", "11:45"), series("clash", "13:00")], NOW, {
+      autopilotEnabled: true,
+      runningSeriesId: "held",
+    });
+    expect(Object.fromEntries(forecast)).toEqual({ held: "running", clash: "unlikely" });
+  });
+
   it("expects nothing new while the autopilot is switched off, but keeps the running series", () => {
     const forecast = forecastArenas([series("running", "11:00", { hasArena: true }), series("next", "16:00")], NOW, {
       autopilotEnabled: false,

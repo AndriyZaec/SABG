@@ -70,8 +70,8 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
       ],
     });
     expect(first.participantCount).toBe(1);
-    // Its start is long past and it never ran, so the forecast is final.
-    await expect(repository.findSupportedById(first.seriesId, [gridTournamentId])).resolves.toMatchObject({
+    // Its start is long past and it never ran, so the forecast is final and it no longer reads as upcoming.
+    await expect(repository.findSupportedById(first.seriesId, { tournamentIds: [gridTournamentId] })).resolves.toMatchObject({
       id: first.seriesId,
       arena: "none",
       participants: [
@@ -80,7 +80,7 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
       ],
       competition: { name: "Major" },
       format: 3,
-      lifecycle: "upcoming",
+      lifecycle: "unknown",
     });
 
     await db
@@ -165,11 +165,11 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
     seriesMatchIds.push(secondMap.id);
 
     // Map 1's arena is in lobby, so the series is joinable now.
-    await expect(repository.findSupportedById(first.seriesId, [gridTournamentId])).resolves.toMatchObject({
+    await expect(repository.findSupportedById(first.seriesId, { tournamentIds: [gridTournamentId] })).resolves.toMatchObject({
       arena: "running",
     });
 
-    const detail = await repository.findSupportedDetailById(first.seriesId, [gridTournamentId]);
+    const detail = await repository.findSupportedDetailById(first.seriesId, { tournamentIds: [gridTournamentId] });
     expect(detail?.maps).toEqual([
       {
         state: "lobby",
@@ -189,7 +189,7 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
       { state: "pending", seriesMatchIndex: 2 },
       { state: "pending", seriesMatchIndex: 3 },
     ]);
-    await expect(repository.findSupportedDetailById(first.seriesId, ["other-tournament"])).resolves.toBeUndefined();
+    await expect(repository.findSupportedDetailById(first.seriesId, { tournamentIds: ["other-tournament"] })).resolves.toBeUndefined();
 
     const unsupported = await repository.synchronizeSeries({
       ...base,
@@ -197,9 +197,9 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
       isSupported: false,
       participants: [{ state: "tbd", displayOrder: 1 }, { state: "tbd", displayOrder: 2 }],
     });
-    await expect(repository.findSupportedById(unsupported.seriesId, [gridTournamentId])).resolves.toBeUndefined();
-    await expect(repository.findSupportedById(first.seriesId, ["other-tournament"])).resolves.toBeUndefined();
-    await expect(repository.listSupported([gridTournamentId])).resolves.not.toContainEqual(
+    await expect(repository.findSupportedById(unsupported.seriesId, { tournamentIds: [gridTournamentId] })).resolves.toBeUndefined();
+    await expect(repository.findSupportedById(first.seriesId, { tournamentIds: ["other-tournament"] })).resolves.toBeUndefined();
+    await expect(repository.listSupported({ tournamentIds: [gridTournamentId] })).resolves.not.toContainEqual(
       expect.objectContaining({ id: unsupported.seriesId }),
     );
   });
@@ -272,7 +272,7 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
 
     await db.update(schema.series).set({ mapNames: ["mirage", "inferno"] }).where(eq(schema.series.id, seriesId));
 
-    const detail = await repository.findSupportedDetailById(seriesId, [gridTournamentId]);
+    const detail = await repository.findSupportedDetailById(seriesId, { tournamentIds: [gridTournamentId] });
     expect(detail?.maps.map((map) => ({ seriesMatchIndex: map.seriesMatchIndex, mapName: map.mapName }))).toEqual([
       { seriesMatchIndex: 1, mapName: "mirage" },
       { seriesMatchIndex: 2, mapName: "inferno" },

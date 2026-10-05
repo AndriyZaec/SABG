@@ -102,6 +102,11 @@ export class Cs2Autopilot {
     return this.launching || this.runner !== undefined;
   }
 
+  /** The series a started runner holds, for the catalog: it is live even before its first arena opens. */
+  get runningSeriesId(): Uuid | undefined {
+    return this.runner?.seriesId;
+  }
+
   /** Called when a series stops being run (complete, skipped on priming, or abandoned). */
   onSeriesEnded(listener: () => void): void {
     this.seriesEndListener = listener;

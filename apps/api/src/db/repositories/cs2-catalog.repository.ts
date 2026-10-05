@@ -9,6 +9,7 @@ import type {
 } from "@arena/contracts";
 import { cs2CatalogConfig } from "../../cs2/catalog-config.js";
 import { forecastArenas } from "../../cs2/arena-forecast.js";
+import { catalogLifecycleOnRead } from "../../cs2/catalog-lifecycle.js";
 import type { Cs2SeriesCandidate } from "../../cs2/next-series.js";
 import { db } from "../client.js";
 import { arenas, cs2Competitions, cs2SeriesFollows, cs2SeriesParticipants, cs2Teams, matches, series } from "../schema.js";
@@ -64,9 +65,14 @@ function validateInput(input: Cs2CatalogSeriesInput): void {
   }
 }
 
+interface CatalogReadOptions {
+  tournamentIds?: readonly string[];
+  runningSeriesId?: Uuid | undefined;
+}
+
 async function readSupportedSeries(
   tournamentIds: readonly string[],
-  id?: Uuid,
+  options: { id?: Uuid; runningSeriesId?: Uuid | undefined } = {},
 ): Promise<Array<Cs2SeriesSummary & { mapNames: string[] }>> {
   if (tournamentIds.length === 0) return [];
   const catalogRows = await db
@@ -85,13 +91,15 @@ async function readSupportedSeries(
     .where(and(
       eq(series.isSupported, true),
       inArray(cs2Competitions.gridTournamentId, [...tournamentIds]),
-      id === undefined ? undefined : eq(series.id, id),
+      options.id === undefined ? undefined : eq(series.id, options.id),
     ))
     .orderBy(asc(series.scheduledStartTime));
   if (catalogRows.length === 0) return [];
   // Forecast over the whole tournament, so one series' answer accounts for the others.
-  const forecast = forecastArenas(await cs2CatalogRepository.listAutopilotCandidates(tournamentIds), new Date().toISOString(), {
+  const now = new Date().toISOString();
+  const forecast = forecastArenas(await cs2CatalogRepository.listAutopilotCandidates(tournamentIds), now, {
     autopilotEnabled: await settingsRepository.isEnabled(CS2_AUTOPILOT_SETTING),
+    ...(options.runningSeriesId !== undefined ? { runningSeriesId: options.runningSeriesId } : {}),
   });
 
   const participantRows = await db
@@ -146,7 +154,7 @@ async function readSupportedSeries(
     },
     format: row.format,
     scheduledStartTime: row.scheduledStartTime.toISOString(),
-    lifecycle: row.lifecycle,
+    lifecycle: catalogLifecycleOnRead(row.lifecycle, row.scheduledStartTime.toISOString(), now, row.id === options.runningSeriesId),
     mapNames: row.mapNames ?? [],
   }));
 }
@@ -246,28 +254,24 @@ export const cs2CatalogRepository = {
     }));
   },
 
-  async listSupported(
-    tournamentIds: readonly string[] = cs2CatalogConfig.tournamentIds,
-  ): Promise<Cs2SeriesSummary[]> {
-    const rows = await readSupportedSeries(tournamentIds);
+  /** `runningSeriesId`: the series the autopilot runs, live even before its first arena opens. */
+  async listSupported(options: CatalogReadOptions = {}): Promise<Cs2SeriesSummary[]> {
+    const { tournamentIds = cs2CatalogConfig.tournamentIds, runningSeriesId } = options;
+    const rows = await readSupportedSeries(tournamentIds, { runningSeriesId });
     return rows.map(({ mapNames: _mapNames, ...summary }) => summary);
   },
 
-  async findSupportedById(
-    id: Uuid,
-    tournamentIds: readonly string[] = cs2CatalogConfig.tournamentIds,
-  ): Promise<Cs2SeriesSummary | undefined> {
-    const [catalogSeries] = await readSupportedSeries(tournamentIds, id);
+  async findSupportedById(id: Uuid, options: CatalogReadOptions = {}): Promise<Cs2SeriesSummary | undefined> {
+    const { tournamentIds = cs2CatalogConfig.tournamentIds, runningSeriesId } = options;
+    const [catalogSeries] = await readSupportedSeries(tournamentIds, { id, runningSeriesId });
     if (catalogSeries === undefined) return undefined;
     const { mapNames: _mapNames, ...summary } = catalogSeries;
     return summary;
   },
 
-  async findSupportedDetailById(
-    id: Uuid,
-    tournamentIds: readonly string[] = cs2CatalogConfig.tournamentIds,
-  ): Promise<Cs2SeriesDetail | undefined> {
-    const [catalogSeries] = await readSupportedSeries(tournamentIds, id);
+  async findSupportedDetailById(id: Uuid, options: CatalogReadOptions = {}): Promise<Cs2SeriesDetail | undefined> {
+    const { tournamentIds = cs2CatalogConfig.tournamentIds, runningSeriesId } = options;
+    const [catalogSeries] = await readSupportedSeries(tournamentIds, { id, runningSeriesId });
     if (catalogSeries === undefined) return undefined;
     const { mapNames } = catalogSeries;
 

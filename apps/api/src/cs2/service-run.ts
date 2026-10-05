@@ -1,4 +1,5 @@
 import { checkDatabaseConnection, closeDatabaseConnection } from "../db/client.js";
+import { cs2CatalogRepository } from "../db/repositories/cs2-catalog.repository.js";
 import { closeHttpServer, listenHttpServer } from "../gateway/http-lifecycle.js";
 import { logger } from "../gateway/logger.js";
 import { createGatewayServer } from "../gateway/server.js";
@@ -50,6 +51,10 @@ async function main(): Promise<void> {
     if (abortController.signal.aborted) return;
     gatewayServer = createGatewayServer({
       runtimeConfig: { gameSource: "catalog", sourceLabel: "CS2 SCHEDULE" },
+      catalogStore: {
+        listSupported: () => cs2CatalogRepository.listSupported({ runningSeriesId: autopilot?.runningSeriesId }),
+        findSupportedDetailById: (id) => cs2CatalogRepository.findSupportedDetailById(id, { runningSeriesId: autopilot?.runningSeriesId }),
+      },
     });
     autopilot = new Cs2Autopilot(createCs2AutopilotDeps({
       wsGateway: gatewayServer.wsGateway,

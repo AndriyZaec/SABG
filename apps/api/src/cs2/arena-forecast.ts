@@ -13,10 +13,11 @@ export function expectedSeriesDurationMs(format: number): number {
   return 90 * MIN * format;
 }
 
+/** `runningSeriesId`: the series the autopilot runs, which holds the slot even before its first arena opens. */
 export function forecastArenas(
   candidates: readonly Cs2SeriesCandidate[],
   now: IsoDateTime,
-  options: { autopilotEnabled: boolean } = { autopilotEnabled: true },
+  options: { autopilotEnabled: boolean; runningSeriesId?: Uuid } = { autopilotEnabled: true },
 ): Map<Uuid, Cs2SeriesArenaForecast> {
   const nowMs = Date.parse(now);
   const forecast = new Map<Uuid, Cs2SeriesArenaForecast>();
@@ -24,14 +25,14 @@ export function forecastArenas(
   // A running series holds the single slot until its expected end, or now if it runs long.
   let freeAt = Number.NEGATIVE_INFINITY;
   for (const c of candidates) {
-    if (c.status !== "active" || !c.hasArena) continue;
+    if (c.status !== "active" || !(c.hasArena || c.seriesId === options.runningSeriesId)) continue;
     forecast.set(c.seriesId, "running");
     freeAt = Math.max(freeAt, Date.parse(c.scheduledStartTime) + expectedSeriesDurationMs(c.format), nowMs);
   }
 
   // The launcher's order; a stable id tie-break instead of its random one, so the forecast doesn't flicker.
   const queue = candidates
-    .filter((c) => isLaunchCandidate(c, nowMs))
+    .filter((c) => !forecast.has(c.seriesId) && isLaunchCandidate(c, nowMs))
     .sort((a, b) => compareLaunchOrder(a, b) || a.seriesId.localeCompare(b.seriesId));
   for (const c of queue) {
     const start = Date.parse(c.scheduledStartTime);
