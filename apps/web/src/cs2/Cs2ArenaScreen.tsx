@@ -61,7 +61,7 @@ function Cs2ArenaLobby({
   if (entry.hasEntry) {
     return (
       <div className="nb-container">
-        <Link className="cs2-back" to={`/cs2/series/${match.seriesId}`}>← Back to series</Link>
+        <Link className="cs2-back cs2-back--spaced" to={`/cs2/series/${match.seriesId}`}>← Back to series</Link>
         <div className="nb-arena-grid">
           <div style={{ display: "grid", gap: 20 }}>
             {view?.round && (
@@ -183,6 +183,7 @@ export function Cs2ArenaScreen() {
 
   return withStream(
     <Cs2ArenaLive
+      seriesId={match.seriesId}
       view={view}
       connected={connected}
       answerSubmission={answerSubmission}
@@ -194,6 +195,7 @@ export function Cs2ArenaScreen() {
 }
 
 function Cs2ArenaLive({
+  seriesId,
   view,
   connected,
   answerSubmission,
@@ -201,6 +203,7 @@ function Cs2ArenaLive({
   newRoundSignal,
   victorySignal,
 }: {
+  seriesId: string;
   view: Cs2ArenaView;
   connected: boolean;
   answerSubmission: Cs2AnswerSubmission;
@@ -215,6 +218,7 @@ function Cs2ArenaLive({
 
   return (
     <div className="nb-container">
+      <Link className="cs2-back cs2-back--spaced" to={`/cs2/series/${seriesId}`}>← Back to series</Link>
       {!connected && (
         <div
           className="nb-bg--yellow"
