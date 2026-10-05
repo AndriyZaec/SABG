@@ -10,6 +10,8 @@ deploy_path=${1:-}
 command_name=${2:-status}
 argument=${3:-}
 confirmation=${4:-}
+# Not "value": the assert_* helpers below assign that name globally.
+stream_url=${5:-}
 
 case "$deploy_path" in
   /*) ;;
@@ -46,6 +48,20 @@ assert_safe_grid_id() {
   [ "${#value}" -le 200 ] || fail "$label is too long"
 }
 
+# Only the normalized channel URL the operator sends; the web builds its iframe from it.
+assert_stream_url() {
+  url=$1
+  case "$url" in
+    https://twitch.tv/*) channel=${url#https://twitch.tv/} ;;
+    https://kick.com/*) channel=${url#https://kick.com/} ;;
+    *) fail "stream URL is invalid" ;;
+  esac
+  case "$channel" in
+    ''|*[!A-Za-z0-9_-]*) fail "stream URL is invalid" ;;
+  esac
+  [ "${#url}" -le 100 ] || fail "stream URL is too long"
+}
+
 unfinished_cs2_arenas() {
   compose up -d --wait --wait-timeout 60 postgres >/dev/null \
     || fail "could not start PostgreSQL to verify CS2 Arena state"
@@ -78,12 +94,15 @@ configured_tournaments_sql() {
 
 # Series the autopilot is running: an active series of a configured tournament that already ran an arena,
 # also between maps when none is open. Older active series of other tournaments are never resumed.
-running_series_sql() {
-  select_list=$1
+running_series_from() {
   tournaments=$(configured_tournaments_sql)
   [ -n "$tournaments" ] || tournaments="''"
-  printf "SELECT %s FROM series s JOIN cs2_competition c ON c.id = s.competition_id JOIN \"match\" m ON m.series_id = s.id JOIN arena a ON a.match_id = m.id WHERE s.status = 'active' AND c.grid_tournament_id IN (%s);\n" \
-    "$select_list" "$tournaments"
+  printf "FROM series s JOIN cs2_competition c ON c.id = s.competition_id JOIN \"match\" m ON m.series_id = s.id JOIN arena a ON a.match_id = m.id WHERE s.status = 'active' AND c.grid_tournament_id IN (%s)" \
+    "$tournaments"
+}
+
+running_series_sql() {
+  printf 'SELECT %s %s;\n' "$1" "$(running_series_from)"
 }
 
 assert_no_running_cs2_series() {
@@ -167,13 +186,17 @@ assert_app_healthy() {
 
 inspect_autopilot() {
   postgres_id=$(compose ps -q postgres 2>/dev/null || true)
-  [ -n "$postgres_id" ] || { printf 'AUTOPILOT=unknown\nRUNNING_SERIES=\nPRIORITY_SERIES=\n'; return; }
+  [ -n "$postgres_id" ] || { printf 'AUTOPILOT=unknown\nRUNNING_SERIES=\nPRIORITY_SERIES=\nSERIES_STREAMS=\n'; return; }
   # Missing tables (before the first migration) read as unknown rather than failing status.
   {
     printf '%s\n' "SELECT 'AUTOPILOT=' || coalesce((SELECT CASE WHEN enabled THEN 'on' ELSE 'off' END FROM settings WHERE name = 'cs2_autopilot'), 'unknown');"
     running_series_sql "'RUNNING_SERIES=' || coalesce(string_agg(DISTINCT s.grid_series_id, ','), '')"
     printf '%s\n' "SELECT 'PRIORITY_SERIES=' || coalesce(string_agg(grid_series_id, ',' ORDER BY scheduled_start_time), '') FROM series WHERE priority AND status = 'active' AND scheduled_start_time >= now() - interval '30 minutes';"
   } | run_sql 2>/dev/null || printf 'AUTOPILOT=unknown\nRUNNING_SERIES=\nPRIORITY_SERIES=\n'
+  # The streams of the running and the prioritized series, as <grid id>=<url>. Queried on its own: the operator
+  # sends this script from its checkout, so it may reach a server without the stream_url column yet.
+  printf "SELECT 'SERIES_STREAMS=' || coalesce(string_agg(grid_series_id || '=' || stream_url, ',' ORDER BY scheduled_start_time), '') FROM series WHERE stream_url IS NOT NULL AND (grid_series_id IN (SELECT s.grid_series_id %s) OR (priority AND status = 'active' AND scheduled_start_time >= now() - interval '30 minutes'));\n" \
+    "$(running_series_from)" | run_sql 2>/dev/null || printf 'SERIES_STREAMS=\n'
 }
 
 print_status() {
@@ -272,6 +295,17 @@ case "$command_name" in
     [ "$command_name" = prioritize-cs2 ] || priority=false
     update_one "CS2 Series $argument" "UPDATE series SET priority = $priority WHERE grid_series_id = '$argument'"
     printf 'CS2 Series %s priority: %s\n' "$argument" "$priority"
+    ;;
+  set-stream-cs2)
+    assert_safe_grid_id "$argument" "GRID Series ID"
+    assert_stream_url "$stream_url"
+    update_one "CS2 Series $argument" "UPDATE series SET stream_url = '$stream_url' WHERE grid_series_id = '$argument'"
+    printf 'CS2 Series %s stream: %s\n' "$argument" "$stream_url"
+    ;;
+  clear-stream-cs2)
+    assert_safe_grid_id "$argument" "GRID Series ID"
+    update_one "CS2 Series $argument" "UPDATE series SET stream_url = NULL WHERE grid_series_id = '$argument'"
+    printf 'CS2 Series %s stream cleared\n' "$argument"
     ;;
   autopilot-on|autopilot-off)
     enabled=true
