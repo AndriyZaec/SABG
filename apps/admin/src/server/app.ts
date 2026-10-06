@@ -20,8 +20,6 @@ import {
 } from "./session.js";
 
 const OAUTH_STATE_LIFETIME_SECONDS = 10 * 60;
-const LOCAL_FIXTURE_SESSION = createOperatorSession("1", "local-operator");
-
 function sameSecret(left: string | undefined, right: string | undefined): boolean {
   if (left === undefined || right === undefined) return false;
   const leftBuffer = Buffer.from(left);
@@ -34,7 +32,6 @@ function queryString(value: unknown): string | undefined {
 }
 
 function authenticatedSession(request: Request, config: AdminConfig): OperatorSession | undefined {
-  if (config.authMode === "fixture") return LOCAL_FIXTURE_SESSION;
   const sealed = readCookie(request.get("cookie"), SESSION_COOKIE);
   if (sealed === undefined) return undefined;
   const session = openSession(sealed, config.sessionSecret);
@@ -71,10 +68,6 @@ export function createAdminApp(options: {
   });
 
   app.get("/auth/github", (_request, response) => {
-    if (options.config.authMode === "fixture") {
-      response.redirect(302, "/");
-      return;
-    }
     const state = randomBytes(32).toString("base64url");
     response.append("set-cookie", secureCookie(OAUTH_STATE_COOKIE, state, OAUTH_STATE_LIFETIME_SECONDS));
     response.redirect(302, options.github.authorizationUrl(state));

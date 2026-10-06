@@ -25,42 +25,11 @@ describe("admin config", () => {
     }).publicOrigin).toBe("http://127.0.0.1:4174");
   });
 
-  it("restricts fixture control mode to explicit local development", () => {
+  it("requires the internal control connection", () => {
+    const { CS2_CONTROL_URL: _url, ...withoutUrl } = requiredEnvironment;
     expect(() => readAdminConfig({
-      ...requiredEnvironment,
-      NODE_ENV: "production",
+      ...withoutUrl,
       ADMIN_PUBLIC_ORIGIN: "https://admin.sabg.fun",
-      ADMIN_CONTROL_MODE: "fixture",
-    })).toThrow("fixture mode requires explicit local development");
-
-    expect(() => readAdminConfig({
-      ...requiredEnvironment,
-      NODE_ENV: "development",
-      ADMIN_PUBLIC_ORIGIN: "https://admin.sabg.fun",
-      ADMIN_CONTROL_MODE: "fixture",
-    })).toThrow("fixture mode requires explicit local development");
-
-    expect(readAdminConfig({
-      ...requiredEnvironment,
-      NODE_ENV: "development",
-      ADMIN_PUBLIC_ORIGIN: "http://localhost:4174",
-      ADMIN_CONTROL_MODE: "fixture",
-    }).control).toEqual({ mode: "fixture" });
-  });
-
-  it("restricts fixture authentication to explicit local development", () => {
-    expect(() => readAdminConfig({
-      ...requiredEnvironment,
-      NODE_ENV: "production",
-      ADMIN_PUBLIC_ORIGIN: "https://admin.sabg.fun",
-      ADMIN_AUTH_MODE: "fixture",
-    })).toThrow("ADMIN_AUTH_MODE: fixture mode requires explicit local development");
-
-    expect(readAdminConfig({
-      ...requiredEnvironment,
-      NODE_ENV: "development",
-      ADMIN_PUBLIC_ORIGIN: "http://localhost:4174",
-      ADMIN_AUTH_MODE: "fixture",
-    }).authMode).toBe("fixture");
+    })).toThrow("CS2_CONTROL_URL");
   });
 });
