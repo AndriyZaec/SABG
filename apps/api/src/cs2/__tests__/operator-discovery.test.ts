@@ -55,12 +55,20 @@ describe("CS2 operator discovery", () => {
     ]);
   });
 
-  it("selects only a discovered Series with complete participants and FULL Live Data", () => {
+  it("allows incomplete participants as a FULL Live Data publication anchor", () => {
     const selectable = series();
+    const incomplete = series({
+      gridSeriesId: "series-tbd",
+      participants: [{ state: "tbd", displayOrder: 1 }, { state: "tbd", displayOrder: 2 }],
+    });
 
     expect(selectOperatorSeries([selectable], selectable.gridSeriesId)).toBe(selectable);
+    expect(selectOperatorSeries([incomplete], incomplete.gridSeriesId)).toBe(incomplete);
     expect(() => selectOperatorSeries([
-      series({ participants: [{ state: "tbd", displayOrder: 1 }, { state: "tbd", displayOrder: 2 }] }),
+      series({
+        participants: [{ state: "tbd", displayOrder: 1 }, { state: "tbd", displayOrder: 2 }],
+        hasFullLiveData: false,
+      }),
     ], "series-1")).toThrow("PARTICIPANTS_INCOMPLETE");
     expect(selectionFor(series({
       participants: [

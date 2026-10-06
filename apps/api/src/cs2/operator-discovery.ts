@@ -21,7 +21,12 @@ export function selectOperatorSeries(series: readonly GridCatalogSeries[], gridS
   const selected = series.find((item) => item.gridSeriesId === gridSeriesId);
   if (selected === undefined) throw new Error(`GRID Series ${gridSeriesId} was not found in the operator discovery window`);
   const selection = selectionFor(selected);
-  if (selection.state === "disabled") throw new Error(`GRID Series ${gridSeriesId} is not selectable: ${selection.reason}`);
+  if (
+    selection.state === "disabled" &&
+    (selection.reason !== "PARTICIPANTS_INCOMPLETE" || !selected.hasFullLiveData)
+  ) {
+    throw new Error(`GRID Series ${gridSeriesId} is not selectable: ${selection.reason}`);
+  }
   return selected;
 }
 

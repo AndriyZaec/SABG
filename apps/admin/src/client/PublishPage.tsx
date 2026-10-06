@@ -58,10 +58,16 @@ function groupTournaments(payload: Cs2OperatorDiscoveryPayload, now = Date.now()
 function disabledReason(series: Cs2OperatorDiscoverySeries): string | undefined {
   if (series.selection.state === "selectable") return undefined;
   switch (series.selection.reason) {
-    case "PARTICIPANTS_INCOMPLETE": return "Participants incomplete";
+    case "PARTICIPANTS_INCOMPLETE": return undefined;
     case "PARTICIPANTS_INVALID": return "Participants invalid";
     case "FULL_LIVE_DATA_UNAVAILABLE": return "Full live data unavailable";
   }
+}
+
+function isPublishable(series: Cs2OperatorDiscoverySeries): boolean {
+  return series.liveDataServiceLevel === "FULL" && (
+    series.selection.state === "selectable" || series.selection.reason === "PARTICIPANTS_INCOMPLETE"
+  );
 }
 
 function PublishConfirmation({ series, onCancel, onConfirm }: {
@@ -217,7 +223,7 @@ export function PublishPage({ session, onSessionExpired, control }: {
 
         <div className="tournament-list">
           {tournaments.map((tournament) => {
-            const eligible = tournament.series.filter((series) => series.selection.state === "selectable");
+            const eligible = tournament.series.filter(isPublishable);
             const anchor = eligible[0];
             return (
               <article className="tournament-candidate" key={tournament.id}>
@@ -228,7 +234,7 @@ export function PublishPage({ session, onSessionExpired, control }: {
                   <div><span>Anchor</span><strong>{anchor === undefined ? "Unavailable" : `${teamName(anchor, 0)} vs ${teamName(anchor, 1)}`}</strong></div>
                   <button className="primary-action" type="button" disabled={anchor === undefined || publishBlocked} onClick={() => anchor !== undefined && setConfirmation(anchor)}>Publish tournament</button>
                 </header>
-                <details className="tournament-series-details"><summary>View {tournament.series.length} Series</summary><div>{tournament.series.map((series) => <p key={series.gridSeriesId}><span><strong>{teamName(series, 0)} vs {teamName(series, 1)}</strong><small>{formatStartTime(series.scheduledStartTime)} · BO{series.format} · GRID {series.gridSeriesId}</small></span><em className={series.selection.state === "selectable" ? "is-ready" : ""}>{disabledReason(series) ?? "Ready"}</em></p>)}</div></details>
+                <details className="tournament-series-details"><summary>View {tournament.series.length} Series</summary><div>{tournament.series.map((series) => <p key={series.gridSeriesId}><span><strong>{teamName(series, 0)} vs {teamName(series, 1)}</strong><small>{formatStartTime(series.scheduledStartTime)} · BO{series.format} · GRID {series.gridSeriesId}</small></span>{disabledReason(series) !== undefined && <em>{disabledReason(series)}</em>}</p>)}</div></details>
               </article>
             );
           })}
