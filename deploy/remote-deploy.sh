@@ -146,11 +146,11 @@ assert_deploy_safe() {
   active_tournament_schema=$(inspect_active_tournament_schema)
   case "$active_tournament_schema" in
     t)
-      active_tournament=$(inspect_active_tournament)
-      # A missing value means the first rollout has not bootstrapped the DB-backed setting yet.
-      [ -n "$active_tournament" ] || return 0
       active_cs2_arenas=$(inspect_active_cs2_arenas)
       assert_no_active_cs2_arenas "$active_cs2_arenas"
+      active_tournament=$(inspect_active_tournament)
+      # Without an active tournament, only the tournament-specific series check is unavailable.
+      [ -n "$active_tournament" ] || return 0
       running_cs2_series=$(inspect_running_cs2_series)
       assert_no_running_cs2_series "$running_cs2_series"
       ;;
@@ -353,6 +353,10 @@ docker pull "$image"
 docker run --rm --network none --read-only --tmpfs /tmp --env-file "$deploy_path/deploy/app.env" \
   "$image" node -e "import('./dist/push/config/env.js')" \
   || fail "application image rejected the VAPID configuration"
+docker run --rm --network none --read-only --tmpfs /tmp --env-file "$deploy_path/deploy/app.env" \
+  "$image" node --input-type=module -e \
+  "import('./dist/cs2/catalog-config.js').then(({ cs2CatalogConfig }) => { if (cs2CatalogConfig.tournamentIds.length > 1) throw new Error('Only one active CS2 tournament is supported') })" \
+  || fail "deploy/app.env must configure at most one CS2 catalog tournament"
 docker run --rm --network none --read-only --tmpfs /tmp --env-file "$deploy_path/deploy/admin.env" \
   "$image" node --input-type=module -e \
   "import('/admin/dist/server/config.js').then(({ readAdminConfig }) => readAdminConfig(process.env))" \

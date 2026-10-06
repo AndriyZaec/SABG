@@ -1,7 +1,8 @@
 import type { SeriesStatus } from "@arena/contracts";
 import { and, count, eq, sql } from "drizzle-orm";
 import { db } from "../client.js";
-import { arenas, entryPasses, matches, series } from "../schema.js";
+import { arenas, cs2Competitions, entryPasses, matches, series, settings } from "../schema.js";
+import { CS2_ACTIVE_TOURNAMENT_SETTING } from "./settings.repository.js";
 
 export interface OperatorSeriesState {
   id: string;
@@ -21,6 +22,11 @@ export const operatorControlRepository = {
       .from(series)
       .innerJoin(matches, eq(matches.seriesId, series.id))
       .innerJoin(arenas, eq(arenas.matchId, matches.id))
+      .innerJoin(cs2Competitions, eq(series.competitionId, cs2Competitions.id))
+      .innerJoin(settings, and(
+        eq(settings.name, CS2_ACTIVE_TOURNAMENT_SETTING),
+        eq(settings.value, cs2Competitions.gridTournamentId),
+      ))
       .where(eq(series.status, "active"));
     const [unfinished] = await db
       .select({ value: count() })

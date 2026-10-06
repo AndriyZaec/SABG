@@ -183,6 +183,10 @@ export function createAdminApp(options: {
     );
   });
 
+  app.use("/api", (_request, response) => {
+    response.status(404).json({ error: "not_found", message: "API route not found" });
+  });
+
   app.use((error: unknown, _request: Request, response: Response, _next: unknown) => {
     if (error instanceof SyntaxError) {
       response.status(400).json({ error: "bad_request", message: "Request body must be valid JSON" });

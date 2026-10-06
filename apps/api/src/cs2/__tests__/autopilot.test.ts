@@ -334,6 +334,35 @@ describe("Cs2Autopilot.hasRunner", () => {
   });
 });
 
+describe("Cs2Autopilot.runWhileIdle", () => {
+  it("accepts operator work immediately after the queue becomes idle", async () => {
+    const { autopilot } = setup({ enabled: false });
+    await autopilot.tick();
+    const task = vi.fn().mockResolvedValue("published");
+
+    await expect(autopilot.runWhileIdle(task)).resolves.toEqual({ kind: "completed", value: "published" });
+    expect(task).toHaveBeenCalledOnce();
+  });
+
+  it("returns busy instead of queuing operator work behind an in-flight tick", async () => {
+    const { autopilot, deps } = setup({ enabled: false });
+    let finishRuntimeRead: () => void = () => {};
+    deps.listActiveRunSeries = () => new Promise((resolve) => {
+      finishRuntimeRead = () => resolve([]);
+    });
+    const tick = autopilot.tick();
+    await settle();
+    const task = vi.fn().mockResolvedValue(undefined);
+    const result = autopilot.runWhileIdle(task);
+
+    finishRuntimeRead();
+    await tick;
+
+    await expect(result).resolves.toEqual({ kind: "busy" });
+    expect(task).not.toHaveBeenCalled();
+  });
+});
+
 describe("Cs2Autopilot operator skip", () => {
   it("skips the running series on the next tick when the operator requested it, and frees the slot", async () => {
     const all = [series("s1", 5), series("s2", 5)];

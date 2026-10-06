@@ -61,7 +61,10 @@ describe("admin control proxy", () => {
     expect((await fetch(`${origin}/healthz`)).status).toBe(200);
     expect((await fetch(`${origin}/api/control/status`)).status).toBe(401);
     expect(control.status).not.toHaveBeenCalled();
-    expect((await fetch(`${origin}/api/control/not-a-route`)).status).toBe(404);
+    const missing = await fetch(`${origin}/api/control/not-a-route`, { headers: { accept: "text/html" } });
+    expect(missing.status).toBe(404);
+    expect(missing.headers.get("content-type")).toContain("application/json");
+    await expect(missing.json()).resolves.toEqual({ error: "not_found", message: "API route not found" });
   });
 
   it("uses session identity and requires Origin and CSRF for mutations", async () => {

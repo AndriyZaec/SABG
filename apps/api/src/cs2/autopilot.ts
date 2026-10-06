@@ -89,6 +89,7 @@ export class Cs2Autopilot {
   private retainedArenaIds: Uuid[] = [];
   /** resume, tick and a runner's end run one at a time, so a launch never races a resume or a teardown. */
   private queue: Promise<void> = Promise.resolve();
+  private queuedTasks = 0;
   private readonly abortController = new AbortController();
   private seriesEndListener: (() => void) | undefined;
   /** A runner is being started: its priming polls GRID, which counts as running a series. */
@@ -111,6 +112,7 @@ export class Cs2Autopilot {
   }
 
   runWhileIdle<T>(task: () => Promise<T>): Promise<{ kind: "busy" } | { kind: "completed"; value: T }> {
+    if (this.queuedTasks > 0 || this.hasRunner) return Promise.resolve({ kind: "busy" });
     return this.enqueueResult(async () => this.hasRunner
       ? { kind: "busy" as const }
       : { kind: "completed" as const, value: await task() });
@@ -238,8 +240,13 @@ export class Cs2Autopilot {
   }
 
   private enqueueResult<T>(task: () => Promise<T>): Promise<T> {
-    const run = this.queue.then(task);
-    this.queue = run.then(() => undefined).catch((err: unknown) => logger.error({ err }, "autopilot: task failed"));
+    this.queuedTasks += 1;
+    const run = this.queue.then(task).finally(() => {
+      this.queuedTasks -= 1;
+    });
+    this.queue = run
+      .then(() => undefined)
+      .catch((err: unknown) => logger.error({ err }, "autopilot: task failed"));
     return run;
   }
 }
