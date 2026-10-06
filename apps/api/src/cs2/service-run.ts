@@ -1,5 +1,6 @@
 import { checkDatabaseConnection, closeDatabaseConnection } from "../db/client.js";
 import { cs2CatalogRepository } from "../db/repositories/cs2-catalog.repository.js";
+import { settingsRepository } from "../db/repositories/settings.repository.js";
 import { closeHttpServer, listenHttpServer } from "../gateway/http-lifecycle.js";
 import { logger } from "../gateway/logger.js";
 import { createGatewayServer } from "../gateway/server.js";
@@ -7,6 +8,7 @@ import { WriteQueue } from "../gateway/stores/write-queue.js";
 import { MongoService } from "../grid/mongo/mongo.service.js";
 import { startScheduler, stopScheduler, type Scheduler } from "../scheduler/index.js";
 import { Cs2Autopilot, createCs2AutopilotDeps, registerCs2AutopilotJobs } from "./autopilot.js";
+import { cs2CatalogConfig } from "./catalog-config.js";
 import { cs2Config } from "./config/env.js";
 
 const CS2_ENTRY_FEE_LAMPORTS = 100_000_000; // 0.1 SOL
@@ -48,6 +50,7 @@ async function main(): Promise<void> {
 
   try {
     await checkDatabaseConnection();
+    await settingsRepository.bootstrapActiveCs2TournamentId(cs2CatalogConfig.tournamentIds);
     if (abortController.signal.aborted) return;
     gatewayServer = createGatewayServer({
       runtimeConfig: { gameSource: "catalog", sourceLabel: "CS2 SCHEDULE" },

@@ -15,6 +15,7 @@ import {
   TARGET_EVENT_TYPES,
   TEAM_SIDES,
 } from "@arena/contracts";
+import type { AdminMutationCommand, OperatorAuditDetails, OperatorAuditResult } from "@arena/contracts";
 import {
   bigint,
   boolean,
@@ -103,15 +104,14 @@ export const series = pgTable("series", {
   mapNames: text("map_names").array(),
   priority: boolean("priority").notNull().default(false),
   skipRequested: boolean("skip_requested").notNull().default(false),
-  /** Operator-set Twitch or Kick channel URL, shown as a player on the arena page. */
+  /** Operator-set Twitch, Kick, or YouTube URL, shown as a player on the arena page. */
   streamUrl: text("stream_url"),
   ...timestamps,
 }, (t) => [
   index("series_competition_id_idx").on(t.competitionId),
   index("series_catalog_idx").on(t.isSupported, t.catalogLifecycle, t.scheduledStartTime),
   check("series_format_check", sql`${t.format} between 1 and 7`),
-  // Only the normalized channel URL: the web builds the iframe from it, so nothing else may get in.
-  check("series_stream_url_check", sql`${t.streamUrl} is null or ${t.streamUrl} ~ '^https://(twitch\\.tv|kick\\.com)/[A-Za-z0-9_-]+$'`),
+  check("series_stream_url_check", sql`${t.streamUrl} is null or ${t.streamUrl} ~ '^https://((twitch\\.tv|kick\\.com)/[A-Za-z0-9_-]+|www\\.youtube\\.com/watch\\?v=[A-Za-z0-9_-]{11})$'`),
 ]);
 
 export const cs2SeriesFollows = pgTable("cs2_series_follow", {
@@ -358,5 +358,21 @@ export const settings = pgTable("settings", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull().unique(),
   enabled: boolean("enabled").notNull().default(true),
+  value: text("value"),
   ...timestamps,
 });
+
+export const operatorAudits = pgTable("operator_audit", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  actorId: text("actor_id").notNull(),
+  actorLogin: text("actor_login").notNull(),
+  action: text("action").$type<AdminMutationCommand["type"]>().notNull(),
+  targetId: text("target_id"),
+  result: text("result").$type<OperatorAuditResult>().notNull(),
+  requestId: uuid("request_id").notNull(),
+  details: jsonb("details").$type<OperatorAuditDetails>().notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true, precision: 3 }).notNull().defaultNow(),
+}, (t) => [
+  index("operator_audit_created_at_id_idx").on(t.createdAt, t.id),
+  index("operator_audit_actor_created_at_id_idx").on(t.actorId, t.createdAt, t.id),
+]);

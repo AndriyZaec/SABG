@@ -307,10 +307,13 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
     await repository.synchronizeSeries({ ...input, participants: [...input.participants] });
     await expect(read()).resolves.toMatchObject({ streamUrl: "https://kick.com/user-name" });
 
+    await setStream("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+    await expect(read()).resolves.toMatchObject({ streamUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" });
+
     const rejectedByCheck = { cause: { constraint_name: "series_stream_url_check" } };
     await expect(setStream("https://youtube.com/watch?v=abc")).rejects.toMatchObject(rejectedByCheck);
     await expect(setStream("https://twitch.tv/eslcs/videos")).rejects.toMatchObject(rejectedByCheck);
     await expect(setStream("https://twitchXtv/eslcs")).rejects.toMatchObject(rejectedByCheck);
-    await expect(read()).resolves.toMatchObject({ streamUrl: "https://kick.com/user-name" });
+    await expect(read()).resolves.toMatchObject({ streamUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" });
   });
 });

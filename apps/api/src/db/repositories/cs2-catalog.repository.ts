@@ -7,7 +7,6 @@ import type {
   Cs2SeriesSummary,
   Uuid,
 } from "@arena/contracts";
-import { cs2CatalogConfig } from "../../cs2/catalog-config.js";
 import { forecastArenas } from "../../cs2/arena-forecast.js";
 import { catalogLifecycleOnRead } from "../../cs2/catalog-lifecycle.js";
 import type { Cs2SeriesCandidate } from "../../cs2/next-series.js";
@@ -68,6 +67,12 @@ function validateInput(input: Cs2CatalogSeriesInput): void {
 interface CatalogReadOptions {
   tournamentIds?: readonly string[];
   runningSeriesId?: Uuid | undefined;
+}
+
+async function resolveTournamentIds(tournamentIds?: readonly string[]): Promise<readonly string[]> {
+  if (tournamentIds !== undefined) return tournamentIds;
+  const activeTournamentId = await settingsRepository.getActiveCs2TournamentId();
+  return activeTournamentId === undefined ? [] : [activeTournamentId];
 }
 
 async function readSupportedSeries(
@@ -195,8 +200,9 @@ export const cs2CatalogRepository = {
 
   /** `active` series of the configured tournaments that already ran an arena, for the autopilot's resume. */
   async listActiveRunSeries(
-    tournamentIds: readonly string[] = cs2CatalogConfig.tournamentIds,
+    requestedTournamentIds?: readonly string[],
   ): Promise<{ seriesId: Uuid; gridSeriesId: string; scheduledStartTime: string; hasOpenArena: boolean }[]> {
+    const tournamentIds = await resolveTournamentIds(requestedTournamentIds);
     if (tournamentIds.length === 0) return [];
     const arenaOfSeries = (open: boolean) =>
       sql<boolean>`exists (select 1 from ${arenas} inner join ${matches} on ${matches.id} = ${arenas.matchId} where ${matches.seriesId} = ${series.id}${open ? sql` and ${inArray(arenas.status, ["lobby", "live"])}` : sql``})`;
@@ -219,8 +225,9 @@ export const cs2CatalogRepository = {
   },
 
   async listAutopilotCandidates(
-    tournamentIds: readonly string[] = cs2CatalogConfig.tournamentIds,
+    requestedTournamentIds?: readonly string[],
   ): Promise<Cs2SeriesCandidate[]> {
+    const tournamentIds = await resolveTournamentIds(requestedTournamentIds);
     if (tournamentIds.length === 0) return [];
     // Only known slots have participant rows, and (series_id, team_id) is the key, so 2 rows means two distinct teams.
     const knownTeams = sql<number>`(select count(*) from ${cs2SeriesParticipants} where ${cs2SeriesParticipants.seriesId} = ${series.id})::int`;
@@ -256,13 +263,15 @@ export const cs2CatalogRepository = {
   },
 
   async listSupported(options: CatalogReadOptions = {}): Promise<Cs2SeriesSummary[]> {
-    const { tournamentIds = cs2CatalogConfig.tournamentIds, runningSeriesId } = options;
+    const { runningSeriesId } = options;
+    const tournamentIds = await resolveTournamentIds(options.tournamentIds);
     const rows = await readSupportedSeries(tournamentIds, { runningSeriesId });
     return rows.map(({ mapNames: _mapNames, streamUrl: _streamUrl, ...summary }) => summary);
   },
 
   async findSupportedById(id: Uuid, options: CatalogReadOptions = {}): Promise<Cs2SeriesSummary | undefined> {
-    const { tournamentIds = cs2CatalogConfig.tournamentIds, runningSeriesId } = options;
+    const { runningSeriesId } = options;
+    const tournamentIds = await resolveTournamentIds(options.tournamentIds);
     const [catalogSeries] = await readSupportedSeries(tournamentIds, { id, runningSeriesId });
     if (catalogSeries === undefined) return undefined;
     const { mapNames: _mapNames, streamUrl: _streamUrl, ...summary } = catalogSeries;
@@ -270,7 +279,8 @@ export const cs2CatalogRepository = {
   },
 
   async findSupportedDetailById(id: Uuid, options: CatalogReadOptions = {}): Promise<Cs2SeriesDetail | undefined> {
-    const { tournamentIds = cs2CatalogConfig.tournamentIds, runningSeriesId } = options;
+    const { runningSeriesId } = options;
+    const tournamentIds = await resolveTournamentIds(options.tournamentIds);
     const [catalogSeries] = await readSupportedSeries(tournamentIds, { id, runningSeriesId });
     if (catalogSeries === undefined) return undefined;
     const { streamUrl, ...catalogDetail } = catalogSeries;

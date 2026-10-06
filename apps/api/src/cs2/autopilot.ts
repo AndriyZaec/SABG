@@ -11,7 +11,6 @@ import type { GatewayWebSocketServer } from "../gateway/ws.js";
 import { logger } from "../grid/logger.js";
 import { LATE_START_WINDOW_MS, selectNextSeries, type Cs2SeriesCandidate } from "./next-series.js";
 import { Cs2SeriesRunner, type Cs2SeriesRunnerStartOptions } from "./series-runner.js";
-import { cs2CatalogConfig } from "./catalog-config.js";
 import { synchronizeCs2Catalog } from "./catalog-synchronizer.js";
 import { operatorDiscoveryWindow } from "./operator-discovery.js";
 
@@ -245,9 +244,12 @@ export async function runCs2CatalogSync(
   }
   const now = options.now ?? new Date();
   try {
+    const configuredTournamentId = options.tournamentIds === undefined
+      ? await settingsRepository.getActiveCs2TournamentId()
+      : undefined;
     const result = await (options.synchronize ?? synchronizeCs2Catalog)(operatorDiscoveryWindow(now), {
       now,
-      tournamentIds: options.tournamentIds ?? cs2CatalogConfig.tournamentIds,
+      tournamentIds: options.tournamentIds ?? (configuredTournamentId === undefined ? [] : [configuredTournamentId]),
     });
     logger.debug(result, "cs2: catalog synced");
   } catch (err) {
