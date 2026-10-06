@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { BrowserRouter, Navigate, NavLink, Route, Routes } from "react-router-dom";
 import type { AdminSessionResponse } from "../shared/session.js";
 import { logout, readSession } from "./api.js";
+import { OverviewPage } from "./OverviewPage.js";
 
 type SessionState =
   | { state: "loading" }
@@ -149,7 +150,7 @@ function Shell({ session, onSignedOut }: { session: AdminSessionResponse; onSign
           </header>
           <main className="shell-content">
             <Routes>
-              <Route path="/" element={<PlaceholderPage page="overview" />} />
+              <Route path="/" element={<OverviewPage session={session} onSessionExpired={onSignedOut} />} />
               <Route path="/catalog" element={<PlaceholderPage page="catalog" />} />
               <Route path="/publish" element={<PlaceholderPage page="publish" />} />
               <Route path="/audit" element={<PlaceholderPage page="audit" />} />
