@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import dotenv from "dotenv";
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Cs2GameSnapshot, MatchSignal } from "@arena/contracts";
 import type { Cs2ArenaRuntime } from "../arena-runtime.js";
@@ -694,6 +694,29 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: true, mapNames: ["mirage", "inferno"] }), at(0));
     const [afterSecondPoll] = await db.select({ mapNames: schema.series.mapNames }).from(schema.series).where(eq(schema.series.id, series.id));
     expect(afterSecondPoll?.mapNames).toEqual(["mirage", "inferno"]);
+  });
+
+  it("persists the series score from each poll's snapshot", async () => {
+    const at = clockFrom(new Date(Date.now() + 10 * 60 * MIN).toISOString());
+    const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
+      format: 3,
+      scheduledStartTime: new Date(at(0)),
+    });
+    seriesIds.push(series.id);
+    const matchTeamIds = await synchronizeTestTeams(series.id);
+    const orchestrator = await Cs2SeriesOrchestrator.create(series, { writeQueue: new WriteQueue(), entryFeeLamports: 1000 });
+    const readScores = async () => (await db
+      .select({ score: schema.cs2SeriesParticipants.score })
+      .from(schema.cs2SeriesParticipants)
+      .where(eq(schema.cs2SeriesParticipants.seriesId, series.id))
+      .orderBy(asc(schema.cs2SeriesParticipants.displayOrder))).map((row) => row.score);
+
+    // Before the lobby opens, so the poll writes the score without opening an arena.
+    await orchestrator.poll(snapshot(matchTeamIds, { teams: [1, 0] }), at(-30));
+    expect(await readScores()).toEqual([1, 0]);
+
+    await orchestrator.poll(snapshot(matchTeamIds, { teams: [1, 1] }), at(-25));
+    expect(await readScores()).toEqual([1, 1]);
   });
 
   it("pushes every series follower when an arena opens, addressed to the arena that just opened — and sends nothing when there are no followers", async () => {
