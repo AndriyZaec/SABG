@@ -1,5 +1,6 @@
 import { and, asc, eq, gte, inArray, lte, notInArray, sql } from "drizzle-orm";
 import type {
+  AdminCatalogSeries,
   Cs2SeriesDetail,
   Cs2SeriesLifecycle,
   Cs2SeriesMapSummary,
@@ -75,19 +76,28 @@ async function resolveTournamentIds(tournamentIds?: readonly string[]): Promise<
   return activeTournamentId === undefined ? [] : [activeTournamentId];
 }
 
+type InternalCatalogSeries = Omit<AdminCatalogSeries, "streamUrl"> & {
+  mapNames: string[];
+  streamUrl: string | null;
+};
+
 async function readSupportedSeries(
   tournamentIds: readonly string[],
   options: { id?: Uuid; runningSeriesId?: Uuid | undefined } = {},
-): Promise<Array<Cs2SeriesSummary & { mapNames: string[]; streamUrl: string | null }>> {
+): Promise<InternalCatalogSeries[]> {
   if (tournamentIds.length === 0) return [];
   const catalogRows = await db
     .select({
       id: series.id,
+      gridSeriesId: series.gridSeriesId,
       format: series.format,
       scheduledStartTime: series.scheduledStartTime,
       lifecycle: series.catalogLifecycle,
       mapNames: series.mapNames,
       streamUrl: series.streamUrl,
+      status: series.status,
+      priority: series.priority,
+      skipRequested: series.skipRequested,
       competitionName: cs2Competitions.name,
       competitionShortName: cs2Competitions.shortName,
       competitionLogoUrl: cs2Competitions.logoUrl,
@@ -148,6 +158,7 @@ async function readSupportedSeries(
 
   return catalogRows.map((row) => ({
     id: row.id,
+    gridSeriesId: row.gridSeriesId,
     arena: forecast.get(row.id) ?? "none",
     participants: participantsBySeries.get(row.id) ?? [
       { state: "tbd", displayOrder: 1, seriesScore: null },
@@ -163,6 +174,9 @@ async function readSupportedSeries(
     lifecycle: catalogLifecycleOnRead(row.lifecycle, row.scheduledStartTime.toISOString(), now, row.id === options.runningSeriesId),
     mapNames: row.mapNames ?? [],
     streamUrl: row.streamUrl,
+    status: row.status,
+    priority: row.priority,
+    skipRequested: row.skipRequested,
   }));
 }
 
@@ -266,7 +280,25 @@ export const cs2CatalogRepository = {
     const { runningSeriesId } = options;
     const tournamentIds = await resolveTournamentIds(options.tournamentIds);
     const rows = await readSupportedSeries(tournamentIds, { runningSeriesId });
-    return rows.map(({ mapNames: _mapNames, streamUrl: _streamUrl, ...summary }) => summary);
+    return rows.map(({
+      mapNames: _mapNames,
+      streamUrl: _streamUrl,
+      gridSeriesId: _gridSeriesId,
+      status: _status,
+      priority: _priority,
+      skipRequested: _skipRequested,
+      ...summary
+    }) => summary);
+  },
+
+  async listAdmin(options: CatalogReadOptions = {}): Promise<AdminCatalogSeries[]> {
+    const rows = await readSupportedSeries(await resolveTournamentIds(options.tournamentIds), {
+      runningSeriesId: options.runningSeriesId,
+    });
+    return rows.map(({ mapNames: _mapNames, streamUrl, ...catalogSeries }) => ({
+      ...catalogSeries,
+      ...(streamUrl !== null ? { streamUrl } : {}),
+    }));
   },
 
   async findSupportedById(id: Uuid, options: CatalogReadOptions = {}): Promise<Cs2SeriesSummary | undefined> {
@@ -274,7 +306,15 @@ export const cs2CatalogRepository = {
     const tournamentIds = await resolveTournamentIds(options.tournamentIds);
     const [catalogSeries] = await readSupportedSeries(tournamentIds, { id, runningSeriesId });
     if (catalogSeries === undefined) return undefined;
-    const { mapNames: _mapNames, streamUrl: _streamUrl, ...summary } = catalogSeries;
+    const {
+      mapNames: _mapNames,
+      streamUrl: _streamUrl,
+      gridSeriesId: _gridSeriesId,
+      status: _status,
+      priority: _priority,
+      skipRequested: _skipRequested,
+      ...summary
+    } = catalogSeries;
     return summary;
   },
 
@@ -283,7 +323,14 @@ export const cs2CatalogRepository = {
     const tournamentIds = await resolveTournamentIds(options.tournamentIds);
     const [catalogSeries] = await readSupportedSeries(tournamentIds, { id, runningSeriesId });
     if (catalogSeries === undefined) return undefined;
-    const { streamUrl, ...catalogDetail } = catalogSeries;
+    const {
+      streamUrl,
+      gridSeriesId: _gridSeriesId,
+      status: _status,
+      priority: _priority,
+      skipRequested: _skipRequested,
+      ...catalogDetail
+    } = catalogSeries;
     const { mapNames } = catalogDetail;
 
     const seriesMatches = await matchRepository.listBySeriesId(id);

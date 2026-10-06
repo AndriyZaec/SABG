@@ -13,6 +13,15 @@ export const settingsRepository = {
     return row?.enabled ?? true;
   },
 
+  async setEnabled(name: string, enabled: boolean): Promise<void> {
+    await db.insert(settings)
+      .values({ name, enabled })
+      .onConflictDoUpdate({
+        target: settings.name,
+        set: { enabled, updatedAt: new Date() },
+      });
+  },
+
   async getActiveCs2TournamentId(): Promise<string | undefined> {
     const [row] = await db.select({ value: settings.value }).from(settings).where(eq(settings.name, CS2_ACTIVE_TOURNAMENT_SETTING));
     return row?.value ?? undefined;

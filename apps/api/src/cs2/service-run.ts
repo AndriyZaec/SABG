@@ -1,3 +1,7 @@
+import type { Server as HttpServer } from "node:http";
+import { operatorControlConfig } from "../control/config.js";
+import { createOperatorControlServer } from "../control/server.js";
+import { createOperatorControlService } from "../control/service.js";
 import { checkDatabaseConnection, closeDatabaseConnection } from "../db/client.js";
 import { cs2CatalogRepository } from "../db/repositories/cs2-catalog.repository.js";
 import { settingsRepository } from "../db/repositories/settings.repository.js";
@@ -17,6 +21,7 @@ async function main(): Promise<void> {
   const abortController = new AbortController();
   const writeQueue = new WriteQueue();
   let gatewayServer: ReturnType<typeof createGatewayServer> | undefined;
+  let controlServer: HttpServer | undefined;
   let autopilot: Cs2Autopilot | undefined;
   let scheduler: Scheduler | undefined;
   let shutdownPromise: Promise<void> | undefined;
@@ -29,6 +34,7 @@ async function main(): Promise<void> {
       // No new launches or GRID polls, then no new client writes; the series lock goes last.
       await autopilot?.stopPolling();
       if (scheduler !== undefined) await stopScheduler(scheduler);
+      if (controlServer !== undefined) await closeHttpServer(controlServer);
       await gatewayServer?.wsGateway.close();
       if (gatewayServer !== undefined) await closeHttpServer(gatewayServer.httpServer);
       await autopilot?.stop();
@@ -66,6 +72,18 @@ async function main(): Promise<void> {
       rawRecordingEnabled: cs2Config.rawRecordingEnabled,
     }));
     await listenHttpServer(gatewayServer.httpServer, cs2Config.gatewayPort, abortController.signal);
+    if (operatorControlConfig !== undefined) {
+      controlServer = createOperatorControlServer({
+        machineToken: operatorControlConfig.machineToken,
+        service: createOperatorControlService({
+          getRunningSeriesId: () => autopilot?.runningSeriesId,
+          hasRunner: () => autopilot?.hasRunner === true,
+          runWhileIdle: (task) => autopilot!.runWhileIdle(task),
+        }),
+      });
+      await listenHttpServer(controlServer, operatorControlConfig.port, abortController.signal);
+      logger.info({ port: operatorControlConfig.port }, "cs2: operator control listening");
+    }
     if (abortController.signal.aborted) return;
     logger.info({ port: cs2Config.gatewayPort }, "cs2: runtime listening");
 

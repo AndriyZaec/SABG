@@ -110,6 +110,12 @@ export class Cs2Autopilot {
     this.seriesEndListener = listener;
   }
 
+  runWhileIdle<T>(task: () => Promise<T>): Promise<{ kind: "busy" } | { kind: "completed"; value: T }> {
+    return this.enqueueResult(async () => this.hasRunner
+      ? { kind: "busy" as const }
+      : { kind: "completed" as const, value: await task() });
+  }
+
   /** On process start: rebuild the series that has an open arena; abandon one that died between maps. */
   resume(): Promise<void> {
     return this.enqueue(async () => {
@@ -228,8 +234,12 @@ export class Cs2Autopilot {
   }
 
   private enqueue(task: () => Promise<void>): Promise<void> {
+    return this.enqueueResult(task);
+  }
+
+  private enqueueResult<T>(task: () => Promise<T>): Promise<T> {
     const run = this.queue.then(task);
-    this.queue = run.catch((err: unknown) => logger.error({ err }, "autopilot: task failed"));
+    this.queue = run.then(() => undefined).catch((err: unknown) => logger.error({ err }, "autopilot: task failed"));
     return run;
   }
 }
