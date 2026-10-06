@@ -165,6 +165,11 @@ function optionalText(value: string | null | undefined): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
+function teamLogoUrl(value: string): string | undefined {
+  const url = optionalText(value);
+  return url?.endsWith("/team-logos/generic") ? undefined : url;
+}
+
 function isGridPlaceholderTeam(name: string): boolean {
   return /^tbd\d*$/u.test(normalizedName(name));
 }
@@ -187,7 +192,7 @@ function normalizeSeries(node: z.infer<typeof SeriesNodeSchema>): GridCatalogSer
     const displayOrder = (index + 1) as 1 | 2;
     if (baseInfo === undefined || isGridPlaceholderTeam(baseInfo.name)) return { state: "tbd", displayOrder };
     const shortName = optionalText(baseInfo.nameShortened);
-    const logoUrl = optionalText(baseInfo.logoUrl);
+    const logoUrl = teamLogoUrl(baseInfo.logoUrl);
     return {
       state: "known",
       displayOrder,

@@ -394,7 +394,9 @@ export const cs2CatalogRepository = {
 
   async synchronizeSeries(input: Cs2CatalogSeriesInput): Promise<{ seriesId: Uuid; participantCount: number }> {
     validateInput(input);
-    const assignments = input.participants.flatMap((slot) => slot.state === "known" ? [{ ...slot.team, displayOrder: slot.displayOrder }] : []);
+    const assignments = input.participants.flatMap((slot) => slot.state === "known"
+      ? [{ ...slot.team, shortName: slot.team.shortName ?? null, logoUrl: slot.team.logoUrl ?? null, displayOrder: slot.displayOrder }]
+      : []);
 
     return db.transaction(async (tx) => {
       const now = new Date();

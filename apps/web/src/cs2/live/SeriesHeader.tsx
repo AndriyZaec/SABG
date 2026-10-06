@@ -12,7 +12,9 @@ export function SeriesHeader({ view }: { view: Cs2ArenaView }) {
       </div>
 
       <div className="nb-statusbar">
-        {view.round ? (
+        {view.finished ? (
+          <Badge tone="neutral">Arena finished</Badge>
+        ) : view.round ? (
           <Badge tone="live">{`Round ${view.round.roundNumber}`}</Badge>
         ) : (
           <Badge tone="neutral">Waiting for round…</Badge>

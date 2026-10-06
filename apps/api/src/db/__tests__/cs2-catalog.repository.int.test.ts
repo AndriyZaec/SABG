@@ -21,11 +21,14 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
   const legacyGridSeriesId = `catalog-legacy-series-${runId}`;
   const mapNamesGridSeriesId = `catalog-map-names-series-${runId}`;
   const streamGridSeriesId = `catalog-stream-series-${runId}`;
+  const logoGridSeriesId = `catalog-logo-series-${runId}`;
   const gridTournamentId = `catalog-tournament-${runId}`;
   const firstGridTeamId = `catalog-team-a-${runId}`;
   const secondGridTeamId = `catalog-team-b-${runId}`;
   const firstPlaceholderId = `catalog-placeholder-a-${runId}`;
   const secondPlaceholderId = `catalog-placeholder-b-${runId}`;
+  const firstLogoTeamId = `catalog-logo-team-a-${runId}`;
+  const secondLogoTeamId = `catalog-logo-team-b-${runId}`;
 
   beforeAll(async () => {
     ({ db } = await import("../client.js"));
@@ -43,13 +46,15 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
     }
     await db.delete(schema.series).where(inArray(
       schema.series.gridSeriesId,
-      [gridSeriesId, unsupportedGridSeriesId, legacyGridSeriesId, mapNamesGridSeriesId, streamGridSeriesId],
+      [gridSeriesId, unsupportedGridSeriesId, legacyGridSeriesId, mapNamesGridSeriesId, streamGridSeriesId, logoGridSeriesId],
     ));
     await db.delete(schema.cs2Teams).where(inArray(schema.cs2Teams.gridTeamId, [
       firstGridTeamId,
       secondGridTeamId,
       firstPlaceholderId,
       secondPlaceholderId,
+      firstLogoTeamId,
+      secondLogoTeamId,
     ]));
     await db.delete(schema.cs2Competitions).where(eq(schema.cs2Competitions.gridTournamentId, gridTournamentId));
   });
@@ -315,5 +320,30 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
     await expect(setStream("https://twitch.tv/eslcs/videos")).rejects.toMatchObject(rejectedByCheck);
     await expect(setStream("https://twitchXtv/eslcs")).rejects.toMatchObject(rejectedByCheck);
     await expect(read()).resolves.toMatchObject({ streamUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" });
+  });
+
+  it("clears a stored short name and logo when the catalog sync has neither", async () => {
+    const input = (team: { shortName?: string; logoUrl?: string }): Parameters<typeof repository.synchronizeSeries>[0] => ({
+      gridSeriesId: logoGridSeriesId,
+      competition: { gridTournamentId, name: "Major" },
+      format: 3,
+      scheduledStartTime: new Date("2026-09-04T12:00:00.000Z"),
+      lifecycle: "upcoming" as const,
+      isSupported: true,
+      participants: [
+        { state: "known", displayOrder: 1, team: { gridTeamId: firstLogoTeamId, name: "Logo A", ...team } },
+        { state: "known", displayOrder: 2, team: { gridTeamId: secondLogoTeamId, name: "Logo B" } },
+      ],
+    });
+    const readTeam = async () => (await db
+      .select({ shortName: schema.cs2Teams.shortName, logoUrl: schema.cs2Teams.logoUrl })
+      .from(schema.cs2Teams)
+      .where(eq(schema.cs2Teams.gridTeamId, firstLogoTeamId)))[0];
+
+    await repository.synchronizeSeries(input({ shortName: "LA", logoUrl: "https://img/logo-a" }));
+    expect(await readTeam()).toEqual({ shortName: "LA", logoUrl: "https://img/logo-a" });
+
+    await repository.synchronizeSeries(input({}));
+    expect(await readTeam()).toEqual({ shortName: null, logoUrl: null });
   });
 });

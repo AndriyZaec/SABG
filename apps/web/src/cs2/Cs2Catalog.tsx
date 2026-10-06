@@ -28,8 +28,8 @@ function ParticipantLogo({ participant }: { participant: Cs2SeriesParticipant })
   );
 }
 
-function UpcomingQueueItem({ item, next, following }: { item: Cs2SeriesSummary; next: boolean; following: boolean }) {
-  const className = `cs2-broadcast__queue-item${next ? " cs2-broadcast__queue-item--next" : ""}${item.arena !== "running" ? " cs2-broadcast__queue-item--soon" : ""}`;
+function UpcomingQueueItem({ item, following }: { item: Cs2SeriesSummary; following: boolean }) {
+  const className = `cs2-broadcast__queue-item${item.arena === "expected" ? " cs2-broadcast__queue-item--expected" : ""}${item.arena !== "running" ? " cs2-broadcast__queue-item--soon" : ""}`;
   const content = (
     <>
       <div className="cs2-broadcast__queue-time-col">
@@ -47,11 +47,10 @@ function UpcomingQueueItem({ item, next, following }: { item: Cs2SeriesSummary; 
         </div>
       </div>
       <div className="cs2-broadcast__queue-tags">
-        {next && <span>Next</span>}
         <b>Bo{item.format}</b>
         <i>{item.arena === "running" ? "→" : "·"}</i>
       </div>
-      {arenaForecastLabel[item.arena] !== undefined && <span className="cs2-soon-label">{arenaForecastLabel[item.arena]}</span>}
+      {item.arena !== "running" && <span className="cs2-soon-label">[SOON]</span>}
     </>
   );
   return item.arena === "running"
@@ -64,6 +63,7 @@ export function Cs2Catalog({ series, followedIds }: { series: Cs2SeriesSummary[]
   const upcoming = series
     .filter((item) => item.lifecycle === "upcoming")
     .sort((a, b) => Date.parse(a.scheduledStartTime) - Date.parse(b.scheduledStartTime));
+  const nextSeries = upcoming.find((item) => item.arena === "expected") ?? upcoming[0];
   const competition = series[0]!.competition;
   const upcomingByDay = new Map<string, Cs2SeriesSummary[]>();
   for (const item of upcoming) {
@@ -110,22 +110,21 @@ export function Cs2Catalog({ series, followedIds }: { series: Cs2SeriesSummary[]
                 {item.arena === "running"
                   ? <Link className="nb-btn nb-btn--survive nb-btn--block" to={`/cs2/series/${item.id}`}>Open live series →</Link>
                   : <span aria-disabled="true" className="nb-btn nb-btn--plain nb-btn--block">{arenaForecastLabel[item.arena] ?? "Series coming soon"}</span>}
-                {arenaForecastLabel[item.arena] !== undefined && <span className="cs2-soon-label">{arenaForecastLabel[item.arena]}</span>}
               </article>
             ))}
             {liveSeries.length === 0 && (
               <div className="cs2-broadcast__no-live">
                 <span>Off air</span>
                 <strong>No Series live right now</strong>
-                {upcoming[0] && (
+                {nextSeries && (
                   <>
                     <p>
-                      Next: {participantName(upcoming[0].participants[0])} vs {participantName(upcoming[0].participants[1])}
-                      {" · "}{fullDate.format(new Date(upcoming[0].scheduledStartTime))}
+                      Next: {participantName(nextSeries.participants[0])} vs {participantName(nextSeries.participants[1])}
+                      {" · "}{fullDate.format(new Date(nextSeries.scheduledStartTime))}
                     </p>
-                    {upcoming[0].arena === "running"
-                      ? <Link className="nb-btn nb-btn--primary" to={`/cs2/series/${upcoming[0].id}`}>View next series →</Link>
-                      : <span aria-disabled="true" className="nb-btn nb-btn--plain">{arenaForecastLabel[upcoming[0].arena] ?? "Series coming soon"}</span>}
+                    {nextSeries.arena === "running"
+                      ? <Link className="nb-btn nb-btn--primary" to={`/cs2/series/${nextSeries.id}`}>View next series →</Link>
+                      : <span aria-disabled="true" className="nb-btn nb-btn--plain">{arenaForecastLabel[nextSeries.arena] ?? "Series coming soon"}</span>}
                   </>
                 )}
               </div>
@@ -144,7 +143,6 @@ export function Cs2Catalog({ series, followedIds }: { series: Cs2SeriesSummary[]
                       <UpcomingQueueItem
                         key={item.id}
                         item={item}
-                        next={item.id === upcoming[0]?.id}
                         following={followedIds.includes(item.id)}
                       />
                     ))}

@@ -1,5 +1,7 @@
+import { and, eq, ne } from "drizzle-orm";
 import type { Cs2TeamIdentity, Uuid } from "@arena/contracts";
 import { db } from "../client.js";
+import { cs2SeriesParticipants } from "../schema.js";
 import { reconcileSeriesParticipants } from "./cs2-participant-lifecycle.repository.js";
 
 export interface GridCs2TeamInput {
@@ -53,5 +55,18 @@ export const cs2IdentityRepository = {
 
       return participants as [Cs2SeriesTeamIdentity, Cs2SeriesTeamIdentity];
     });
+  },
+
+  async setSeriesScores(seriesId: Uuid, teams: readonly { teamId: Uuid; score: number }[]): Promise<void> {
+    for (const team of teams) {
+      await db
+        .update(cs2SeriesParticipants)
+        .set({ score: team.score })
+        .where(and(
+          eq(cs2SeriesParticipants.seriesId, seriesId),
+          eq(cs2SeriesParticipants.teamId, team.teamId),
+          ne(cs2SeriesParticipants.score, team.score),
+        ));
+    }
   },
 };

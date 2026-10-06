@@ -37,6 +37,8 @@ export interface Cs2ArenaView {
   pendingPredictions?: PendingPrediction[];
   /** Cancellation is terminal; the arena will not go live. */
   cancelled?: { reason: ArenaCancelledReason };
+  /** Finishing is terminal; no more rounds open in this arena. */
+  finished?: true;
   feed: FeedItem[];
   leaderboard: LeaderRow[];
 }

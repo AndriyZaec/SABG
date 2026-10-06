@@ -6,6 +6,7 @@ import type { WriteQueue } from "../gateway/stores/write-queue.js";
 import { MatchSignalBus } from "../ingestion/event-bus.js";
 import { arenaPlayerRepository } from "../db/repositories/arena-player.repository.js";
 import { arenaRepository } from "../db/repositories/arena.repository.js";
+import { cs2IdentityRepository } from "../db/repositories/cs2-identity.repository.js";
 import { cs2SeriesFollowRepository } from "../db/repositories/cs2-series-follow.repository.js";
 import { entryPassRepository } from "../db/repositories/entry-pass.repository.js";
 import { matchRepository } from "../db/repositories/match.repository.js";
@@ -285,6 +286,7 @@ export class Cs2SeriesOrchestrator {
     if (snapshot !== undefined && snapshot.mapNames.length > 0) {
       await seriesRepository.setMapNames(this.series.id, snapshot.mapNames);
     }
+    if (snapshot !== undefined) await cs2IdentityRepository.setSeriesScores(this.series.id, snapshot.teams);
   }
 
   private async apply(action: Cs2LifecycleAction, snapshot: Cs2SeriesSnapshot | undefined, now: IsoDateTime): Promise<void> {
