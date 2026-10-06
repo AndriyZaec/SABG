@@ -47,11 +47,10 @@ function UpcomingQueueItem({ item, next, following }: { item: Cs2SeriesSummary; 
         </div>
       </div>
       <div className="cs2-broadcast__queue-tags">
-        {next && <span>Next</span>}
         <b>Bo{item.format}</b>
         <i>{item.arena === "running" ? "→" : "·"}</i>
       </div>
-      {arenaForecastLabel[item.arena] !== undefined && <span className="cs2-soon-label">{arenaForecastLabel[item.arena]}</span>}
+      {item.arena !== "running" && <span className="cs2-soon-label">[SOON]</span>}
     </>
   );
   return item.arena === "running"
@@ -110,7 +109,6 @@ export function Cs2Catalog({ series, followedIds }: { series: Cs2SeriesSummary[]
                 {item.arena === "running"
                   ? <Link className="nb-btn nb-btn--survive nb-btn--block" to={`/cs2/series/${item.id}`}>Open live series →</Link>
                   : <span aria-disabled="true" className="nb-btn nb-btn--plain nb-btn--block">{arenaForecastLabel[item.arena] ?? "Series coming soon"}</span>}
-                {arenaForecastLabel[item.arena] !== undefined && <span className="cs2-soon-label">{arenaForecastLabel[item.arena]}</span>}
               </article>
             ))}
             {liveSeries.length === 0 && (
