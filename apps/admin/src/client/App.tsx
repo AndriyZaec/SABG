@@ -4,6 +4,7 @@ import type { AdminSessionResponse } from "../shared/session.js";
 import { logout, readSession } from "./api.js";
 import { CatalogPage } from "./CatalogPage.js";
 import { OverviewPage } from "./OverviewPage.js";
+import { PublishPage } from "./PublishPage.js";
 
 type SessionState =
   | { state: "loading" }
@@ -153,7 +154,7 @@ function Shell({ session, onSignedOut }: { session: AdminSessionResponse; onSign
             <Routes>
               <Route path="/" element={<OverviewPage session={session} onSessionExpired={onSignedOut} />} />
               <Route path="/catalog" element={<CatalogPage session={session} onSessionExpired={onSignedOut} />} />
-              <Route path="/publish" element={<PlaceholderPage page="publish" />} />
+              <Route path="/publish" element={<PublishPage session={session} onSessionExpired={onSignedOut} />} />
               <Route path="/audit" element={<PlaceholderPage page="audit" />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

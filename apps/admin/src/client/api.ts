@@ -53,6 +53,12 @@ export async function inspectGridSeries(gridSeriesId: string): Promise<Cs2Operat
   return response.json() as Promise<Cs2OperatorDiscoveryPayload>;
 }
 
+export async function discoverGridSeries(): Promise<Cs2OperatorDiscoveryPayload> {
+  const response = await fetch("/api/control/discovery", { headers: { accept: "application/json" } });
+  if (!response.ok) throw new AdminApiError("GRID discovery failed", response.status);
+  return response.json() as Promise<Cs2OperatorDiscoveryPayload>;
+}
+
 export async function mutateControl(
   session: AdminSessionResponse,
   command: AdminMutationCommand,

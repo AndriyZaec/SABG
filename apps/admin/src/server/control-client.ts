@@ -132,8 +132,8 @@ export function createFixtureControlClient(): AdminControlClient {
         appHealth: "healthy",
         activeTournamentId,
         autopilotEnabled,
-        runningSeriesIds: ["2985953"],
-        unfinishedArenaCount: 1,
+        runningSeriesIds: skipRequested ? [] : ["2985953"],
+        unfinishedArenaCount: skipRequested ? 0 : 1,
       },
     }),
     catalog: async () => ({
@@ -143,7 +143,38 @@ export function createFixtureControlClient(): AdminControlClient {
         series: [fixtureSeries()],
       },
     }),
-    discovery: async () => ({ status: 200, body: { window: { from: now(), to: now() }, series: [] } }),
+    discovery: async () => ({
+      status: 200,
+      body: {
+        window: { from: now(), to: new Date(Date.now() + 30 * 24 * 60 * 60 * 1_000).toISOString() },
+        series: [
+          {
+            gridSeriesId: "3100451",
+            format: 3,
+            scheduledStartTime: "2026-10-07T19:00:00.000Z",
+            competition: { gridTournamentId: "epl-season-7", name: "European Pro League Season 7", shortName: "EPL S7" },
+            participants: [
+              { state: "known", displayOrder: 1, team: { gridTeamId: "team-vitality", name: "Vitality" } },
+              { state: "known", displayOrder: 2, team: { gridTeamId: "team-spirit", name: "Spirit" } },
+            ],
+            liveDataServiceLevel: "FULL",
+            selection: { state: "selectable" },
+          },
+          {
+            gridSeriesId: "3100452",
+            format: 3,
+            scheduledStartTime: "2026-10-08T16:00:00.000Z",
+            competition: { gridTournamentId: "epl-season-7", name: "European Pro League Season 7", shortName: "EPL S7" },
+            participants: [
+              { state: "known", displayOrder: 1, team: { gridTeamId: "team-navi", name: "NAVI" } },
+              { state: "known", displayOrder: 2, team: { gridTeamId: "team-g2", name: "G2" } },
+            ],
+            liveDataServiceLevel: "UNAVAILABLE",
+            selection: { state: "disabled", reason: "FULL_LIVE_DATA_UNAVAILABLE" },
+          },
+        ],
+      },
+    }),
     inspect: async (gridSeriesId) => ({
       status: 200,
       body: {
