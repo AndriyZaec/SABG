@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import type { EntryPass, Uuid, WalletAddress } from "@arena/contracts";
 import { db } from "../client.js";
-import { entryPasses } from "../schema.js";
+import { arenas, entryPasses } from "../schema.js";
 import { entryPassRowToEntity } from "../mappers.js";
 
 export const entryPassRepository = {
@@ -40,6 +40,16 @@ export const entryPassRepository = {
   async listByArenaId(arenaId: Uuid): Promise<EntryPass[]> {
     const rows = await db.select().from(entryPasses).where(eq(entryPasses.arenaId, arenaId));
     return rows.map(entryPassRowToEntity);
+  },
+
+  // Every cancelled arena's still-unrefunded passes, across all series.
+  async listPaidInCancelledArenas(): Promise<{ pass: EntryPass; onchainArenaId: number | undefined }[]> {
+    const rows = await db
+      .select({ pass: entryPasses, onchainArenaId: arenas.onchainArenaId })
+      .from(entryPasses)
+      .innerJoin(arenas, eq(arenas.id, entryPasses.arenaId))
+      .where(and(eq(arenas.status, "cancelled"), eq(entryPasses.status, "paid")));
+    return rows.map((row) => ({ pass: entryPassRowToEntity(row.pass), onchainArenaId: row.onchainArenaId ?? undefined }));
   },
 
   // Mark refunded only after chain finalization or successful reconciliation.

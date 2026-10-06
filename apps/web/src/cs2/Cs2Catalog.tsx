@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Badge } from "../ui/Badge.js";
 import { NotifyMeToggle } from "./NotifyMeToggle.js";
 import { TeamLogo } from "./TeamLogo.js";
+import { arenaForecastLabel } from "./arenaForecastLabel.js";
 
 const fullDate = new Intl.DateTimeFormat(undefined, {
   weekday: "short",
@@ -28,7 +29,7 @@ function ParticipantLogo({ participant }: { participant: Cs2SeriesParticipant })
 }
 
 function UpcomingQueueItem({ item, next, following }: { item: Cs2SeriesSummary; next: boolean; following: boolean }) {
-  const className = `cs2-broadcast__queue-item${next ? " cs2-broadcast__queue-item--next" : ""}${item.availability === "soon" ? " cs2-broadcast__queue-item--soon" : ""}`;
+  const className = `cs2-broadcast__queue-item${next ? " cs2-broadcast__queue-item--next" : ""}${item.arena !== "running" ? " cs2-broadcast__queue-item--soon" : ""}`;
   const content = (
     <>
       <div className="cs2-broadcast__queue-time-col">
@@ -48,12 +49,12 @@ function UpcomingQueueItem({ item, next, following }: { item: Cs2SeriesSummary; 
       <div className="cs2-broadcast__queue-tags">
         {next && <span>Next</span>}
         <b>Bo{item.format}</b>
-        <i>{item.availability === "available" ? "→" : "·"}</i>
+        <i>{item.arena === "running" ? "→" : "·"}</i>
       </div>
-      {item.availability === "soon" && <span className="cs2-soon-label">[SOON]</span>}
+      {arenaForecastLabel[item.arena] !== undefined && <span className="cs2-soon-label">{arenaForecastLabel[item.arena]}</span>}
     </>
   );
-  return item.availability === "available"
+  return item.arena === "running"
     ? <Link className={className} to={`/cs2/series/${item.id}`}>{content}</Link>
     : <div aria-disabled="true" className={className}>{content}</div>;
 }
@@ -91,7 +92,7 @@ export function Cs2Catalog({ series, followedIds }: { series: Cs2SeriesSummary[]
           </div>
           <div className="cs2-broadcast__live-grid">
             {liveSeries.map((item) => (
-              <article className={`cs2-broadcast__live-card${item.availability === "soon" ? " cs2-broadcast__live-card--soon" : ""}`} key={item.id}>
+              <article className={`cs2-broadcast__live-card${item.arena !== "running" ? " cs2-broadcast__live-card--soon" : ""}`} key={item.id}>
                 <div className="cs2-broadcast__live-meta">
                   <span>Best of {item.format}</span>
                   <time>{eventTime.format(new Date(item.scheduledStartTime))}</time>
@@ -106,10 +107,10 @@ export function Cs2Catalog({ series, followedIds }: { series: Cs2SeriesSummary[]
                   ))}
                   <span className="cs2-broadcast__live-vs cs2-versus-badge">VS</span>
                 </div>
-                {item.availability === "available"
+                {item.arena === "running"
                   ? <Link className="nb-btn nb-btn--survive nb-btn--block" to={`/cs2/series/${item.id}`}>Open live series →</Link>
-                  : <span aria-disabled="true" className="nb-btn nb-btn--plain nb-btn--block">Series coming soon</span>}
-                {item.availability === "soon" && <span className="cs2-soon-label">[SOON]</span>}
+                  : <span aria-disabled="true" className="nb-btn nb-btn--plain nb-btn--block">{arenaForecastLabel[item.arena] ?? "Series coming soon"}</span>}
+                {arenaForecastLabel[item.arena] !== undefined && <span className="cs2-soon-label">{arenaForecastLabel[item.arena]}</span>}
               </article>
             ))}
             {liveSeries.length === 0 && (
@@ -122,9 +123,9 @@ export function Cs2Catalog({ series, followedIds }: { series: Cs2SeriesSummary[]
                       Next: {participantName(upcoming[0].participants[0])} vs {participantName(upcoming[0].participants[1])}
                       {" · "}{fullDate.format(new Date(upcoming[0].scheduledStartTime))}
                     </p>
-                    {upcoming[0].availability === "available"
+                    {upcoming[0].arena === "running"
                       ? <Link className="nb-btn nb-btn--primary" to={`/cs2/series/${upcoming[0].id}`}>View next series →</Link>
-                      : <span aria-disabled="true" className="nb-btn nb-btn--plain">Series coming soon</span>}
+                      : <span aria-disabled="true" className="nb-btn nb-btn--plain">{arenaForecastLabel[upcoming[0].arena] ?? "Series coming soon"}</span>}
                   </>
                 )}
               </div>

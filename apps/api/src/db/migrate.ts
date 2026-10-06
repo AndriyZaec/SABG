@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 
+import { migrateSchedulerSchema } from "../scheduler/schema.js";
 import { closeDatabaseConnection, db } from "./client.js";
 
 async function main(): Promise<void> {
@@ -8,6 +9,8 @@ async function main(): Promise<void> {
   try {
     await migrate(db, { migrationsFolder });
     console.log("database migrations complete");
+    await migrateSchedulerSchema();
+    console.log("scheduler schema migrations complete");
   } finally {
     await closeDatabaseConnection();
   }

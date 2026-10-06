@@ -20,16 +20,17 @@ describe("loadSeriesStateQuery", () => {
     expect(result).toBe('query GetLiveCsSeriesState {\n  seriesState(id: "999") {\n    valid\n  }\n}');
   });
 
-  it("caches the loaded query across calls", () => {
+  it("reads the file once but substitutes each call's series id", () => {
     const dir = mkdtempSync(join(tmpdir(), "grid-query-"));
     const file = join(dir, "query.txt");
     writeFileSync(file, 'seriesState(id: "28") { valid }', "utf8");
 
     const first = loadSeriesStateQuery(file, "42");
-    const second = loadSeriesStateQuery(file, "different");
+    writeFileSync(file, 'seriesState(id: "28") { changed }', "utf8");
+    const second = loadSeriesStateQuery(file, "77");
 
-    expect(second).toBe(first);
-    expect(second).toContain('id: "42"');
+    expect(first).toBe('seriesState(id: "42") { valid }');
+    expect(second).toBe('seriesState(id: "77") { valid }');
   });
 
   it("throws when the file is missing", () => {

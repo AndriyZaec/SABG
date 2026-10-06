@@ -657,6 +657,8 @@ describe("REST gateway routes", () => {
         format: 3,
         scheduledStartTime: "2026-01-01T00:00:00.000Z",
         status: "active",
+        priority: false,
+        skipRequested: false,
       });
       vi.mocked(cs2SeriesFollowRepository.follow).mockResolvedValue(undefined);
       const res = await fetch(`${baseUrl}/cs2/series/series-1/follow`, {

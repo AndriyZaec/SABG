@@ -10,7 +10,7 @@ const TEAM_ID = "00000000-0000-4000-8000-000000000002";
 
 const summary: Cs2SeriesSummary = {
   id: SERIES_ID,
-  availability: "available",
+  arena: "running",
   participants: [
     {
       state: "known",

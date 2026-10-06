@@ -44,6 +44,10 @@ export const seriesRepository = {
       .where(eq(series.id, id));
   },
 
+  async clearSkipRequested(id: Uuid): Promise<void> {
+    await db.update(series).set({ skipRequested: false }).where(eq(series.id, id));
+  },
+
   async setCatalogLifecycle(id: Uuid, catalogLifecycle: Cs2SeriesLifecycle): Promise<void> {
     await db.update(series).set({ catalogLifecycle }).where(eq(series.id, id));
   },

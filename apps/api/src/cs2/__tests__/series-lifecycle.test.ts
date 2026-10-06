@@ -109,7 +109,7 @@ describe("processCs2SeriesPoll — series decided", () => {
 });
 
 describe("processCs2SeriesPoll — forfeit cancellation", () => {
-  it("cancels Arena #k+1 the moment the series-level score shows it decided, without waiting for MLD", () => {
+  it("cancels Arena #k+1 once the series-level score shows it decided for 2 polls, without waiting for MLD", () => {
     let state = initialCs2SeriesLifecycleState(START);
     ({ state } = poll(state, snapshot({ format: 3 }), -10));
     ({ state } = poll(state, snapshot({ format: 3, hasLiveGame: true }), 0));
@@ -118,16 +118,100 @@ describe("processCs2SeriesPoll — forfeit cancellation", () => {
     expect(state.matchLiveDetected).toBe(false);
 
     // A forfeit can decide the series without a live-game edge.
-    const { state: after, actions } = poll(
-      state,
-      snapshot({ format: 3, hasLiveGame: false, teams: [2, 0], finished: true }),
-      22,
-    );
+    const decidedSnapshot = snapshot({ format: 3, hasLiveGame: false, teams: [2, 0], finished: true });
+    let first;
+    ({ state, actions: first } = poll(state, decidedSnapshot, 22));
+    expect(first).toEqual([]);
+    const { state: after, actions } = poll(state, decidedSnapshot, 22.2);
     expect(actions).toEqual([
       { type: "cancel_arena", matchIndex: 2, reason: "series_decided" },
       { type: "series_decided", reason: "clinch" },
     ]);
     expect(after.decided).toBe(true);
+  });
+});
+
+describe("processCs2SeriesPoll — mid-series forfeit", () => {
+  it("cancels a forfeited, never-live map and opens the next arena once the score holds for 2 polls", () => {
+    let state = initialCs2SeriesLifecycleState(START);
+    ({ state } = poll(state, snapshot({}), -10));
+
+    let actions;
+    ({ state, actions } = poll(state, snapshot({ teams: [1, 0] }), 15));
+    expect(actions).toEqual([]);
+    expect(state.forfeitPendingPolls).toBe(1);
+
+    ({ state, actions } = poll(state, snapshot({ teams: [1, 0] }), 15.2));
+    expect(actions).toEqual([
+      { type: "cancel_arena", matchIndex: 1, reason: "forfeit" },
+      { type: "open_arena", matchIndex: 2 },
+    ]);
+    expect(state).toMatchObject({ openedThrough: 2, openedThroughAt: at(15.2), forfeitPendingPolls: 0, decided: false });
+  });
+
+  it("ignores a forfeit signal that disappears after one poll", () => {
+    let state = initialCs2SeriesLifecycleState(START);
+    ({ state } = poll(state, snapshot({}), -10));
+
+    let actions;
+    ({ state } = poll(state, snapshot({ teams: [1, 0] }), 15));
+    ({ state, actions } = poll(state, snapshot({ teams: [0, 0] }), 15.2));
+    expect(actions).toEqual([]);
+    expect(state.forfeitPendingPolls).toBe(0);
+
+    ({ state, actions } = poll(state, snapshot({ teams: [1, 0] }), 15.4));
+    expect(actions).toEqual([]);
+    expect(state.forfeitPendingPolls).toBe(1);
+  });
+
+  it("keeps the series_decided path when the forfeited map decides the series", () => {
+    let state = initialCs2SeriesLifecycleState(START);
+    ({ state } = poll(state, snapshot({ format: 1 }), -10));
+
+    ({ state } = poll(state, snapshot({ format: 1, teams: [1, 0] }), 15));
+    const { state: after, actions } = poll(state, snapshot({ format: 1, teams: [1, 0] }), 15.2);
+    expect(actions).toEqual([
+      { type: "cancel_arena", matchIndex: 1, reason: "series_decided" },
+      { type: "series_decided", reason: "clinch" },
+    ]);
+    expect(after.decided).toBe(true);
+  });
+
+  it("attributes a live game seen on the same poll as the score jump to the next map, not the forfeited one", () => {
+    let state = initialCs2SeriesLifecycleState(START);
+    ({ state } = poll(state, snapshot({}), -10));
+
+    let actions;
+    ({ state, actions } = poll(state, snapshot({ teams: [1, 0], hasLiveGame: true }), 15));
+    expect(actions).toEqual([]);
+    expect(state.matchLiveDetected).toBe(false);
+
+    ({ state, actions } = poll(state, snapshot({ teams: [1, 0], hasLiveGame: true }), 15.2));
+    expect(actions).toEqual([
+      { type: "cancel_arena", matchIndex: 1, reason: "forfeit" },
+      { type: "open_arena", matchIndex: 2 },
+    ]);
+
+    ({ state, actions } = poll(state, snapshot({ teams: [1, 0], hasLiveGame: true }), 15.4));
+    expect(actions).toEqual([{ type: "match_live_detected", matchIndex: 2 }]);
+  });
+});
+
+describe("processCs2SeriesPoll — Arena #2+ no-show", () => {
+  it("measures from when the arena opened, not from the series' scheduled start", () => {
+    let state = initialCs2SeriesLifecycleState(START);
+    ({ state } = poll(state, snapshot({}), -10));
+    ({ state } = poll(state, snapshot({ hasLiveGame: true }), 0));
+    ({ state } = poll(state, snapshot({ teams: [1, 0] }), 90));
+    expect(state.openedThrough).toBe(2);
+
+    let actions;
+    ({ state, actions } = poll(state, snapshot({ teams: [1, 0] }), 149));
+    expect(actions).toEqual([]);
+
+    ({ state, actions } = poll(state, snapshot({ teams: [1, 0] }), 151));
+    expect(actions).toEqual([{ type: "cancel_arena", matchIndex: 2, reason: "no_show" }]);
+    expect(state.invalid).toBe(true);
   });
 });
 
@@ -182,5 +266,33 @@ describe("processCs2SeriesPoll — terminal states ignore further polls", () => 
 
     const { actions } = poll(state, snapshot({ hasLiveGame: true }), 62);
     expect(actions).toEqual([]);
+  });
+});
+
+describe("processCs2SeriesPoll — joining after a live map 1 (startAfterMap1)", () => {
+  const joined = () => initialCs2SeriesLifecycleState(START, { startAfterMap1: true });
+
+  it("emits nothing while map 1 stays live, even past the no-show timeout", () => {
+    let state = joined();
+    for (const [offset, teams] of [
+      [5, [0, 0]],
+      [70, [0, 0]],
+      [90, [0, 0]],
+    ] as const) {
+      const result = poll(state, snapshot({ teams: [...teams], hasLiveGame: true }), offset);
+      expect(result.actions).toEqual([]);
+      state = result.state;
+    }
+    expect(state.openedThrough).toBe(1);
+  });
+
+  it.each([3, 5])("opens arena #2 when map 1 of a Bo%i ends", (format) => {
+    const live = poll(joined(), snapshot({ format, hasLiveGame: true }), 5).state;
+    const { state, actions } = poll(live, snapshot({ format, teams: [1, 0], hasLiveGame: false }), 50);
+    expect(actions).toEqual([
+      { type: "match_ended", matchIndex: 1 },
+      { type: "open_arena", matchIndex: 2 },
+    ]);
+    expect(state).toMatchObject({ openedThrough: 2, openedThroughAt: at(50), matchLiveDetected: false, decided: false });
   });
 });

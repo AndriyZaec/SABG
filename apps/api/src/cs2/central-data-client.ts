@@ -91,7 +91,8 @@ const SeriesPageResponseSchema = z.object({
   data: z.object({
     allSeries: z.object({
       edges: z.array(z.object({ node: SeriesNodeSchema })),
-      pageInfo: z.object({ endCursor: z.string().nullable(), hasNextPage: z.boolean() }),
+      // GRID omits endCursor on an empty page.
+      pageInfo: z.object({ endCursor: z.string().nullable().default(null), hasNextPage: z.boolean() }),
     }),
   }).nullable().optional(),
   errors: z.array(GraphqlErrorSchema).optional(),

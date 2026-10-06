@@ -20,6 +20,7 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
   const unsupportedGridSeriesId = `catalog-unsupported-series-${runId}`;
   const legacyGridSeriesId = `catalog-legacy-series-${runId}`;
   const mapNamesGridSeriesId = `catalog-map-names-series-${runId}`;
+  const streamGridSeriesId = `catalog-stream-series-${runId}`;
   const gridTournamentId = `catalog-tournament-${runId}`;
   const firstGridTeamId = `catalog-team-a-${runId}`;
   const secondGridTeamId = `catalog-team-b-${runId}`;
@@ -42,7 +43,7 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
     }
     await db.delete(schema.series).where(inArray(
       schema.series.gridSeriesId,
-      [gridSeriesId, unsupportedGridSeriesId, legacyGridSeriesId, mapNamesGridSeriesId],
+      [gridSeriesId, unsupportedGridSeriesId, legacyGridSeriesId, mapNamesGridSeriesId, streamGridSeriesId],
     ));
     await db.delete(schema.cs2Teams).where(inArray(schema.cs2Teams.gridTeamId, [
       firstGridTeamId,
@@ -70,16 +71,17 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
       ],
     });
     expect(first.participantCount).toBe(1);
-    await expect(repository.findSupportedById(first.seriesId, [gridTournamentId], gridSeriesId)).resolves.toMatchObject({
+    // Its start is long past and it never ran, so the forecast is final and it no longer reads as upcoming.
+    await expect(repository.findSupportedById(first.seriesId, { tournamentIds: [gridTournamentId] })).resolves.toMatchObject({
       id: first.seriesId,
-      availability: "available",
+      arena: "none",
       participants: [
         { state: "known", displayOrder: 1, team: { name: "Team A" }, seriesScore: 0 },
         { state: "tbd", displayOrder: 2, seriesScore: null },
       ],
       competition: { name: "Major" },
       format: 3,
-      lifecycle: "upcoming",
+      lifecycle: "unknown",
     });
 
     await db
@@ -163,7 +165,12 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
     });
     seriesMatchIds.push(secondMap.id);
 
-    const detail = await repository.findSupportedDetailById(first.seriesId, [gridTournamentId]);
+    // Map 1's arena is in lobby, so the series is joinable now.
+    await expect(repository.findSupportedById(first.seriesId, { tournamentIds: [gridTournamentId] })).resolves.toMatchObject({
+      arena: "running",
+    });
+
+    const detail = await repository.findSupportedDetailById(first.seriesId, { tournamentIds: [gridTournamentId] });
     expect(detail?.maps).toEqual([
       {
         state: "lobby",
@@ -183,7 +190,7 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
       { state: "pending", seriesMatchIndex: 2 },
       { state: "pending", seriesMatchIndex: 3 },
     ]);
-    await expect(repository.findSupportedDetailById(first.seriesId, ["other-tournament"])).resolves.toBeUndefined();
+    await expect(repository.findSupportedDetailById(first.seriesId, { tournamentIds: ["other-tournament"] })).resolves.toBeUndefined();
 
     const unsupported = await repository.synchronizeSeries({
       ...base,
@@ -191,9 +198,9 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
       isSupported: false,
       participants: [{ state: "tbd", displayOrder: 1 }, { state: "tbd", displayOrder: 2 }],
     });
-    await expect(repository.findSupportedById(unsupported.seriesId, [gridTournamentId])).resolves.toBeUndefined();
-    await expect(repository.findSupportedById(first.seriesId, ["other-tournament"])).resolves.toBeUndefined();
-    await expect(repository.listSupported([gridTournamentId])).resolves.not.toContainEqual(
+    await expect(repository.findSupportedById(unsupported.seriesId, { tournamentIds: [gridTournamentId] })).resolves.toBeUndefined();
+    await expect(repository.findSupportedById(first.seriesId, { tournamentIds: ["other-tournament"] })).resolves.toBeUndefined();
+    await expect(repository.listSupported({ tournamentIds: [gridTournamentId] })).resolves.not.toContainEqual(
       expect.objectContaining({ id: unsupported.seriesId }),
     );
   });
@@ -266,11 +273,44 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
 
     await db.update(schema.series).set({ mapNames: ["mirage", "inferno"] }).where(eq(schema.series.id, seriesId));
 
-    const detail = await repository.findSupportedDetailById(seriesId, [gridTournamentId]);
+    const detail = await repository.findSupportedDetailById(seriesId, { tournamentIds: [gridTournamentId] });
     expect(detail?.maps.map((map) => ({ seriesMatchIndex: map.seriesMatchIndex, mapName: map.mapName }))).toEqual([
       { seriesMatchIndex: 1, mapName: "mirage" },
       { seriesMatchIndex: 2, mapName: "inferno" },
       { seriesMatchIndex: 3, mapName: undefined },
     ]);
+  });
+
+  it("returns the operator's stream with the detail, keeps it across a sync, and rejects a non-normalized URL", async () => {
+    const input = {
+      gridSeriesId: streamGridSeriesId,
+      competition: { gridTournamentId, name: "Major" },
+      format: 3,
+      scheduledStartTime: new Date("2026-09-03T12:00:00.000Z"),
+      lifecycle: "upcoming" as const,
+      isSupported: true,
+      participants: [{ state: "tbd", displayOrder: 1 }, { state: "tbd", displayOrder: 2 }] as const,
+    };
+    const { seriesId } = await repository.synchronizeSeries({ ...input, participants: [...input.participants] });
+    const read = () => repository.findSupportedDetailById(seriesId, { tournamentIds: [gridTournamentId] });
+    const setStream = (streamUrl: string) =>
+      db.update(schema.series).set({ streamUrl }).where(eq(schema.series.id, seriesId));
+
+    expect(await read()).not.toHaveProperty("streamUrl");
+
+    await setStream("https://kick.com/user-name");
+    await expect(read()).resolves.toMatchObject({ streamUrl: "https://kick.com/user-name" });
+    const [summary] = (await repository.listSupported({ tournamentIds: [gridTournamentId] })).filter((s) => s.id === seriesId);
+    expect(summary).not.toHaveProperty("streamUrl");
+
+    // The catalog sync owns other columns; the operator's stream survives it.
+    await repository.synchronizeSeries({ ...input, participants: [...input.participants] });
+    await expect(read()).resolves.toMatchObject({ streamUrl: "https://kick.com/user-name" });
+
+    const rejectedByCheck = { cause: { constraint_name: "series_stream_url_check" } };
+    await expect(setStream("https://youtube.com/watch?v=abc")).rejects.toMatchObject(rejectedByCheck);
+    await expect(setStream("https://twitch.tv/eslcs/videos")).rejects.toMatchObject(rejectedByCheck);
+    await expect(setStream("https://twitchXtv/eslcs")).rejects.toMatchObject(rejectedByCheck);
+    await expect(read()).resolves.toMatchObject({ streamUrl: "https://kick.com/user-name" });
   });
 });

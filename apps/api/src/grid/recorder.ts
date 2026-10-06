@@ -39,7 +39,7 @@ export class GridRecorder {
   private async runLoop(signal: AbortSignal): Promise<void> {
     while (this.running) {
       try {
-        const result = await this.client.fetchSeriesState(signal);
+        const result = await this.client.fetchSeriesState(gridConfig.grid.seriesId, signal);
         this.logResponseBody(result.data);
 
         const parsed = SeriesStateResponseSchema.safeParse(result.data);

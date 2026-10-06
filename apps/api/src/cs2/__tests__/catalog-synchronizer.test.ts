@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { synchronizeCs2Catalog, type Cs2CatalogSource, type Cs2CatalogStore } from "../catalog-synchronizer.js";
+import { synchronizeCs2Catalog, type Cs2CatalogSource } from "../catalog-synchronizer.js";
 
 const competition = { gridTournamentId: "tournament-1", name: "Major" };
 const window = { from: new Date("2026-09-01"), to: new Date("2026-09-03") };
@@ -33,7 +33,7 @@ describe("synchronizeCs2Catalog", () => {
       now: new Date("2026-09-01T12:00:00.000Z"),
       tournamentIds: ["tournament-1"],
       source: { fetchSeries } as Cs2CatalogSource,
-      store: { synchronizeSeries } as Cs2CatalogStore,
+      store: { synchronizeSeries, withdrawUnpublishedSeries: vi.fn().mockResolvedValue(0) },
     });
 
     expect(synchronizeSeries.mock.calls[0]?.[0]).toMatchObject({
@@ -51,7 +51,7 @@ describe("synchronizeCs2Catalog", () => {
       isSupported: false,
       participants: [{ state: "tbd", displayOrder: 1 }, { state: "tbd", displayOrder: 2 }],
     });
-    expect(result).toEqual({ discovered: 2, persisted: 2, supported: 1, incompleteParticipants: 2 });
+    expect(result).toEqual({ discovered: 2, persisted: 2, supported: 1, incompleteParticipants: 2, withdrawn: 0 });
   });
 
   it("deduplicates a series repeated across provider pages", async () => {
@@ -68,7 +68,7 @@ describe("synchronizeCs2Catalog", () => {
     const result = await synchronizeCs2Catalog(window, {
       tournamentIds: ["tournament-1"],
       source: { fetchSeries: vi.fn().mockResolvedValue([item, item]) },
-      store: { synchronizeSeries } as Cs2CatalogStore,
+      store: { synchronizeSeries, withdrawUnpublishedSeries: vi.fn().mockResolvedValue(0) },
     });
 
     expect(synchronizeSeries).toHaveBeenCalledTimes(1);
@@ -91,9 +91,42 @@ describe("synchronizeCs2Catalog", () => {
     await expect(synchronizeCs2Catalog(window, {
       tournamentIds: ["tournament-1"],
       source: { fetchSeries } as Cs2CatalogSource,
-      store: { synchronizeSeries } as Cs2CatalogStore,
-    })).resolves.toEqual({ discovered: 0, persisted: 0, supported: 0, incompleteParticipants: 0 });
+      store: { synchronizeSeries, withdrawUnpublishedSeries: vi.fn().mockResolvedValue(0) },
+    })).resolves.toEqual({ discovered: 0, persisted: 0, supported: 0, incompleteParticipants: 0, withdrawn: 0 });
     expect(fetchSeries).toHaveBeenCalledWith(window, ["tournament-1"], undefined);
     expect(synchronizeSeries).not.toHaveBeenCalled();
+  });
+
+  it("withdraws the series GRID no longer publishes, passing only the ones it returned", async () => {
+    const withdrawUnpublishedSeries = vi.fn().mockResolvedValue(1);
+    const result = await synchronizeCs2Catalog(window, {
+      tournamentIds: ["tournament-1"],
+      source: {
+        fetchSeries: vi.fn().mockResolvedValue([
+          {
+            gridSeriesId: "still-published",
+            format: 3,
+            scheduledStartTime: new Date("2026-09-02"),
+            competition,
+            participants: [{ state: "tbd", displayOrder: 1 }, { state: "tbd", displayOrder: 2 }],
+            hasFullLiveData: true,
+          },
+        ]),
+      },
+      store: { synchronizeSeries: vi.fn().mockResolvedValue({ seriesId: "id", participantCount: 0 }), withdrawUnpublishedSeries },
+    });
+
+    expect(withdrawUnpublishedSeries).toHaveBeenCalledWith(["tournament-1"], window, ["still-published"]);
+    expect(result.withdrawn).toBe(1);
+  });
+
+  it("withdraws nothing when the GRID fetch fails", async () => {
+    const withdrawUnpublishedSeries = vi.fn();
+    await expect(synchronizeCs2Catalog(window, {
+      tournamentIds: ["tournament-1"],
+      source: { fetchSeries: vi.fn().mockRejectedValue(new Error("GRID down")) },
+      store: { synchronizeSeries: vi.fn(), withdrawUnpublishedSeries },
+    })).rejects.toThrow("GRID down");
+    expect(withdrawUnpublishedSeries).not.toHaveBeenCalled();
   });
 });

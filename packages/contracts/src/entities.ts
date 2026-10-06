@@ -70,6 +70,10 @@ export interface Series {
   format: number;
   scheduledStartTime: IsoDateTime;
   status: SeriesStatus;
+  /** Operator flag: wins a tie on start time when the autopilot picks the next series. */
+  priority: boolean;
+  /** Operator stop request; the runner acts on it. */
+  skipRequested: boolean;
 }
 
 export interface Arena {

@@ -1,6 +1,6 @@
 # CS2 arena-open push notifications - production setup
 
-Web Push (the "notify me" toggle on CS2 series screens, `docs/adr/0005-cs2-arena-open-web-push.md`)
+Web Push (the "notify me" toggle on CS2 series screens)
 needs a VAPID key pair. The backend config is optional (the app won't crash without it - push just
 silently no-ops), so this can be done at any point, but the feature is inert in production until
 all setup steps below are done.

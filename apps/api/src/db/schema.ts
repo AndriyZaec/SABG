@@ -101,11 +101,17 @@ export const series = pgTable("series", {
   catalogLifecycle: cs2SeriesLifecycleEnum("catalog_lifecycle").notNull().default("unknown"),
   isSupported: boolean("is_supported").notNull().default(false),
   mapNames: text("map_names").array(),
+  priority: boolean("priority").notNull().default(false),
+  skipRequested: boolean("skip_requested").notNull().default(false),
+  /** Operator-set Twitch or Kick channel URL, shown as a player on the arena page. */
+  streamUrl: text("stream_url"),
   ...timestamps,
 }, (t) => [
   index("series_competition_id_idx").on(t.competitionId),
   index("series_catalog_idx").on(t.isSupported, t.catalogLifecycle, t.scheduledStartTime),
   check("series_format_check", sql`${t.format} between 1 and 7`),
+  // Only the normalized channel URL: the web builds the iframe from it, so nothing else may get in.
+  check("series_stream_url_check", sql`${t.streamUrl} is null or ${t.streamUrl} ~ '^https://(twitch\\.tv|kick\\.com)/[A-Za-z0-9_-]+$'`),
 ]);
 
 export const cs2SeriesFollows = pgTable("cs2_series_follow", {
@@ -346,3 +352,11 @@ export const replayResetAudits = pgTable("demo_reset_audit", {
 }, (t) => [
   index("demo_reset_audit_fixture_id_idx").on(t.fixtureId),
 ]);
+
+/** Operator switches, flipped over SQL without a restart. */
+export const settings = pgTable("settings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull().unique(),
+  enabled: boolean("enabled").notNull().default(true),
+  ...timestamps,
+});

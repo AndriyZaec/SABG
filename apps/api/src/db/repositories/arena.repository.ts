@@ -1,7 +1,7 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Arena, ArenaCancelledReason, Uuid, WalletAddress } from "@arena/contracts";
 import { db } from "../client.js";
-import { arenas } from "../schema.js";
+import { arenas, entryPasses } from "../schema.js";
 import { arenaRowToEntity } from "../mappers.js";
 import { maybeProvisionArena } from "../../onchain/index.js";
 
@@ -78,11 +78,44 @@ export const arenaRepository = {
       .where(and(eq(arenas.id, id), eq(arenas.status, "cancelled")));
   },
 
+  // A cancelled or finished arena must never go live again; live stays allowed so a retry is idempotent.
+  async setLiveIfOpen(id: Uuid): Promise<Arena | undefined> {
+    const [row] = await db
+      .update(arenas)
+      .set({ status: "live" })
+      .where(and(eq(arenas.id, id), inArray(arenas.status, ["lobby", "live"])))
+      .returning();
+    return row ? arenaRowToEntity(row) : undefined;
+  },
+
+  async setFinishedIfLive(id: Uuid): Promise<Arena | undefined> {
+    const [row] = await db
+      .update(arenas)
+      .set({ status: "finished" })
+      .where(and(eq(arenas.id, id), eq(arenas.status, "live")))
+      .returning();
+    return row ? arenaRowToEntity(row) : undefined;
+  },
+
   async cancelIfLobby(id: Uuid, reason: ArenaCancelledReason): Promise<Arena | undefined> {
     const [row] = await db
       .update(arenas)
       .set({ status: "cancelled", cancelledReason: reason })
       .where(and(eq(arenas.id, id), eq(arenas.status, "lobby")))
+      .returning();
+    return row ? arenaRowToEntity(row) : undefined;
+  },
+
+  /** Operator stop of a live arena: only while nobody's entry is paid, checked in the same statement. */
+  async cancelLiveIfEmpty(id: Uuid, reason: ArenaCancelledReason): Promise<Arena | undefined> {
+    const [row] = await db
+      .update(arenas)
+      .set({ status: "cancelled", cancelledReason: reason })
+      .where(and(
+        eq(arenas.id, id),
+        eq(arenas.status, "live"),
+        sql`not exists (select 1 from ${entryPasses} where ${entryPasses.arenaId} = ${id} and ${entryPasses.status} = 'paid')`,
+      ))
       .returning();
     return row ? arenaRowToEntity(row) : undefined;
   },

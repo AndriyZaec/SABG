@@ -10,6 +10,8 @@ deploy_path=${1:-}
 command_name=${2:-status}
 argument=${3:-}
 confirmation=${4:-}
+# Not "value": the assert_* helpers below assign that name globally.
+stream_url=${5:-}
 
 case "$deploy_path" in
   /*) ;;
@@ -25,10 +27,6 @@ compose() {
   docker compose --project-directory "$deploy_path" -f "$deploy_path/compose.yml" "$@"
 }
 
-compose_live() {
-  docker compose --profile live --project-directory "$deploy_path" -f "$deploy_path/compose.yml" "$@"
-}
-
 read_env_value() {
   target_file=$1
   target_key=$2
@@ -41,10 +39,6 @@ read_env_value() {
   return 1
 }
 
-read_runtime_mode() {
-  read_env_value "$deploy_path/deploy/app.env" CS2_RUNTIME_MODE || printf 'catalog\n'
-}
-
 assert_safe_grid_id() {
   value=$1
   label=$2
@@ -52,6 +46,20 @@ assert_safe_grid_id() {
     ''|*[!A-Za-z0-9._:-]*) fail "$label is invalid" ;;
   esac
   [ "${#value}" -le 200 ] || fail "$label is too long"
+}
+
+# Only the normalized channel URL the operator sends; the web builds its iframe from it.
+assert_stream_url() {
+  url=$1
+  case "$url" in
+    https://twitch.tv/*) channel=${url#https://twitch.tv/} ;;
+    https://kick.com/*) channel=${url#https://kick.com/} ;;
+    *) fail "stream URL is invalid" ;;
+  esac
+  case "$channel" in
+    ''|*[!A-Za-z0-9_-]*) fail "stream URL is invalid" ;;
+  esac
+  [ "${#url}" -le 100 ] || fail "stream URL is too long"
 }
 
 unfinished_cs2_arenas() {
@@ -68,6 +76,43 @@ unfinished_cs2_arenas() {
   compose exec -T postgres sh -ec \
     'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At --command="SELECT count(*) FROM arena a JOIN \"match\" m ON m.id = a.match_id WHERE m.discipline = '\''cs2'\'' AND a.status NOT IN ('\''finished'\'', '\''cancelled'\'')"' \
     || fail "could not inspect CS2 Arena state"
+}
+
+# SQL list of the configured tournament ids, each validated; empty when none is configured.
+configured_tournaments_sql() {
+  ids=$(read_env_value "$deploy_path/deploy/app.env" CS2_CATALOG_TOURNAMENT_IDS || true)
+  list=
+  old_ifs=$IFS
+  IFS=,
+  for id in $ids; do
+    assert_safe_grid_id "$id" "configured GRID tournament ID"
+    list="${list:+$list,}'$id'"
+  done
+  IFS=$old_ifs
+  printf '%s\n' "$list"
+}
+
+# Series the autopilot is running: an active series of a configured tournament that already ran an arena,
+# also between maps when none is open. Older active series of other tournaments are never resumed.
+running_series_from() {
+  tournaments=$(configured_tournaments_sql)
+  [ -n "$tournaments" ] || tournaments="''"
+  printf "FROM series s JOIN cs2_competition c ON c.id = s.competition_id JOIN \"match\" m ON m.series_id = s.id JOIN arena a ON a.match_id = m.id WHERE s.status = 'active' AND c.grid_tournament_id IN (%s)" \
+    "$tournaments"
+}
+
+running_series_sql() {
+  printf 'SELECT %s %s;\n' "$1" "$(running_series_from)"
+}
+
+assert_no_running_cs2_series() {
+  start_postgres
+  running=$(running_series_sql "count(DISTINCT s.id)" | run_sql) \
+    || fail "could not inspect running CS2 Series"
+  case "$running" in
+    ''|*[!0-9]*) fail "CS2 Series safety query returned an invalid result" ;;
+  esac
+  [ "$running" = 0 ] || fail "a CS2 Series is still running; skip it or wait for it to end before publishing"
 }
 
 assert_no_unfinished_cs2_arenas() {
@@ -89,36 +134,48 @@ inspect_unfinished_cs2_arenas() {
     2>/dev/null || printf 'unknown\n'
 }
 
-write_app_runtime() {
-  mode=$1
-  tournament_id=${2:-}
-  series_id=${3:-}
-  scheduled_start_time=${4:-}
+write_app_tournament() {
+  tournament_id=$1
   source_file="$deploy_path/deploy/app.env"
   target_file="$source_file.tmp.$$"
   umask 077
   : > "$target_file"
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in
-      CS2_RUNTIME_MODE=*|CS2_CATALOG_TOURNAMENT_IDS=*|GRID_SERIES_ID=*|CS2_SCHEDULED_START_TIME=*) continue ;;
+      # The last three belong to the removed per-series live mode; dropped so they don't linger.
+      CS2_CATALOG_TOURNAMENT_IDS=*|CS2_RUNTIME_MODE=*|GRID_SERIES_ID=*|CS2_SCHEDULED_START_TIME=*) continue ;;
       *) printf '%s\n' "$line" >> "$target_file" ;;
     esac
   done < "$source_file"
-  printf 'CS2_RUNTIME_MODE=%s\n' "$mode" >> "$target_file"
-  [ -z "$tournament_id" ] || printf 'CS2_CATALOG_TOURNAMENT_IDS=%s\n' "$tournament_id" >> "$target_file"
-  if [ "$mode" = live ]; then
-    printf 'GRID_SERIES_ID=%s\n' "$series_id" >> "$target_file"
-    printf 'CS2_SCHEDULED_START_TIME=%s\n' "$scheduled_start_time" >> "$target_file"
-  fi
+  printf 'CS2_CATALOG_TOURNAMENT_IDS=%s\n' "$tournament_id" >> "$target_file"
   chmod 0600 "$target_file"
   mv "$target_file" "$source_file"
 }
 
-prepare_raw_storage() {
-  raw_recording=$(read_env_value "$deploy_path/deploy/app.env" CS2_RAW_RECORDING_ENABLED || printf 'false')
-  [ "$raw_recording" = true ] || return 0
-  compose_live up -d --wait --wait-timeout 120 mongo
-  compose_live up --abort-on-container-exit --exit-code-from mongo-init mongo-init
+# Runs SQL from stdin as the migrator; the caller validates every value it embeds (assert_safe_grid_id).
+run_sql() {
+  # shellcheck disable=SC2016
+  compose exec -T postgres sh -ec \
+    'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -v ON_ERROR_STOP=1'
+}
+
+start_postgres() {
+  compose up -d --wait --wait-timeout 60 postgres >/dev/null \
+    || fail "could not start PostgreSQL"
+}
+
+# Prints the row count of an UPDATE; fails when nothing matched.
+update_one() {
+  description=$1
+  statement=$2
+  start_postgres
+  count=$(printf 'WITH changed AS (%s RETURNING 1) SELECT count(*) FROM changed;\n' "$statement" | run_sql) \
+    || fail "could not update $description"
+  case "$count" in
+    ''|*[!0-9]*) fail "update of $description returned an invalid result" ;;
+  esac
+  [ "$count" -gt 0 ] || fail "no $description matched"
+  printf '%s row(s) updated\n' "$count"
 }
 
 assert_app_healthy() {
@@ -127,15 +184,23 @@ assert_app_healthy() {
     || fail "application health check failed"
 }
 
+inspect_autopilot() {
+  postgres_id=$(compose ps -q postgres 2>/dev/null || true)
+  [ -n "$postgres_id" ] || { printf 'AUTOPILOT=unknown\nRUNNING_SERIES=\nPRIORITY_SERIES=\nSERIES_STREAMS=\n'; return; }
+  # Missing tables (before the first migration) read as unknown rather than failing status.
+  {
+    printf '%s\n' "SELECT 'AUTOPILOT=' || coalesce((SELECT CASE WHEN enabled THEN 'on' ELSE 'off' END FROM settings WHERE name = 'cs2_autopilot'), 'unknown');"
+    running_series_sql "'RUNNING_SERIES=' || coalesce(string_agg(DISTINCT s.grid_series_id, ','), '')"
+    printf '%s\n' "SELECT 'PRIORITY_SERIES=' || coalesce(string_agg(grid_series_id, ',' ORDER BY scheduled_start_time), '') FROM series WHERE priority AND status = 'active' AND scheduled_start_time >= now() - interval '30 minutes';"
+  } | run_sql 2>/dev/null || printf 'AUTOPILOT=unknown\nRUNNING_SERIES=\nPRIORITY_SERIES=\n'
+  # The streams of the running and the prioritized series, as <grid id>=<url>. Queried on its own: the operator
+  # sends this script from its checkout, so it may reach a server without the stream_url column yet.
+  printf "SELECT 'SERIES_STREAMS=' || coalesce(string_agg(grid_series_id || '=' || stream_url, ',' ORDER BY scheduled_start_time), '') FROM series WHERE stream_url IS NOT NULL AND (grid_series_id IN (SELECT s.grid_series_id %s) OR (priority AND status = 'active' AND scheduled_start_time >= now() - interval '30 minutes'));\n" \
+    "$(running_series_from)" | run_sql 2>/dev/null || printf 'SERIES_STREAMS=\n'
+}
+
 print_status() {
-  mode=$(read_runtime_mode)
   tournament_id=$(read_env_value "$deploy_path/deploy/app.env" CS2_CATALOG_TOURNAMENT_IDS || true)
-  series_id=$(read_env_value "$deploy_path/deploy/app.env" GRID_SERIES_ID || true)
-  scheduled_start_time=$(read_env_value "$deploy_path/deploy/app.env" CS2_SCHEDULED_START_TIME || true)
-  if [ "$mode" != live ]; then
-    series_id=
-    scheduled_start_time=
-  fi
   revision=$(read_env_value "$deploy_path/.env" SABG_VCS_REF || printf 'unknown')
   container_id=$(compose ps -q app 2>/dev/null || true)
   app_health=absent
@@ -143,10 +208,8 @@ print_status() {
     app_health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_id" 2>/dev/null || printf 'unknown')
   fi
   unfinished_arenas=$(inspect_unfinished_cs2_arenas)
-  printf 'MODE=%s\n' "$mode"
   printf 'TOURNAMENT_ID=%s\n' "$tournament_id"
-  printf 'SERIES_ID=%s\n' "$series_id"
-  printf 'SCHEDULED_START_TIME=%s\n' "$scheduled_start_time"
+  inspect_autopilot
   printf 'REVISION=%s\n' "$revision"
   printf 'APP_HEALTH=%s\n' "$app_health"
   printf 'UNFINISHED_ARENAS=%s\n' "$unfinished_arenas"
@@ -171,8 +234,8 @@ case "$command_name" in
       || fail "confirmation must exactly match PUBLISH CS2 $tournament_id"
     exec 9>"$deploy_path/.operation.lock"
     flock -n 9 || fail "another event operation is running"
-    [ "$(read_runtime_mode)" = catalog ] || fail "stop the active CS2 Series before publishing another tournament"
     assert_no_unfinished_cs2_arenas
+    assert_no_running_cs2_series
 
     publication_file="$deploy_path/.cs2-publication.$$"
     backup_file="$deploy_path/deploy/app.env.before-publish"
@@ -189,7 +252,7 @@ case "$command_name" in
         compose stop --timeout 60 app >/dev/null 2>&1 || true
         mv "$backup_file" "$deploy_path/deploy/app.env"
         compose up -d --force-recreate --wait --wait-timeout 180 app caddy >/dev/null 2>&1 \
-          || printf 'Previous catalog runtime could not be restored automatically.\n' >&2
+          || printf 'Previous runtime could not be restored automatically.\n' >&2
       fi
       exit "$exit_code"
     }
@@ -219,125 +282,47 @@ case "$command_name" in
     backup_created=true
     compose stop --timeout 60 app
     assert_no_unfinished_cs2_arenas
-    write_app_runtime catalog "$tournament_id"
+    write_app_tournament "$tournament_id"
     compose up -d --force-recreate --wait --wait-timeout 180 app caddy
     assert_app_healthy
     switched=true
-    printf 'Published CS2 tournament %s (%s synchronized); catalog remains online\n' \
+    printf 'Published CS2 tournament %s (%s synchronized); the autopilot runs its series\n' \
       "$tournament_id" "$synced_series"
     ;;
-  start-cs2)
+  prioritize-cs2|unprioritize-cs2)
     assert_safe_grid_id "$argument" "GRID Series ID"
-    [ "$confirmation" = "START CS2 $argument" ] \
-      || fail "confirmation must exactly match START CS2 $argument"
-    exec 9>"$deploy_path/.operation.lock"
-    flock -n 9 || fail "another event operation is running"
-    [ "$(read_runtime_mode)" = catalog ] || fail "stop the active CS2 Series before selecting another"
-    assert_no_unfinished_cs2_arenas
-
-    activation_file="$deploy_path/.cs2-activation.$$"
-    backup_file="$deploy_path/deploy/app.env.before-cs2"
-    switched=false
-    backup_created=false
-    cleanup_start() {
-      exit_code=$?
-      trap - EXIT HUP INT TERM
-      set +e
-      rm -f "$activation_file"
-      if [ "$switched" = true ]; then
-        rm -f "$backup_file"
-      elif [ "$backup_created" = true ]; then
-        compose_live stop --timeout 60 app >/dev/null 2>&1 || true
-        mv "$backup_file" "$deploy_path/deploy/app.env"
-        compose up -d --force-recreate --wait --wait-timeout 180 app caddy >/dev/null 2>&1 \
-          || printf 'Catalog runtime could not be restored automatically.\n' >&2
-      fi
-      [ "$switched" = true ] || compose_live stop mongo mongo-init >/dev/null 2>&1 || true
-      exit "$exit_code"
-    }
-    trap cleanup_start EXIT HUP INT TERM
-
-    umask 077
-    compose run --rm --no-deps -e "CS2_OPERATOR_SERIES_ID=$argument" app \
-      node dist/cs2/operator-activate.js > "$activation_file"
-    tournament_id=
-    series_id=
-    scheduled_start_time=
-    synced_series=
-    while IFS='=' read -r key value; do
-      case "$key" in
-        SABG_CS2_TOURNAMENT_ID) tournament_id=$value ;;
-        SABG_CS2_SERIES_ID) series_id=$value ;;
-        SABG_CS2_SCHEDULED_START_TIME) scheduled_start_time=$value ;;
-        SABG_CS2_SYNCED_SERIES) synced_series=$value ;;
-      esac
-    done < "$activation_file"
-    assert_safe_grid_id "$tournament_id" "GRID tournament ID"
-    [ "$series_id" = "$argument" ] || fail "remote validation returned a different GRID Series"
-    case "$scheduled_start_time" in
-      ''|*[!0-9TZ:.-]*) fail "remote validation returned an invalid schedule" ;;
-    esac
-    case "$synced_series" in
-      ''|*[!0-9]*) fail "remote validation returned an invalid synchronization count" ;;
-    esac
-    [ "$synced_series" -gt 0 ] || fail "remote validation synchronized no Series"
-
-    prepare_raw_storage
-    cp "$deploy_path/deploy/app.env" "$backup_file"
-    backup_created=true
-    compose stop --timeout 60 app
-    assert_no_unfinished_cs2_arenas
-    write_app_runtime live "$tournament_id" "$series_id" "$scheduled_start_time"
-    compose_live up -d --force-recreate --wait --wait-timeout 180 app caddy
-    assert_app_healthy
-    switched=true
-    printf 'Started CS2 Series %s in tournament %s (%s synchronized)\n' "$series_id" "$tournament_id" "$synced_series"
+    priority=true
+    [ "$command_name" = prioritize-cs2 ] || priority=false
+    update_one "CS2 Series $argument" "UPDATE series SET priority = $priority WHERE grid_series_id = '$argument'"
+    printf 'CS2 Series %s priority: %s\n' "$argument" "$priority"
     ;;
-  stop-cs2)
-    mode=$(read_runtime_mode)
-    if [ "$mode" = catalog ]; then
-      printf 'CS2 runtime is already catalog-only\n'
-      exit 0
+  set-stream-cs2)
+    assert_safe_grid_id "$argument" "GRID Series ID"
+    assert_stream_url "$stream_url"
+    update_one "CS2 Series $argument" "UPDATE series SET stream_url = '$stream_url' WHERE grid_series_id = '$argument'"
+    printf 'CS2 Series %s stream: %s\n' "$argument" "$stream_url"
+    ;;
+  clear-stream-cs2)
+    assert_safe_grid_id "$argument" "GRID Series ID"
+    update_one "CS2 Series $argument" "UPDATE series SET stream_url = NULL WHERE grid_series_id = '$argument'"
+    printf 'CS2 Series %s stream cleared\n' "$argument"
+    ;;
+  autopilot-on|autopilot-off)
+    enabled=true
+    [ "$command_name" = autopilot-on ] || enabled=false
+    update_one "autopilot setting" "UPDATE settings SET enabled = $enabled, updated_at = now() WHERE name = 'cs2_autopilot'"
+    if [ "$enabled" = true ]; then
+      printf 'Autopilot on: the next due CS2 Series launches within a minute\n'
+    else
+      printf 'Autopilot off: the running CS2 Series plays to its end, no new Series launch\n'
     fi
-    [ "$mode" = live ] || fail "unknown CS2 runtime mode: $mode"
-    series_id=$(read_env_value "$deploy_path/deploy/app.env" GRID_SERIES_ID || true)
-    assert_safe_grid_id "$series_id" "active GRID Series ID"
-    [ "$confirmation" = "STOP CS2 $series_id" ] \
-      || fail "confirmation must exactly match STOP CS2 $series_id"
-    exec 9>"$deploy_path/.operation.lock"
-    flock -n 9 || fail "another event operation is running"
-    assert_no_unfinished_cs2_arenas
-
-    tournament_id=$(read_env_value "$deploy_path/deploy/app.env" CS2_CATALOG_TOURNAMENT_IDS || true)
-    assert_safe_grid_id "$tournament_id" "active GRID tournament ID"
-    backup_file="$deploy_path/deploy/app.env.before-catalog"
-    switched=false
-    cleanup_stop() {
-      exit_code=$?
-      trap - EXIT HUP INT TERM
-      set +e
-      if [ "$switched" = true ]; then
-        rm -f "$backup_file"
-      elif [ -f "$backup_file" ]; then
-        compose stop --timeout 60 app >/dev/null 2>&1 || true
-        mv "$backup_file" "$deploy_path/deploy/app.env"
-        prepare_raw_storage >/dev/null 2>&1 || true
-        compose_live up -d --force-recreate --wait --wait-timeout 180 app caddy >/dev/null 2>&1 \
-          || printf 'Live CS2 runtime could not be restored automatically.\n' >&2
-      fi
-      exit "$exit_code"
-    }
-    trap cleanup_stop EXIT HUP INT TERM
-
-    cp "$deploy_path/deploy/app.env" "$backup_file"
-    compose stop --timeout 60 app
-    assert_no_unfinished_cs2_arenas
-    write_app_runtime catalog "$tournament_id"
-    compose up -d --force-recreate --wait --wait-timeout 180 app caddy
-    assert_app_healthy
-    compose_live stop mongo mongo-init >/dev/null 2>&1 || true
-    switched=true
-    printf 'Stopped CS2 Series %s; catalog remains online\n' "$series_id"
+    ;;
+  skip-cs2)
+    assert_safe_grid_id "$argument" "GRID Series ID"
+    [ "$confirmation" = "SKIP CS2 $argument" ] \
+      || fail "confirmation must exactly match SKIP CS2 $argument"
+    update_one "active CS2 Series $argument" "UPDATE series SET skip_requested = true WHERE grid_series_id = '$argument' AND status = 'active'"
+    printf 'Skip requested for CS2 Series %s: the autopilot applies it within a minute, and refuses if players paid\n' "$argument"
     ;;
   logs)
     print_status

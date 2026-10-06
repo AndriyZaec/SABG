@@ -116,6 +116,8 @@ export function seriesRowToEntity(row: SeriesRow): Series {
     format: row.format,
     scheduledStartTime: row.scheduledStartTime.toISOString(),
     status: row.status,
+    priority: row.priority,
+    skipRequested: row.skipRequested,
   };
 }
 

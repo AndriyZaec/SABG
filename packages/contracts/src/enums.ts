@@ -31,7 +31,7 @@ export type MatchStatus = (typeof MATCH_STATUSES)[number];
 export const ARENA_STATUSES = ["lobby", "live", "finished", "cancelled"] as const;
 export type ArenaStatus = (typeof ARENA_STATUSES)[number];
 
-export const ARENA_CANCELLED_REASONS = ["no_show", "series_decided"] as const;
+export const ARENA_CANCELLED_REASONS = ["no_show", "series_decided", "forfeit", "operator_skip"] as const;
 export type ArenaCancelledReason = (typeof ARENA_CANCELLED_REASONS)[number];
 
 export const ARENA_PLAYER_STATUSES = ["active", "eliminated", "winner"] as const;
@@ -49,7 +49,8 @@ export type Answer = (typeof ANSWERS)[number];
 export const PREDICTION_RESULTS = ["correct", "incorrect", "missed"] as const;
 export type PredictionResult = (typeof PREDICTION_RESULTS)[number];
 
-export const SERIES_STATUSES = ["active", "decided", "invalid"] as const;
+/** `skipped`: we chose not to run or finish it (entry rule, operator stop, death between maps); `invalid` is a no-show. */
+export const SERIES_STATUSES = ["active", "decided", "invalid", "skipped"] as const;
 export type SeriesStatus = (typeof SERIES_STATUSES)[number];
 
 export const CS2_SERIES_LIFECYCLES = [
@@ -60,8 +61,13 @@ export const CS2_SERIES_LIFECYCLES = [
 ] as const;
 export type Cs2SeriesLifecycle = (typeof CS2_SERIES_LIFECYCLES)[number];
 
-export const CS2_SERIES_AVAILABILITIES = ["available", "soon"] as const;
-export type Cs2SeriesAvailability = (typeof CS2_SERIES_AVAILABILITIES)[number];
+/**
+ * Whether a series gets an arena: `running` (joinable now), `expected` / `unlikely` (a forecast from the
+ * autopilot's schedule), `unknown` (no forecast yet: its teams aren't known), `ended` (it ran and is over),
+ * or `none` (final: never run, skipped, or past).
+ */
+export const CS2_SERIES_ARENA_FORECASTS = ["running", "expected", "unlikely", "unknown", "ended", "none"] as const;
+export type Cs2SeriesArenaForecast = (typeof CS2_SERIES_ARENA_FORECASTS)[number];
 
 export const ENTRY_PASS_STATUSES = ["paid", "refunded"] as const;
 export type EntryPassStatus = (typeof ENTRY_PASS_STATUSES)[number];

@@ -32,7 +32,6 @@ services:
     stop_grace_period: 30s
     mem_limit: 768m
     logging: *default-logging
-    profiles: ["live"]
     env_file:
       - path: ${SABG_MONGO_ENV_FILE:-./deploy/mongo.env}
         format: raw
@@ -53,7 +52,6 @@ services:
   mongo-init:
     image: mongo:7.0.37-jammy@sha256:b0c1f837c31921c93689559d5848fd14b7c421afb92d9b5a11e5a8769f98cad1
     command: ["sh", "/scripts/mongo-init.sh"]
-    profiles: ["live"]
     env_file:
       - path: ${SABG_MONGO_ENV_FILE:-./deploy/mongo.env}
         format: raw
