@@ -40,7 +40,8 @@ export function useCs2SeriesCatalog(): [LoadState<Cs2SeriesCatalog>, () => void]
   return useLoad(async () => {
     const { series } = await fetchCs2Series();
     if (!token || series.length === 0) return { series, followedIds: [] };
-    const { followedIds } = await fetchCs2SeriesFollows(series.map((item) => item.id));
+    const { followedIds } = await fetchCs2SeriesFollows(series.map((item) => item.id))
+      .catch(() => ({ followedIds: [] }));
     return { series, followedIds };
   }, `catalog:${token ?? ""}`);
 }
