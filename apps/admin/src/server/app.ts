@@ -1,7 +1,9 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import type { Express, Request } from "express";
+import type { AdminMutationCommand } from "@arena/contracts";
+import type { Express, Request, Response } from "express";
 import express from "express";
 import type { AdminConfig } from "./config.js";
+import type { AdminControlClient, ControlResponse } from "./control-client.js";
 import type { GitHubOAuthClient } from "./github.js";
 import {
   clearSecureCookie,
@@ -36,7 +38,25 @@ function authenticatedSession(request: Request, config: AdminConfig): OperatorSe
   return session !== undefined && config.allowedUserIds.has(session.githubId) ? session : undefined;
 }
 
-export function createAdminApp(options: { config: AdminConfig; github: GitHubOAuthClient }): Express {
+function sendControlResponse(response: Response, control: ControlResponse<unknown>): void {
+  if (control.requestId !== undefined) response.setHeader("x-request-id", control.requestId);
+  response.status(control.status).json(control.body);
+}
+
+function auditFilters(request: Request) {
+  const filters: { actorId?: string; from?: string; to?: string; cursor?: string } = {};
+  for (const key of ["actorId", "from", "to", "cursor"] as const) {
+    const value = request.query[key];
+    if (typeof value === "string") filters[key] = value;
+  }
+  return filters;
+}
+
+export function createAdminApp(options: {
+  config: AdminConfig;
+  github: GitHubOAuthClient;
+  control: AdminControlClient;
+}): Express {
   const app = express();
   app.disable("x-powered-by");
   app.use((_request, response, next) => {
@@ -105,6 +125,65 @@ export function createAdminApp(options: { config: AdminConfig; github: GitHubOAu
     }
     response.append("set-cookie", clearSecureCookie(SESSION_COOKIE));
     response.status(204).end();
+  });
+
+  app.get("/api/control/status", async (request, response) => {
+    if (authenticatedSession(request, options.config) === undefined) {
+      response.status(401).json({ error: "unauthorized", message: "Operator session required" });
+      return;
+    }
+    sendControlResponse(response, await options.control.status());
+  });
+  app.get("/api/control/catalog", async (request, response) => {
+    if (authenticatedSession(request, options.config) === undefined) {
+      response.status(401).json({ error: "unauthorized", message: "Operator session required" });
+      return;
+    }
+    sendControlResponse(response, await options.control.catalog());
+  });
+  app.get("/api/control/discovery", async (request, response) => {
+    if (authenticatedSession(request, options.config) === undefined) {
+      response.status(401).json({ error: "unauthorized", message: "Operator session required" });
+      return;
+    }
+    sendControlResponse(response, await options.control.discovery());
+  });
+  app.get("/api/control/series/:gridSeriesId", async (request, response) => {
+    if (authenticatedSession(request, options.config) === undefined) {
+      response.status(401).json({ error: "unauthorized", message: "Operator session required" });
+      return;
+    }
+    sendControlResponse(response, await options.control.inspect(request.params.gridSeriesId!));
+  });
+  app.get("/api/control/audit", async (request, response) => {
+    if (authenticatedSession(request, options.config) === undefined) {
+      response.status(401).json({ error: "unauthorized", message: "Operator session required" });
+      return;
+    }
+    sendControlResponse(response, await options.control.audit(auditFilters(request)));
+  });
+  app.post("/api/control/mutations", express.json({ limit: "16kb" }), async (request, response) => {
+    const session = authenticatedSession(request, options.config);
+    if (session === undefined) {
+      response.status(401).json({ error: "unauthorized", message: "Operator session required" });
+      return;
+    }
+    if (request.get("origin") !== options.config.publicOrigin || !sameSecret(request.get("x-csrf-token"), session.csrfToken)) {
+      response.status(403).json({ error: "forbidden", message: "Valid Origin and CSRF token required" });
+      return;
+    }
+    sendControlResponse(
+      response,
+      await options.control.mutate(request.body as AdminMutationCommand, { id: session.githubId, login: session.login }),
+    );
+  });
+
+  app.use((error: unknown, _request: Request, response: Response, _next: unknown) => {
+    if (error instanceof SyntaxError) {
+      response.status(400).json({ error: "bad_request", message: "Request body must be valid JSON" });
+      return;
+    }
+    response.status(502).json({ error: "control_unavailable", message: "Control service is unavailable" });
   });
 
   return app;

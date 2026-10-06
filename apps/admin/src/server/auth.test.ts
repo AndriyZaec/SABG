@@ -2,6 +2,7 @@ import type { Server } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
 import { createAdminApp } from "./app.js";
 import type { AdminConfig } from "./config.js";
+import { createFixtureControlClient } from "./control-client.js";
 import type { GitHubOAuthClient, GitHubUser } from "./github.js";
 import { createOperatorSession, openSession, sealSession, SESSION_COOKIE } from "./session.js";
 
@@ -15,6 +16,7 @@ function testConfig(allowedUserIds = new Set(["1234"])): AdminConfig {
     githubClientSecret: "client-secret",
     allowedUserIds,
     sessionSecret: "a-test-session-secret-that-is-at-least-32-bytes",
+    control: { mode: "fixture" },
   };
 }
 
@@ -23,7 +25,7 @@ async function start(user: GitHubUser, config = testConfig()) {
     authorizationUrl: (state) => `https://github.test/authorize?state=${state}`,
     complete: async () => user,
   };
-  const server = createAdminApp({ config, github }).listen(0, "127.0.0.1");
+  const server = createAdminApp({ config, github, control: createFixtureControlClient() }).listen(0, "127.0.0.1");
   servers.push(server);
   await new Promise<void>((resolve) => server.once("listening", resolve));
   const address = server.address();

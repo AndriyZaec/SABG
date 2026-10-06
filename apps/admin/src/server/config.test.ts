@@ -6,6 +6,8 @@ const requiredEnvironment = {
   ADMIN_GITHUB_CLIENT_SECRET: "client-secret",
   ADMIN_GITHUB_ALLOWED_USER_IDS: "1234",
   ADMIN_SESSION_SECRET: "a-test-session-secret-that-is-at-least-32-bytes",
+  CS2_CONTROL_URL: "http://app:4101",
+  CS2_CONTROL_MACHINE_TOKEN: "a-test-machine-token-that-is-at-least-32-bytes",
 };
 
 describe("admin config", () => {
@@ -21,5 +23,28 @@ describe("admin config", () => {
       NODE_ENV: "development",
       ADMIN_PUBLIC_ORIGIN: "http://127.0.0.1:4174",
     }).publicOrigin).toBe("http://127.0.0.1:4174");
+  });
+
+  it("restricts fixture control mode to explicit local development", () => {
+    expect(() => readAdminConfig({
+      ...requiredEnvironment,
+      NODE_ENV: "production",
+      ADMIN_PUBLIC_ORIGIN: "https://admin.sabg.fun",
+      ADMIN_CONTROL_MODE: "fixture",
+    })).toThrow("fixture mode requires explicit local development");
+
+    expect(() => readAdminConfig({
+      ...requiredEnvironment,
+      NODE_ENV: "development",
+      ADMIN_PUBLIC_ORIGIN: "https://admin.sabg.fun",
+      ADMIN_CONTROL_MODE: "fixture",
+    })).toThrow("fixture mode requires explicit local development");
+
+    expect(readAdminConfig({
+      ...requiredEnvironment,
+      NODE_ENV: "development",
+      ADMIN_PUBLIC_ORIGIN: "http://localhost:4174",
+      ADMIN_CONTROL_MODE: "fixture",
+    }).control).toEqual({ mode: "fixture" });
   });
 });

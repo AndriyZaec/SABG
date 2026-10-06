@@ -1,5 +1,6 @@
 import { createAdminApp } from "./app.js";
 import { readAdminConfig } from "./config.js";
+import { createFixtureControlClient, createLiveControlClient } from "./control-client.js";
 import { createGitHubOAuthClient } from "./github.js";
 
 const config = readAdminConfig(process.env);
@@ -8,8 +9,12 @@ const github = createGitHubOAuthClient({
   clientSecret: config.githubClientSecret,
   callbackUrl: `${config.publicOrigin}/auth/github/callback`,
 });
-const app = createAdminApp({ config, github });
+const control = config.control.mode === "fixture"
+  ? createFixtureControlClient()
+  : createLiveControlClient(config.control);
+const app = createAdminApp({ config, github, control });
 
-app.listen(config.port, "0.0.0.0", () => {
+const listenHost = config.control.mode === "fixture" ? "127.0.0.1" : "0.0.0.0";
+app.listen(config.port, listenHost, () => {
   console.info(`SABG admin listening on port ${config.port}`);
 });

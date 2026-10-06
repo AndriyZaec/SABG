@@ -15,6 +15,9 @@ importers:
 
   apps/admin:
     dependencies:
+      '@arena/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       express:
         specifier: ^5.2.1
         version: 5.2.1
