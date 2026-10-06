@@ -428,19 +428,6 @@ a { color: var(--ink); text-decoration: none; }
   border: var(--bw) solid var(--ink);
   box-shadow: var(--shadow-sm);
 }
-.nb-masthead__exit {
-  border: 0;
-  background: transparent;
-  color: var(--ink);
-  padding: 6px 2px;
-  font: 700 0.67rem var(--font-mono);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  cursor: pointer;
-}
-
 /* ---- Lobby: matchday broadcast hero ---- */
 .nb-hero {
   border: var(--bw-thick) solid var(--ink);
