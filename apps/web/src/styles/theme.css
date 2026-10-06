@@ -658,7 +658,7 @@ a { color: var(--ink); text-decoration: none; }
 .cs2-broadcast__queue-day + .cs2-broadcast__queue-day { border-top: var(--bw) solid var(--ink); }
 .cs2-broadcast__queue-day-head { position: sticky; z-index: 1; top: 0; border-bottom: 2px solid var(--ink); background: var(--paper); padding: 6px 12px; font-size: 0.58rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
 .cs2-broadcast__queue-item { position: relative; display: grid; grid-template-columns: 62px minmax(0, 1fr) 46px; align-items: center; gap: 12px; overflow: hidden; padding: 13px 12px; border-bottom: 2px solid var(--ink); }
-.cs2-broadcast__queue-item--next { box-shadow: inset 7px 0 0 var(--yellow); }
+.cs2-broadcast__queue-item--expected { box-shadow: inset 7px 0 0 var(--yellow); }
 .cs2-broadcast__queue-item--soon { cursor: not-allowed; }
 .cs2-broadcast__queue-item--soon .cs2-broadcast__queue-time,
 .cs2-broadcast__queue-item--soon .cs2-broadcast__queue-body,
