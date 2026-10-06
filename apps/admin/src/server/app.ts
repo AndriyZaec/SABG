@@ -5,6 +5,7 @@ import express from "express";
 import type { AdminConfig } from "./config.js";
 import type { AdminControlClient, ControlResponse } from "./control-client.js";
 import type { GitHubOAuthClient } from "./github.js";
+import type { AdminSessionResponse } from "../shared/session.js";
 import {
   clearSecureCookie,
   createOperatorSession,
@@ -19,6 +20,7 @@ import {
 } from "./session.js";
 
 const OAUTH_STATE_LIFETIME_SECONDS = 10 * 60;
+const LOCAL_FIXTURE_SESSION = createOperatorSession("1", "local-operator");
 
 function sameSecret(left: string | undefined, right: string | undefined): boolean {
   if (left === undefined || right === undefined) return false;
@@ -32,6 +34,7 @@ function queryString(value: unknown): string | undefined {
 }
 
 function authenticatedSession(request: Request, config: AdminConfig): OperatorSession | undefined {
+  if (config.authMode === "fixture") return LOCAL_FIXTURE_SESSION;
   const sealed = readCookie(request.get("cookie"), SESSION_COOKIE);
   if (sealed === undefined) return undefined;
   const session = openSession(sealed, config.sessionSecret);
@@ -68,6 +71,10 @@ export function createAdminApp(options: {
   });
 
   app.get("/auth/github", (_request, response) => {
+    if (options.config.authMode === "fixture") {
+      response.redirect(302, "/");
+      return;
+    }
     const state = randomBytes(32).toString("base64url");
     response.append("set-cookie", secureCookie(OAUTH_STATE_COOKIE, state, OAUTH_STATE_LIFETIME_SECONDS));
     response.redirect(302, options.github.authorizationUrl(state));
@@ -106,11 +113,12 @@ export function createAdminApp(options: {
       response.status(401).json({ error: "unauthorized", message: "Sign in with an allowed GitHub account" });
       return;
     }
-    response.json({
+    const payload: AdminSessionResponse = {
       operator: { id: session.githubId, login: session.login },
       csrfToken: session.csrfToken,
       expiresAt: new Date(session.expiresAt * 1000).toISOString(),
-    });
+    };
+    response.json(payload);
   });
 
   app.post("/auth/logout", (request, response) => {

@@ -16,6 +16,7 @@ function testConfig(allowedUserIds = new Set(["1234"])): AdminConfig {
     githubClientSecret: "client-secret",
     allowedUserIds,
     sessionSecret: "a-test-session-secret-that-is-at-least-32-bytes",
+    authMode: "github",
     control: { mode: "fixture" },
   };
 }

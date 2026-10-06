@@ -47,4 +47,20 @@ describe("admin config", () => {
       ADMIN_CONTROL_MODE: "fixture",
     }).control).toEqual({ mode: "fixture" });
   });
+
+  it("restricts fixture authentication to explicit local development", () => {
+    expect(() => readAdminConfig({
+      ...requiredEnvironment,
+      NODE_ENV: "production",
+      ADMIN_PUBLIC_ORIGIN: "https://admin.sabg.fun",
+      ADMIN_AUTH_MODE: "fixture",
+    })).toThrow("ADMIN_AUTH_MODE: fixture mode requires explicit local development");
+
+    expect(readAdminConfig({
+      ...requiredEnvironment,
+      NODE_ENV: "development",
+      ADMIN_PUBLIC_ORIGIN: "http://localhost:4174",
+      ADMIN_AUTH_MODE: "fixture",
+    }).authMode).toBe("fixture");
+  });
 });

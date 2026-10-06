@@ -16,6 +16,7 @@ const config: AdminConfig = {
   githubClientSecret: "client-secret",
   allowedUserIds: new Set(["1234"]),
   sessionSecret: "a-test-session-secret-that-is-at-least-32-bytes",
+  authMode: "github",
   control: { mode: "fixture" },
 };
 
