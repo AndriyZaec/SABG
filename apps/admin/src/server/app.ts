@@ -67,6 +67,10 @@ export function createAdminApp(options: {
     next();
   });
 
+  app.get("/healthz", (_request, response) => {
+    response.json({ status: "ok" });
+  });
+
   app.get("/auth/github", (_request, response) => {
     const state = randomBytes(32).toString("base64url");
     response.append("set-cookie", secureCookie(OAUTH_STATE_COOKIE, state, OAUTH_STATE_LIFETIME_SECONDS));

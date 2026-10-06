@@ -7,7 +7,12 @@ export function safeError(err: unknown): { name: string; message: string; stack?
   return { name: "Error", message: String(err) };
 }
 
-export async function listenHttpServer(httpServer: HttpServer, port: number, abortSignal: AbortSignal): Promise<void> {
+export async function listenHttpServer(
+  httpServer: HttpServer,
+  port: number,
+  abortSignal: AbortSignal,
+  host?: string,
+): Promise<void> {
   if (abortSignal.aborted) return;
   await new Promise<void>((resolve, reject) => {
     const onError = (err: Error) => {
@@ -24,7 +29,8 @@ export async function listenHttpServer(httpServer: HttpServer, port: number, abo
     };
     httpServer.once("error", onError);
     httpServer.once("listening", onListening);
-    httpServer.listen(port);
+    if (host === undefined) httpServer.listen(port);
+    else httpServer.listen(port, host);
   });
 }
 

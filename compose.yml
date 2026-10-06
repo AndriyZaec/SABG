@@ -143,6 +143,7 @@ services:
         condition: service_completed_successfully
     expose:
       - "4000"
+      - "4101"
     read_only: true
     tmpfs:
       - /tmp
@@ -151,8 +152,44 @@ services:
     cap_drop:
       - ALL
     networks:
-      - edge
-      - backend
+      edge:
+      backend:
+      control:
+        aliases:
+          - app-control
+
+  admin:
+    image: ${SABG_IMAGE:-sabg:local}
+    platform: ${SABG_PLATFORM:-linux/amd64}
+    command: ["node", "/admin/dist/server/run.js"]
+    restart: unless-stopped
+    stop_grace_period: 15s
+    mem_limit: 256m
+    logging: *default-logging
+    env_file:
+      - path: ${SABG_ADMIN_ENV_FILE:-./deploy/admin.env}
+        format: raw
+    depends_on:
+      app:
+        condition: service_healthy
+    expose:
+      - "4174"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4174/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      start_period: 15s
+      retries: 6
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      edge:
+      control:
 
   caddy:
     image: caddy:2.10.0-alpine@sha256:ae4458638da8e1a91aafffb231c5f8778e964bca650c8a8cb23a7e8ac557aa3c
@@ -165,6 +202,8 @@ services:
         format: raw
     depends_on:
       app:
+        condition: service_healthy
+      admin:
         condition: service_healthy
     ports:
       - "80:80"
@@ -180,6 +219,8 @@ services:
 networks:
   edge:
   backend:
+    internal: true
+  control:
     internal: true
 
 volumes:

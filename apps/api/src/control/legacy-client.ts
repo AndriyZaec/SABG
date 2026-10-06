@@ -22,9 +22,10 @@ export function buildLegacyMutationCommand(type: string, target = "", value = ""
 async function main(): Promise<void> {
   const token = process.env["CS2_CONTROL_MACHINE_TOKEN"];
   if (token === undefined) throw new Error("CS2 control machine token is not configured");
+  const host = process.env["CS2_CONTROL_HOST"] ?? "127.0.0.1";
   const port = process.env["CS2_CONTROL_PORT"] ?? "4101";
   const command = buildLegacyMutationCommand(process.argv[2] ?? "", process.argv[3], process.argv[4]);
-  const response = await fetch(`http://127.0.0.1:${port}/mutations`, {
+  const response = await fetch(`http://${host}:${port}/mutations`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${token}`,

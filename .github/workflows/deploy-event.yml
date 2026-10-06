@@ -88,8 +88,8 @@ jobs:
       - name: Migrate integration database
         run: pnpm --filter @arena/api db:migrate
 
-      - name: Test API and auth packages
-        run: pnpm --filter @arena/api test && pnpm --filter @arena/auth test
+      - name: Test API, auth, admin, and operator packages
+        run: pnpm --filter @arena/api test && pnpm --filter @arena/auth test && pnpm --filter @arena/admin test && pnpm --filter @arena/operator test
 
   publish:
     name: Publish immutable image

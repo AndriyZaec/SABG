@@ -102,7 +102,7 @@ trap cleanup EXIT HUP INT TERM
 } > "$deploy_path/.env.tmp"
 mv "$deploy_path/.env.tmp" "$deploy_path/.env"
 
-compose up -d --wait --wait-timeout 180 app caddy
+compose up -d --wait --wait-timeout 180 app admin caddy
 compose exec -T app node -e \
   "fetch('http://127.0.0.1:4000/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))" \
   || fail "application health check failed after reset"

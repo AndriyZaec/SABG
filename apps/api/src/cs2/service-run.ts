@@ -81,8 +81,8 @@ async function main(): Promise<void> {
           runWhileIdle: (task) => autopilot!.runWhileIdle(task),
         }),
       });
-      await listenHttpServer(controlServer, operatorControlConfig.port, abortController.signal);
-      logger.info({ port: operatorControlConfig.port }, "cs2: operator control listening");
+      await listenHttpServer(controlServer, operatorControlConfig.port, abortController.signal, operatorControlConfig.host);
+      logger.info({ host: operatorControlConfig.host, port: operatorControlConfig.port }, "cs2: operator control listening");
     }
     if (abortController.signal.aborted) return;
     logger.info({ port: cs2Config.gatewayPort }, "cs2: runtime listening");

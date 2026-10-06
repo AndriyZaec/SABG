@@ -58,6 +58,7 @@ describe("admin control proxy", () => {
     const control = mockControl();
     const origin = await start(control);
 
+    expect((await fetch(`${origin}/healthz`)).status).toBe(200);
     expect((await fetch(`${origin}/api/control/status`)).status).toBe(401);
     expect(control.status).not.toHaveBeenCalled();
     expect((await fetch(`${origin}/api/control/not-a-route`)).status).toBe(404);

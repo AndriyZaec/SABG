@@ -11,6 +11,7 @@ WORKDIR /workspace
 FROM base AS dependencies
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/admin/package.json apps/admin/package.json
 COPY apps/api/package.json apps/api/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY packages/auth/package.json packages/auth/package.json
@@ -30,8 +31,10 @@ COPY . .
 RUN pnpm --filter @arena/contracts build \
     && pnpm --filter @arena/auth build \
     && pnpm --filter @arena/web build \
+    && pnpm --filter @arena/admin build \
     && pnpm --filter @arena/api build \
-    && pnpm --filter @arena/api deploy --prod /prod/app
+    && pnpm --filter @arena/api deploy --prod /prod/app \
+    && pnpm --filter @arena/admin deploy --prod /prod/admin
 
 FROM node:22.17.0-bookworm-slim@sha256:b04ce4ae4e95b522112c2e5c52f781471a5cbc3b594527bcddedee9bc48c03a0 AS runtime
 
@@ -47,6 +50,7 @@ WORKDIR /app
 
 COPY --from=build --chown=node:node /prod/app/ ./
 COPY --from=build --chown=node:node /workspace/apps/web/dist/ ./web/
+COPY --from=build --chown=node:node /prod/admin/ /admin/
 
 USER node
 
