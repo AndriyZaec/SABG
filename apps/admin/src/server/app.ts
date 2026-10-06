@@ -1,0 +1,199 @@
+import { randomBytes, timingSafeEqual } from "node:crypto";
+import type { AdminMutationCommand } from "@arena/contracts";
+import type { Express, Request, Response } from "express";
+import express from "express";
+import type { AdminConfig } from "./config.js";
+import type { AdminControlClient, ControlResponse } from "./control-client.js";
+import type { GitHubOAuthClient } from "./github.js";
+import type { AdminSessionResponse } from "../shared/session.js";
+import {
+  clearSecureCookie,
+  createOperatorSession,
+  OAUTH_STATE_COOKIE,
+  openSession,
+  readCookie,
+  sealSession,
+  secureCookie,
+  SESSION_COOKIE,
+  SESSION_LIFETIME_SECONDS,
+  type OperatorSession,
+} from "./session.js";
+
+const OAUTH_STATE_LIFETIME_SECONDS = 10 * 60;
+function sameSecret(left: string | undefined, right: string | undefined): boolean {
+  if (left === undefined || right === undefined) return false;
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+  return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function queryString(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function authenticatedSession(request: Request, config: AdminConfig): OperatorSession | undefined {
+  const sealed = readCookie(request.get("cookie"), SESSION_COOKIE);
+  if (sealed === undefined) return undefined;
+  const session = openSession(sealed, config.sessionSecret);
+  return session !== undefined && config.allowedUserIds.has(session.githubId) ? session : undefined;
+}
+
+function sendControlResponse(response: Response, control: ControlResponse<unknown>): void {
+  if (control.requestId !== undefined) response.setHeader("x-request-id", control.requestId);
+  response.status(control.status).json(control.body);
+}
+
+function auditFilters(request: Request) {
+  const filters: { actorId?: string; from?: string; to?: string; cursor?: string } = {};
+  for (const key of ["actorId", "from", "to", "cursor"] as const) {
+    const value = request.query[key];
+    if (typeof value === "string") filters[key] = value;
+  }
+  return filters;
+}
+
+export function createAdminApp(options: {
+  config: AdminConfig;
+  github: GitHubOAuthClient;
+  control: AdminControlClient;
+}): Express {
+  const app = express();
+  app.disable("x-powered-by");
+  app.use((_request, response, next) => {
+    response.setHeader("cache-control", "no-store");
+    response.setHeader("referrer-policy", "same-origin");
+    response.setHeader("x-content-type-options", "nosniff");
+    response.setHeader("x-frame-options", "DENY");
+    next();
+  });
+
+  app.get("/healthz", (_request, response) => {
+    response.json({ status: "ok" });
+  });
+
+  app.get("/auth/github", (_request, response) => {
+    const state = randomBytes(32).toString("base64url");
+    response.append("set-cookie", secureCookie(OAUTH_STATE_COOKIE, state, OAUTH_STATE_LIFETIME_SECONDS));
+    response.redirect(302, options.github.authorizationUrl(state));
+  });
+
+  app.get("/auth/github/callback", async (request, response) => {
+    const code = queryString(request.query.code);
+    const state = queryString(request.query.state);
+    const expectedState = readCookie(request.get("cookie"), OAUTH_STATE_COOKIE);
+    response.append("set-cookie", clearSecureCookie(OAUTH_STATE_COOKIE));
+    if (code === undefined || !sameSecret(state, expectedState)) {
+      response.status(400).json({ error: "bad_request", message: "GitHub sign-in request is invalid or expired" });
+      return;
+    }
+
+    try {
+      const user = await options.github.complete(code);
+      if (!options.config.allowedUserIds.has(user.id)) {
+        response.status(403).json({ error: "forbidden", message: "This GitHub account is not allowed" });
+        return;
+      }
+      const session = createOperatorSession(user.id, user.login);
+      response.append(
+        "set-cookie",
+        secureCookie(SESSION_COOKIE, sealSession(session, options.config.sessionSecret), SESSION_LIFETIME_SECONDS),
+      );
+      response.redirect(302, "/");
+    } catch {
+      response.status(502).json({ error: "github_unavailable", message: "GitHub sign-in could not be completed" });
+    }
+  });
+
+  app.get("/api/session", (request, response) => {
+    const session = authenticatedSession(request, options.config);
+    if (session === undefined) {
+      response.status(401).json({ error: "unauthorized", message: "Sign in with an allowed GitHub account" });
+      return;
+    }
+    const payload: AdminSessionResponse = {
+      operator: { id: session.githubId, login: session.login },
+      csrfToken: session.csrfToken,
+      expiresAt: new Date(session.expiresAt * 1000).toISOString(),
+    };
+    response.json(payload);
+  });
+
+  app.post("/auth/logout", (request, response) => {
+    const session = authenticatedSession(request, options.config);
+    if (session === undefined) {
+      response.status(401).json({ error: "unauthorized", message: "No active operator session" });
+      return;
+    }
+    if (request.get("origin") !== options.config.publicOrigin || !sameSecret(request.get("x-csrf-token"), session.csrfToken)) {
+      response.status(403).json({ error: "forbidden", message: "Valid Origin and CSRF token required" });
+      return;
+    }
+    response.append("set-cookie", clearSecureCookie(SESSION_COOKIE));
+    response.status(204).end();
+  });
+
+  app.get("/api/control/status", async (request, response) => {
+    if (authenticatedSession(request, options.config) === undefined) {
+      response.status(401).json({ error: "unauthorized", message: "Operator session required" });
+      return;
+    }
+    sendControlResponse(response, await options.control.status());
+  });
+  app.get("/api/control/catalog", async (request, response) => {
+    if (authenticatedSession(request, options.config) === undefined) {
+      response.status(401).json({ error: "unauthorized", message: "Operator session required" });
+      return;
+    }
+    sendControlResponse(response, await options.control.catalog());
+  });
+  app.get("/api/control/discovery", async (request, response) => {
+    if (authenticatedSession(request, options.config) === undefined) {
+      response.status(401).json({ error: "unauthorized", message: "Operator session required" });
+      return;
+    }
+    sendControlResponse(response, await options.control.discovery());
+  });
+  app.get("/api/control/series/:gridSeriesId", async (request, response) => {
+    if (authenticatedSession(request, options.config) === undefined) {
+      response.status(401).json({ error: "unauthorized", message: "Operator session required" });
+      return;
+    }
+    sendControlResponse(response, await options.control.inspect(request.params.gridSeriesId!));
+  });
+  app.get("/api/control/audit", async (request, response) => {
+    if (authenticatedSession(request, options.config) === undefined) {
+      response.status(401).json({ error: "unauthorized", message: "Operator session required" });
+      return;
+    }
+    sendControlResponse(response, await options.control.audit(auditFilters(request)));
+  });
+  app.post("/api/control/mutations", express.json({ limit: "16kb" }), async (request, response) => {
+    const session = authenticatedSession(request, options.config);
+    if (session === undefined) {
+      response.status(401).json({ error: "unauthorized", message: "Operator session required" });
+      return;
+    }
+    if (request.get("origin") !== options.config.publicOrigin || !sameSecret(request.get("x-csrf-token"), session.csrfToken)) {
+      response.status(403).json({ error: "forbidden", message: "Valid Origin and CSRF token required" });
+      return;
+    }
+    sendControlResponse(
+      response,
+      await options.control.mutate(request.body as AdminMutationCommand, { id: session.githubId, login: session.login }),
+    );
+  });
+
+  app.use("/api", (_request, response) => {
+    response.status(404).json({ error: "not_found", message: "API route not found" });
+  });
+
+  app.use((error: unknown, _request: Request, response: Response, _next: unknown) => {
+    if (error instanceof SyntaxError) {
+      response.status(400).json({ error: "bad_request", message: "Request body must be valid JSON" });
+      return;
+    }
+    response.status(502).json({ error: "control_unavailable", message: "Control service is unavailable" });
+  });
+
+  return app;
+}

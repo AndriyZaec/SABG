@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="6" fill="#191b18"/>
+  <rect x="46" y="0" width="18" height="22" rx="0 6 0 0" fill="#315fe8"/>
+  <text x="55" y="16" fill="#fff" font-family="Arial,sans-serif" font-size="13" font-weight="700" text-anchor="middle">A</text>
+  <text x="28" y="41" fill="#e3b927" font-family="Arial Narrow,Arial,sans-serif" font-size="18" font-weight="900" text-anchor="middle">SABG</text>
+</svg>

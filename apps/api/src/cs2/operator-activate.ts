@@ -12,6 +12,7 @@ export async function activateCs2Series(
     now?: Date;
     client?: Pick<GridCentralDataClient, "fetchSeries" | "fetchSeriesById">;
     synchronize?: typeof synchronizeCs2Catalog;
+    expectedTournamentId?: string;
   } = {},
 ): Promise<{ tournamentId: string; seriesId: string; scheduledStartTime: Date; syncedSeries: number }> {
   const safeSeriesId = SafeGridIdSchema.parse(requestedSeriesId);
@@ -21,6 +22,9 @@ export async function activateCs2Series(
   const requested = await client.fetchSeriesById(safeSeriesId);
   if (requested === undefined) throw new Error(`GRID Series ${safeSeriesId} was not found`);
   const tournamentId = SafeGridIdSchema.parse(requested.competition.gridTournamentId);
+  if (options.expectedTournamentId !== undefined && tournamentId !== options.expectedTournamentId) {
+    throw new Error(`GRID Series ${safeSeriesId} belongs to tournament ${tournamentId}, not ${options.expectedTournamentId}`);
+  }
   const tournamentSeries = await client.fetchSeries(window, [tournamentId]);
   const selected = selectOperatorSeries(tournamentSeries, safeSeriesId);
   const result = await (options.synchronize ?? synchronizeCs2Catalog)(window, {

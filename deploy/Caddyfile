@@ -39,3 +39,15 @@ www.{$SABG_LANDING_HOST:landing.localhost} {
 		reverse_proxy app:4000
 	}
 }
+
+{$SABG_ADMIN_HOST:admin.localhost} {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Robots-Tag "noindex, nofollow"
+	}
+
+	handle {
+		reverse_proxy admin:4174
+	}
+}
