@@ -23,28 +23,42 @@ function buildCs2WsUrl(token: string | null): string {
   return `${proto}//${window.location.host}/cs2-ws${query}`;
 }
 
+function markArenaFinished(view: Cs2ArenaView): Cs2ArenaView {
+  return {
+    ...view,
+    finished: true,
+    feed: prependFeedItem(view.feed, { id: "arena-finished", kind: "info", text: "Arena finished" }),
+  };
+}
+
+function reconcileArenaStatus(view: Cs2ArenaView, detail: ArenaDetailResponse): Cs2ArenaView {
+  return detail.arena.status === "finished" ? markArenaFinished(view) : view;
+}
+
 function initialView(d: ArenaDetailResponse): Cs2ArenaView {
   if (d.match.discipline !== "cs2") throw new Error(`Arena ${d.arena.id} is not a CS2 arena`);
   const round = d.currentRound;
-  return {
-    teams: [d.match.teamScores[0].name, d.match.teamScores[1].name],
-    survivors: d.arena.activePlayersCount,
-    totalPlayers: d.arena.activePlayersCount,
-    // Restore the current round from the authoritative reconnect snapshot.
-    ...(round
-      ? {
-          round: {
-            roundId: round.id,
-            roundNumber: round.roundNumber ?? 0,
-            question: round.question,
-            status: round.status,
-          },
-        }
-      : {}),
-    ...(d.arena.status === "finished" ? { finished: true as const } : {}),
-    feed: [],
-    leaderboard: [],
-  };
+  return reconcileArenaStatus(
+    {
+      teams: [d.match.teamScores[0].name, d.match.teamScores[1].name],
+      survivors: d.arena.activePlayersCount,
+      totalPlayers: d.arena.activePlayersCount,
+      // Restore the current round from the authoritative reconnect snapshot.
+      ...(round
+        ? {
+            round: {
+              roundId: round.id,
+              roundNumber: round.roundNumber ?? 0,
+              question: round.question,
+              status: round.status,
+            },
+          }
+        : {}),
+      feed: [],
+      leaderboard: [],
+    },
+    d,
+  );
 }
 
 function reduce(view: Cs2ArenaView, msg: ServerMessage, myUserId?: string): Cs2ArenaView {
@@ -126,12 +140,8 @@ function reduce(view: Cs2ArenaView, msg: ServerMessage, myUserId?: string): Cs2A
     }
     case "arena.finished": {
       const iWon = myUserId != null && msg.winners.includes(myUserId);
-      return {
-        ...view,
-        ...(iWon ? { myStatus: "winner" as const } : {}),
-        finished: true,
-        feed: prependFeedItem(view.feed, { id: "arena-finished", kind: "info", text: "Arena finished" }),
-      };
+      const finished = markArenaFinished(view);
+      return iWon ? { ...finished, myStatus: "winner" } : finished;
     }
     default:
       return view;
@@ -194,8 +204,8 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
         }));
         const feed = rounds ? feedFromRounds(rounds.rounds, myUserId.current) : [];
         setView((v) => {
-          if (!v) return { ...initialView(detail), leaderboard: rows, feed };
-          return detail.arena.status === "finished" ? { ...v, finished: true } : v;
+          if (!v) return reconcileArenaStatus({ ...initialView(detail), leaderboard: rows, feed }, detail);
+          return reconcileArenaStatus(v, detail);
         });
       })
       .catch(() => {
@@ -211,7 +221,7 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
           // round/feed/leaderboard/survivors/totalPlayers are only ever set via WS.
           if (next.match.discipline !== "cs2") return;
           const teams: readonly [string, string] = [next.match.teamScores[0].name, next.match.teamScores[1].name];
-          setView((current) => (current ? { ...current, teams } : initialView(next)));
+          setView((current) => reconcileArenaStatus(current ? { ...current, teams } : initialView(next), next));
         })
         .catch(() => undefined);
     }, 10_000);
