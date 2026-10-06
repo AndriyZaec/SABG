@@ -6,6 +6,7 @@ import { AuditPage } from "./AuditPage.js";
 import { CatalogPage } from "./CatalogPage.js";
 import { OverviewPage } from "./OverviewPage.js";
 import { PublishPage } from "./PublishPage.js";
+import { formatUpdatedAt, useControlStatus } from "./useControlStatus.js";
 
 type SessionState =
   | { state: "loading" }
@@ -65,6 +66,7 @@ function ErrorScreen({ retry }: { retry: () => void }) {
 function Shell({ session, onSignedOut }: { session: AdminSessionResponse; onSignedOut: () => void }) {
   const [signingOut, setSigningOut] = useState(false);
   const [logoutFailed, setLogoutFailed] = useState(false);
+  const control = useControlStatus(onSignedOut);
 
   const handleLogout = async () => {
     setSigningOut(true);
@@ -96,12 +98,19 @@ function Shell({ session, onSignedOut }: { session: AdminSessionResponse; onSign
           </nav>
           <div className="sidebar__foot">
             <span className="sidebar__status"><i /> Private console</span>
-            <span>CS2 event operations</span>
+            <span>Live CS2 operations</span>
           </div>
         </aside>
         <div className="shell-main">
           <header className="operator-bar">
-            <span className="operator-bar__environment">Internal tool</span>
+            <div className="runtime-strip">
+              <span className="operator-bar__environment">{control.status?.appHealth === "healthy" ? "Control online" : "Control pending"}</span>
+              <span><small>Tournament</small><strong>{control.status?.activeTournamentId ?? "—"}</strong></span>
+              <span><small>Autopilot</small><strong>{control.status === undefined ? "—" : control.status.autopilotEnabled ? "On" : "Off"}</strong></span>
+              <span><small>Running Series</small><strong>{control.status === undefined ? "—" : control.status.runningSeriesIds.length === 0 ? "None" : control.status.runningSeriesIds.length === 1 ? control.status.runningSeriesIds[0] : `${control.status.runningSeriesIds[0]} +${control.status.runningSeriesIds.length - 1}`}</strong></span>
+              <span><small>Unfinished Arenas</small><strong>{control.status?.unfinishedArenaCount ?? "—"}</strong></span>
+              <span className={control.stale ? "runtime-strip__freshness runtime-strip__freshness--stale" : "runtime-strip__freshness"}><small>State</small><strong>{control.status === undefined ? "Connecting" : formatUpdatedAt(control.generatedAt, control.now)}</strong></span>
+            </div>
             <div className="operator-bar__identity">
               <span>Signed in as <strong>@{session.operator.login}</strong></span>
               <button type="button" onClick={handleLogout} disabled={signingOut}>
@@ -112,9 +121,9 @@ function Shell({ session, onSignedOut }: { session: AdminSessionResponse; onSign
           </header>
           <main className="shell-content">
             <Routes>
-              <Route path="/" element={<OverviewPage session={session} onSessionExpired={onSignedOut} />} />
-              <Route path="/catalog" element={<CatalogPage session={session} onSessionExpired={onSignedOut} />} />
-              <Route path="/publish" element={<PublishPage session={session} onSessionExpired={onSignedOut} />} />
+              <Route path="/" element={<OverviewPage session={session} onSessionExpired={onSignedOut} control={control} />} />
+              <Route path="/catalog" element={<CatalogPage session={session} onSessionExpired={onSignedOut} control={control} />} />
+              <Route path="/publish" element={<PublishPage session={session} onSessionExpired={onSignedOut} control={control} />} />
               <Route path="/audit" element={<AuditPage onSessionExpired={onSignedOut} />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

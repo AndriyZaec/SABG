@@ -77,3 +77,5 @@ export function useControlStatus(onSessionExpired: () => void) {
     refresh,
   };
 }
+
+export type ControlStatusController = ReturnType<typeof useControlStatus>;

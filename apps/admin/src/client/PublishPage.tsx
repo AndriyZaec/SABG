@@ -2,12 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import type { Cs2OperatorDiscoveryPayload, Cs2OperatorDiscoverySeries } from "@arena/contracts";
 import type { AdminSessionResponse } from "../shared/session.js";
 import { AdminApiError, discoverGridSeries, mutateControl, readControlCatalog } from "./api.js";
-import { formatUpdatedAt, useControlStatus } from "./useControlStatus.js";
+import type { ControlStatusController } from "./useControlStatus.js";
 
 interface TournamentCandidate {
   id: string;
   name: string;
   shortName?: string;
+  scheduledStartTime: string;
   series: Cs2OperatorDiscoverySeries[];
 }
 
@@ -25,8 +26,8 @@ function formatStartTime(value: string): string {
   }).format(new Date(value));
 }
 
-function groupTournaments(payload: Cs2OperatorDiscoveryPayload): TournamentCandidate[] {
-  const tournaments = new Map<string, TournamentCandidate>();
+function groupTournaments(payload: Cs2OperatorDiscoveryPayload, now = Date.now()): TournamentCandidate[] {
+  const tournaments = new Map<string, Omit<TournamentCandidate, "scheduledStartTime">>();
   for (const series of payload.series) {
     const tournamentId = series.competition.gridTournamentId;
     const existing = tournaments.get(tournamentId);
@@ -41,7 +42,17 @@ function groupTournaments(payload: Cs2OperatorDiscoveryPayload): TournamentCandi
       existing.series.push(series);
     }
   }
-  return [...tournaments.values()];
+  return [...tournaments.values()]
+    .map((tournament) => {
+      const scheduledStartTime = tournament.series
+        .map((series) => series.scheduledStartTime)
+        .filter((value) => Date.parse(value) >= now)
+        .sort((left, right) => Date.parse(left) - Date.parse(right))[0];
+      return scheduledStartTime === undefined ? undefined : { ...tournament, scheduledStartTime };
+    })
+    .filter((tournament): tournament is TournamentCandidate => tournament !== undefined)
+    .sort((left, right) => Date.parse(left.scheduledStartTime) - Date.parse(right.scheduledStartTime))
+    .slice(0, 25);
 }
 
 function disabledReason(series: Cs2OperatorDiscoverySeries): string | undefined {
@@ -92,11 +103,12 @@ function PublishConfirmation({ series, onCancel, onConfirm }: {
   );
 }
 
-export function PublishPage({ session, onSessionExpired }: {
+export function PublishPage({ session, onSessionExpired, control }: {
   session: AdminSessionResponse;
   onSessionExpired: () => void;
+  control: ControlStatusController;
 }) {
-  const { status, stale, generatedAt, now, refreshing, loadError, refresh } = useControlStatus(onSessionExpired);
+  const { status, stale, refreshing, loadError, refresh } = control;
   const [discovery, setDiscovery] = useState<Cs2OperatorDiscoveryPayload>();
   const [discoveryError, setDiscoveryError] = useState<string>();
   const [discovering, setDiscovering] = useState(false);
@@ -178,7 +190,6 @@ export function PublishPage({ session, onSessionExpired }: {
       <header className="page__header publish-page__header">
         <div><h1>Publish tournament</h1><p>Inspect GRID candidates and switch the active tournament through the guarded publication flow.</p></div>
         <div className="publish-page__actions">
-          <span className={stale ? "freshness freshness--stale" : "freshness"}>Last updated {formatUpdatedAt(generatedAt, now)}{stale ? " · stale" : ""}</span>
           <div><button className="status-refresh" type="button" onClick={() => void refresh()} disabled={refreshing}>{refreshing ? "Refreshing" : "Refresh status"}</button><button className="grid-refresh" type="button" onClick={() => void refreshFromGrid()} disabled={discovering}>{discovering ? "Refreshing GRID" : "Refresh from GRID"}</button></div>
         </div>
       </header>
@@ -187,7 +198,6 @@ export function PublishPage({ session, onSessionExpired }: {
       {notice && <div className={`operation-notice operation-notice--${notice.tone}`} role="status">{notice.message}</div>}
 
       <section className="publish-safety">
-        <div className="publish-safety__current"><span className="eyebrow">Currently published</span><strong>{status.activeTournamentId ?? "Not configured"}</strong></div>
         <div className={blockers.length > 0 ? "publish-safety__item publish-safety__item--blocked" : "publish-safety__item"}><span>Runtime blockers</span><strong>{blockers.length > 0 ? blockers.join(" · ") : "Clear"}</strong></div>
         <div className={status.autopilotEnabled ? "publish-safety__item publish-safety__item--warning" : "publish-safety__item"}><span>Autopilot</span><strong>{status.autopilotEnabled ? "On · eligible Series may launch" : "Off"}</strong></div>
       </section>
@@ -197,7 +207,7 @@ export function PublishPage({ session, onSessionExpired }: {
       <section className="discovery-workspace" aria-busy={discovering}>
         <div className="discovery-workspace__heading">
           <div><span className="eyebrow">GRID discovery</span><h2>Upcoming tournament candidates</h2></div>
-          {discovery && <span>{formatStartTime(discovery.window.from)} – {formatStartTime(discovery.window.to)}</span>}
+          {discovery && <span>{tournaments.length} tournaments · {discovery.series.length} Series<br />{formatStartTime(discovery.window.from)} – {formatStartTime(discovery.window.to)}</span>}
         </div>
 
         {discoveryError && <div className="inline-error" role="alert">{discoveryError}</div>}
@@ -206,25 +216,22 @@ export function PublishPage({ session, onSessionExpired }: {
         {discovery && tournaments.length === 0 && <div className="discovery-empty"><strong>No candidates found</strong><span>GRID returned no Series in the configured discovery window.</span></div>}
 
         <div className="tournament-list">
-          {tournaments.map((tournament) => (
-            <article className="tournament-candidate" key={tournament.id}>
-              <header><div><span className="eyebrow">{tournament.shortName ?? "Tournament"}</span><h3>{tournament.name}</h3></div><code>{tournament.id}</code></header>
-              <div className="candidate-series-list">
-                {tournament.series.map((series) => {
-                  const reason = disabledReason(series);
-                  return (
-                    <div className="candidate-series" key={series.gridSeriesId}>
-                      <div><strong>{teamName(series, 0)} vs {teamName(series, 1)}</strong><span>{formatStartTime(series.scheduledStartTime)} · BO{series.format} · {series.liveDataServiceLevel} data</span><small>GRID {series.gridSeriesId}</small></div>
-                      <div className="candidate-series__action">
-                        {reason && <span>{reason}</span>}
-                        <button className="primary-action" type="button" disabled={reason !== undefined || publishBlocked} onClick={() => setConfirmation(series)}>Publish</button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </article>
-          ))}
+          {tournaments.map((tournament) => {
+            const eligible = tournament.series.filter((series) => series.selection.state === "selectable");
+            const anchor = eligible[0];
+            return (
+              <article className="tournament-candidate" key={tournament.id}>
+                <header className="tournament-row">
+                  <div className="tournament-row__name"><strong>{tournament.name}</strong><code>{tournament.id}</code></div>
+                  <div><span>Next start</span><strong>{formatStartTime(tournament.scheduledStartTime)}</strong></div>
+                  <div><span>Series ready</span><strong>{eligible.length} / {tournament.series.length}</strong></div>
+                  <div><span>Anchor</span><strong>{anchor === undefined ? "Unavailable" : `${teamName(anchor, 0)} vs ${teamName(anchor, 1)}`}</strong></div>
+                  <button className="primary-action" type="button" disabled={anchor === undefined || publishBlocked} onClick={() => anchor !== undefined && setConfirmation(anchor)}>Publish tournament</button>
+                </header>
+                <details className="tournament-series-details"><summary>View {tournament.series.length} Series</summary><div>{tournament.series.map((series) => <p key={series.gridSeriesId}><span><strong>{teamName(series, 0)} vs {teamName(series, 1)}</strong><small>{formatStartTime(series.scheduledStartTime)} · BO{series.format} · GRID {series.gridSeriesId}</small></span><em className={series.selection.state === "selectable" ? "is-ready" : ""}>{disabledReason(series) ?? "Ready"}</em></p>)}</div></details>
+              </article>
+            );
+          })}
         </div>
       </section>
 

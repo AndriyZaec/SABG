@@ -120,16 +120,15 @@ export function AuditPage({ onSessionExpired }: { onSessionExpired: () => void }
           ) : (
             <div className="audit-table-wrap">
               <table className="audit-table">
-                <thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th>Result</th><th>Details</th><th>Request</th></tr></thead>
+                <thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th>Result</th><th>Summary</th></tr></thead>
                 <tbody>{entries.map((entry) => (
                   <tr key={entry.id}>
                     <td><time dateTime={entry.createdAt}>{new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(entry.createdAt))}</time></td>
-                    <td><strong>@{entry.actorLogin}</strong><small>{entry.actorId}</small></td>
-                    <td>{ACTION_LABELS[entry.action]}<small>{entry.action}</small></td>
+                    <td><strong>@{entry.actorLogin}</strong></td>
+                    <td><details className="audit-metadata"><summary>{ACTION_LABELS[entry.action]}</summary><small>{entry.action}</small><code>Actor {entry.actorId}</code><code>Request {entry.requestId}</code></details></td>
                     <td><code>{entry.targetId ?? "—"}</code></td>
                     <td><span className={`audit-result audit-result--${entry.result}`}>{entry.result}</span></td>
                     <td><AuditDetails entry={entry} /></td>
-                    <td><code className="request-id" title={entry.requestId}>{entry.requestId}</code></td>
                   </tr>
                 ))}</tbody>
               </table>

@@ -1,12 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import type { AdminCatalogResponse, AdminCatalogSeries, AdminControlStatus } from "@arena/contracts";
+import type { AdminCatalogResponse, AdminCatalogSeries } from "@arena/contracts";
 import type { AdminSessionResponse } from "../shared/session.js";
 import { AdminApiError, readControlCatalog, setAutopilot } from "./api.js";
-import { formatUpdatedAt, useControlStatus } from "./useControlStatus.js";
-
-function HealthLabel({ health }: { health: AdminControlStatus["appHealth"] }) {
-  return <span className={`health health--${health}`}><i />{health}</span>;
-}
+import type { ControlStatusController } from "./useControlStatus.js";
 
 function teamName(series: AdminCatalogSeries, index: 0 | 1): string {
   const participant = series.participants[index];
@@ -56,15 +52,16 @@ function AutopilotConfirmation({ enabled, onCancel, onConfirm }: {
   );
 }
 
-export function OverviewPage({ session, onSessionExpired }: {
+export function OverviewPage({ session, onSessionExpired, control }: {
   session: AdminSessionResponse;
   onSessionExpired: () => void;
+  control: ControlStatusController;
 }) {
   const [catalog, setCatalog] = useState<AdminCatalogResponse>();
   const [confirmation, setConfirmation] = useState<boolean>();
   const [mutating, setMutating] = useState(false);
   const [notice, setNotice] = useState<{ tone: "success" | "danger"; message: string }>();
-  const { status, stale, generatedAt, now, refreshing, loadError, refresh } = useControlStatus(onSessionExpired);
+  const { status, stale, refreshing, loadError, refresh } = control;
 
   useEffect(() => {
     if (status === undefined) return;
@@ -125,11 +122,10 @@ export function OverviewPage({ session, onSessionExpired }: {
     <section className="page overview">
       <header className="page__header overview__header">
         <div>
-          <h1>Overview</h1>
-          <p>Monitor the active tournament, application state, and autopilot from one control surface.</p>
+          <h1>Live operations</h1>
+          <p>See what is running, what needs attention, and what the autopilot can do next.</p>
         </div>
         <div className="overview__freshness">
-          <span className={stale ? "freshness freshness--stale" : "freshness"}>Last updated {formatUpdatedAt(generatedAt, now)}{stale ? " · stale" : ""}</span>
           <button type="button" onClick={() => void refresh()} disabled={refreshing}>{refreshing ? "Refreshing" : "Refresh status"}</button>
         </div>
       </header>
@@ -142,49 +138,12 @@ export function OverviewPage({ session, onSessionExpired }: {
       )}
       {notice && <div className={`operation-notice operation-notice--${notice.tone}`} role="status">{notice.message}</div>}
 
-      <div className="overview-grid">
-        <section className="runtime-card runtime-card--primary">
-          <div className="runtime-card__label">Active tournament</div>
-          <strong>{status.activeTournamentId ?? "Not configured"}</strong>
-          <span>Authoritative PostgreSQL setting</span>
-        </section>
-        <section className="runtime-card">
-          <div className="runtime-card__label">Application</div>
-          <HealthLabel health={status.appHealth} />
-          <span>Revision {status.revision}</span>
-        </section>
-        <section className="runtime-card">
-          <div className="runtime-card__label">Unfinished arenas</div>
-          <strong className={status.unfinishedArenaCount > 0 ? "metric metric--warning" : "metric"}>{status.unfinishedArenaCount}</strong>
-          <span>{status.unfinishedArenaCount === 0 ? "No publication blocker" : "Review before publication"}</span>
-        </section>
-      </div>
-
       <div className="overview-panels">
-        <section className="control-panel">
-          <div className="control-panel__heading">
-            <div>
-              <span className="eyebrow">Runtime control</span>
-              <h2>Autopilot</h2>
-            </div>
-            <span className={`state-chip ${status.autopilotEnabled ? "state-chip--on" : ""}`}>{status.autopilotEnabled ? "On" : "Off"}</span>
-          </div>
-          <p>{status.autopilotEnabled ? "Eligible Series may start automatically." : "Automatic Series selection is paused."}</p>
-          <button
-            className={status.autopilotEnabled ? "danger-action" : "primary-action"}
-            type="button"
-            disabled={stale || mutating}
-            onClick={() => setConfirmation(!status.autopilotEnabled)}
-          >
-            Turn autopilot {status.autopilotEnabled ? "off" : "on"}
-          </button>
-        </section>
-
-        <section className="series-panel">
+        <section className="series-panel series-panel--primary">
           <div className="series-panel__heading">
             <div>
-              <span className="eyebrow">Live workload</span>
-              <h2>Running Series</h2>
+              <span className="eyebrow">Now running</span>
+              <h2>Active Series</h2>
             </div>
             <span className="series-count">{runningSeries.length}</span>
           </div>
@@ -206,6 +165,35 @@ export function OverviewPage({ session, onSessionExpired }: {
               ))}
             </ul>
           )}
+        </section>
+
+        <section className="control-panel">
+          <div className="control-panel__heading">
+            <div>
+              <span className="eyebrow">Automatic selection</span>
+              <h2>Autopilot</h2>
+            </div>
+            <span className={`state-chip ${status.autopilotEnabled ? "state-chip--on" : ""}`}>{status.autopilotEnabled ? "On" : "Off"}</span>
+          </div>
+          <p>{status.autopilotEnabled ? "Eligible Series may start automatically." : "Automatic Series selection is paused."}</p>
+          <button
+            className={status.autopilotEnabled ? "danger-action" : "primary-action"}
+            type="button"
+            disabled={stale || mutating}
+            onClick={() => setConfirmation(!status.autopilotEnabled)}
+          >
+            Turn autopilot {status.autopilotEnabled ? "off" : "on"}
+          </button>
+        </section>
+
+        <section className={status.unfinishedArenaCount > 0 || status.appHealth !== "healthy" ? "attention-panel attention-panel--warning" : "attention-panel"}>
+          <span className="eyebrow">Attention</span>
+          <h2>{status.unfinishedArenaCount > 0 || status.appHealth !== "healthy" ? "Action required" : "No blockers"}</h2>
+          <ul>
+            {status.unfinishedArenaCount > 0 && <li><strong>{status.unfinishedArenaCount} unfinished Arena{status.unfinishedArenaCount === 1 ? "" : "s"}</strong><span>Publication stays blocked until the Arena finishes or an eligible Series is skipped.</span></li>}
+            {status.appHealth !== "healthy" && <li><strong>Application {status.appHealth}</strong><span>Confirm service health before changing runtime state.</span></li>}
+            {status.unfinishedArenaCount === 0 && status.appHealth === "healthy" && <li><strong>Runtime clear</strong><span>No unfinished Arena blocks tournament publication.</span></li>}
+          </ul>
         </section>
       </div>
 

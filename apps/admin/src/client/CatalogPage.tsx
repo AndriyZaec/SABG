@@ -9,7 +9,7 @@ import type {
 } from "@arena/contracts";
 import type { AdminSessionResponse } from "../shared/session.js";
 import { AdminApiError, inspectGridSeries, mutateControl, readControlCatalog } from "./api.js";
-import { formatUpdatedAt, useControlStatus } from "./useControlStatus.js";
+import type { ControlStatusController } from "./useControlStatus.js";
 
 function teamName(series: AdminCatalogSeries, index: 0 | 1): string {
   const participant = series.participants[index];
@@ -66,11 +66,12 @@ function SkipConfirmation({ series, stale, onCancel, onConfirm }: {
   );
 }
 
-export function CatalogPage({ session, onSessionExpired }: {
+export function CatalogPage({ session, onSessionExpired, control }: {
   session: AdminSessionResponse;
   onSessionExpired: () => void;
+  control: ControlStatusController;
 }) {
-  const { status, stale, generatedAt, now, refreshing: statusRefreshing, loadError: statusError, refresh: refreshStatus } = useControlStatus(onSessionExpired);
+  const { status, stale, refreshing: statusRefreshing, loadError: statusError, refresh: refreshStatus } = control;
   const [catalog, setCatalog] = useState<AdminCatalogResponse>();
   const [catalogError, setCatalogError] = useState<string>();
   const [catalogRefreshing, setCatalogRefreshing] = useState(false);
@@ -82,6 +83,7 @@ export function CatalogPage({ session, onSessionExpired }: {
   const [lookupResult, setLookupResult] = useState<Cs2OperatorDiscoverySeries>();
   const [lookupError, setLookupError] = useState<string>();
   const [lookingUp, setLookingUp] = useState(false);
+  const [lookupOpen, setLookupOpen] = useState(false);
   const catalogRef = useRef<AdminCatalogResponse>();
   const catalogInFlight = useRef<Promise<void>>();
 
@@ -205,9 +207,9 @@ export function CatalogPage({ session, onSessionExpired }: {
           <h1>Series catalog</h1>
           <p>Review active Series and make deliberate changes to priority and stream configuration.</p>
         </div>
-        <div className="overview__freshness">
-          <span className={stale ? "freshness freshness--stale" : "freshness"}>Last updated {formatUpdatedAt(generatedAt, now)}{stale ? " · stale" : ""}</span>
-          <button type="button" onClick={() => void refreshAll()} disabled={refreshing}>{refreshing ? "Refreshing" : "Refresh catalog"}</button>
+        <div className="catalog-header-actions">
+          <button className="secondary-action" type="button" onClick={() => setLookupOpen((open) => !open)}>{lookupOpen ? "Close lookup" : "Find exact Series"}</button>
+          <button className="secondary-action" type="button" onClick={() => void refreshAll()} disabled={refreshing}>{refreshing ? "Refreshing" : "Refresh catalog"}</button>
         </div>
       </header>
 
@@ -219,7 +221,7 @@ export function CatalogPage({ session, onSessionExpired }: {
       )}
       {notice && <div className={`operation-notice operation-notice--${notice.tone}`} role="status">{notice.message}</div>}
 
-      <section className="catalog-lookup">
+      {lookupOpen && <section className="catalog-lookup">
         <div><span className="eyebrow">Manual GRID lookup</span><h2>Find exact Series</h2></div>
         <form onSubmit={(event) => void lookup(event)}>
           <label className="field"><span>GRID Series ID</span><input value={lookupId} onChange={(event) => setLookupId(event.target.value)} placeholder="e.g. 2985953" /></label>
@@ -232,11 +234,11 @@ export function CatalogPage({ session, onSessionExpired }: {
             <div><span className={`state-chip ${lookupResult.selection.state === "selectable" ? "state-chip--on" : ""}`}>{lookupResult.selection.state}</span><small>GRID {lookupResult.gridSeriesId}</small></div>
           </div>
         )}
-      </section>
+      </section>}
 
       <section className="catalog-table-section">
         <div className="catalog-table-heading">
-          <div><span className="eyebrow">Active tournament</span><h2>{catalog.activeTournamentId ?? "Not configured"}</h2></div>
+          <div><span className="eyebrow">Active tournament catalog</span><h2>Series</h2></div>
           <span>{catalog.series.length} Series</span>
         </div>
         {catalog.series.length === 0 ? (
@@ -244,7 +246,7 @@ export function CatalogPage({ session, onSessionExpired }: {
         ) : (
           <div className="catalog-table-wrap">
             <table className="catalog-table">
-              <thead><tr><th>Series</th><th>Schedule</th><th>State</th><th>Stream</th><th><span className="sr-only">Actions</span></th></tr></thead>
+              <thead><tr><th>Series</th><th>Start</th><th>Operational state</th><th>Stream</th><th><span className="sr-only">Actions</span></th></tr></thead>
               <tbody>
                 {catalog.series.map((series) => {
                   let stream: ReturnType<typeof normalizeCs2StreamUrl> | undefined;
@@ -254,7 +256,7 @@ export function CatalogPage({ session, onSessionExpired }: {
                     <tr key={series.gridSeriesId}>
                       <td><strong>{teamName(series, 0)} vs {teamName(series, 1)}</strong><span>{series.competition.shortName ?? series.competition.name} · BO{series.format}</span><small>GRID {series.gridSeriesId}</small></td>
                       <td><strong>{formatStartTime(series.scheduledStartTime)}</strong><span className="text-capitalize">{series.lifecycle}</span></td>
-                      <td><span className={`catalog-status catalog-status--${series.status}`}>{series.status}</span>{series.skipRequested && <small>Skip requested</small>}</td>
+                      <td><span className={`catalog-status catalog-status--${series.status}`}>{series.arena}</span>{series.priority && <small className="priority-marker">Priority on</small>}{series.skipRequested && <small>Skip requested</small>}</td>
                       <td>{stream === undefined ? <span className="muted-value">Not set</span> : <><span className="provider-label">{stream.provider}</span><code className="stream-url">{stream.url}</code><a href={stream.url} target="_blank" rel="noreferrer">Open stream</a></>}</td>
                       <td>
                         <div className="row-actions">
