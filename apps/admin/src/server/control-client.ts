@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type {
   AdminCatalogResponse,
+  AdminCatalogSeries,
   AdminControlStatus,
   AdminMutationCommand,
   AdminMutationResult,
@@ -91,7 +92,37 @@ export function createLiveControlClient(options: {
 export function createFixtureControlClient(): AdminControlClient {
   let autopilotEnabled = true;
   let activeTournamentId = "fixture-tournament";
+  let priority = true;
+  let skipRequested = false;
+  let streamUrl: string | undefined;
   const now = () => new Date().toISOString();
+  const fixtureSeries = (): AdminCatalogSeries => ({
+    id: "00000000-0000-4000-8000-000000000001",
+    gridSeriesId: "2985953",
+    arena: "running",
+    participants: [
+      {
+        state: "known",
+        displayOrder: 1,
+        team: { id: "00000000-0000-4000-8000-000000000002", name: "Inner Circle" },
+        seriesScore: 1,
+      },
+      {
+        state: "known",
+        displayOrder: 2,
+        team: { id: "00000000-0000-4000-8000-000000000003", name: "ENCE" },
+        seriesScore: 0,
+      },
+    ],
+    competition: { name: "European Pro League", shortName: "EPL" },
+    format: 3,
+    scheduledStartTime: "2026-10-06T17:00:00.000Z",
+    lifecycle: "live",
+    status: "active",
+    priority,
+    skipRequested,
+    ...(streamUrl !== undefined ? { streamUrl } : {}),
+  });
   return {
     status: async () => ({
       status: 200,
@@ -109,39 +140,34 @@ export function createFixtureControlClient(): AdminControlClient {
       status: 200,
       body: {
         activeTournamentId,
-        series: [{
-          id: "00000000-0000-4000-8000-000000000001",
-          gridSeriesId: "2985953",
-          arena: "running",
-          participants: [
-            {
-              state: "known",
-              displayOrder: 1,
-              team: { id: "00000000-0000-4000-8000-000000000002", name: "Inner Circle" },
-              seriesScore: 1,
-            },
-            {
-              state: "known",
-              displayOrder: 2,
-              team: { id: "00000000-0000-4000-8000-000000000003", name: "ENCE" },
-              seriesScore: 0,
-            },
-          ],
-          competition: { name: "European Pro League", shortName: "EPL" },
-          format: 3,
-          scheduledStartTime: "2026-10-06T17:00:00.000Z",
-          lifecycle: "live",
-          status: "active",
-          priority: true,
-          skipRequested: false,
-        }],
+        series: [fixtureSeries()],
       },
     }),
     discovery: async () => ({ status: 200, body: { window: { from: now(), to: now() }, series: [] } }),
-    inspect: async () => ({ status: 200, body: { window: { from: now(), to: now() }, series: [] } }),
+    inspect: async (gridSeriesId) => ({
+      status: 200,
+      body: {
+        window: { from: now(), to: now() },
+        series: [{
+          gridSeriesId,
+          format: 3,
+          scheduledStartTime: "2026-10-07T19:00:00.000Z",
+          competition: { gridTournamentId: activeTournamentId, name: "European Pro League", shortName: "EPL" },
+          participants: [
+            { state: "known", displayOrder: 1, team: { gridTeamId: "team-vitality", name: "Vitality" } },
+            { state: "known", displayOrder: 2, team: { gridTeamId: "team-spirit", name: "Spirit" } },
+          ],
+          liveDataServiceLevel: "FULL",
+          selection: { state: "selectable" },
+        }],
+      },
+    }),
     audit: async () => ({ status: 200, body: { entries: [] } }),
     mutate: async (command) => {
       if (command.type === "autopilot.set") autopilotEnabled = command.enabled;
+      if (command.type === "series.priority.set") priority = command.priority;
+      if (command.type === "series.stream.set") streamUrl = command.streamUrl ?? undefined;
+      if (command.type === "series.skip.request") skipRequested = true;
       if (command.type === "tournament.publish") activeTournamentId = command.gridTournamentId;
       return {
         status: 200,

@@ -1,18 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AdminCatalogResponse, AdminCatalogSeries, AdminControlStatus } from "@arena/contracts";
 import type { AdminSessionResponse } from "../shared/session.js";
-import { AdminApiError, readControlCatalog, readControlStatus, setAutopilot } from "./api.js";
-
-const POLL_INTERVAL_MS = 10_000;
-const STALE_AFTER_MS = 30_000;
-
-function formatUpdatedAt(receivedAt: number, now: number): string {
-  if (!Number.isFinite(receivedAt)) return "unknown";
-  const seconds = Math.max(0, Math.floor((now - receivedAt) / 1_000));
-  if (seconds < 5) return "just now";
-  if (seconds < 60) return `${seconds}s ago`;
-  return `${Math.floor(seconds / 60)}m ago`;
-}
+import { AdminApiError, readControlCatalog, setAutopilot } from "./api.js";
+import { formatUpdatedAt, useControlStatus } from "./useControlStatus.js";
 
 function HealthLabel({ health }: { health: AdminControlStatus["appHealth"] }) {
   return <span className={`health health--${health}`}><i />{health}</span>;
@@ -70,69 +60,20 @@ export function OverviewPage({ session, onSessionExpired }: {
   session: AdminSessionResponse;
   onSessionExpired: () => void;
 }) {
-  const [status, setStatus] = useState<AdminControlStatus>();
   const [catalog, setCatalog] = useState<AdminCatalogResponse>();
-  const [now, setNow] = useState(Date.now());
-  const [refreshing, setRefreshing] = useState(false);
-  const [loadError, setLoadError] = useState<string>();
   const [confirmation, setConfirmation] = useState<boolean>();
   const [mutating, setMutating] = useState(false);
   const [notice, setNotice] = useState<{ tone: "success" | "danger"; message: string }>();
-  const statusRef = useRef<AdminControlStatus>();
-  const inFlight = useRef<Promise<void>>();
-
-  const refresh = useCallback(async (force = false) => {
-    if (inFlight.current !== undefined) {
-      if (!force) return inFlight.current;
-      await inFlight.current;
-    }
-    if (statusRef.current !== undefined) setRefreshing(true);
-    setLoadError(undefined);
-
-    const operation = readControlStatus()
-      .then(async (nextStatus) => {
-        statusRef.current = nextStatus;
-        setStatus(nextStatus);
-        try {
-          setCatalog(await readControlCatalog());
-        } catch {
-          // Runtime status remains authoritative; missing catalog detail falls back to the GRID ID.
-        }
-      })
-      .catch((error: unknown) => {
-        if (error instanceof AdminApiError && error.status === 401) {
-          onSessionExpired();
-          return;
-        }
-        setLoadError("Could not refresh runtime status.");
-      })
-      .finally(() => {
-        setRefreshing(false);
-        inFlight.current = undefined;
-      });
-    inFlight.current = operation;
-    return operation;
-  }, [onSessionExpired]);
+  const { status, stale, generatedAt, now, refreshing, loadError, refresh } = useControlStatus(onSessionExpired);
 
   useEffect(() => {
-    void refresh();
-    const clock = window.setInterval(() => setNow(Date.now()), 1_000);
-    const poll = window.setInterval(() => {
-      if (document.visibilityState === "visible") void refresh();
-    }, POLL_INTERVAL_MS);
-    const handleVisibility = () => {
-      if (document.visibilityState === "visible") void refresh();
-    };
-    document.addEventListener("visibilitychange", handleVisibility);
-    return () => {
-      window.clearInterval(clock);
-      window.clearInterval(poll);
-      document.removeEventListener("visibilitychange", handleVisibility);
-    };
-  }, [refresh]);
-
-  const generatedAt = status === undefined ? Number.NaN : Date.parse(status.generatedAt);
-  const stale = !Number.isFinite(generatedAt) || now - generatedAt > STALE_AFTER_MS;
+    if (status === undefined) return;
+    void readControlCatalog()
+      .then(setCatalog)
+      .catch((error: unknown) => {
+        if (error instanceof AdminApiError && error.status === 401) onSessionExpired();
+      });
+  }, [status?.generatedAt, onSessionExpired]);
 
   const confirmAutopilot = async () => {
     if (confirmation === undefined || stale) return;

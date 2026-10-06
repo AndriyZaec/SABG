@@ -1,4 +1,10 @@
-import type { AdminCatalogResponse, AdminControlStatus, AdminMutationResult } from "@arena/contracts";
+import type {
+  AdminCatalogResponse,
+  AdminControlStatus,
+  AdminMutationCommand,
+  AdminMutationResult,
+  Cs2OperatorDiscoveryPayload,
+} from "@arena/contracts";
 import type { AdminSessionResponse } from "../shared/session.js";
 
 export interface MutationResponse {
@@ -39,7 +45,18 @@ export async function readControlCatalog(): Promise<AdminCatalogResponse> {
   return response.json() as Promise<AdminCatalogResponse>;
 }
 
-export async function setAutopilot(session: AdminSessionResponse, enabled: boolean): Promise<MutationResponse> {
+export async function inspectGridSeries(gridSeriesId: string): Promise<Cs2OperatorDiscoveryPayload> {
+  const response = await fetch(`/api/control/series/${encodeURIComponent(gridSeriesId)}`, {
+    headers: { accept: "application/json" },
+  });
+  if (!response.ok) throw new AdminApiError("GRID Series lookup failed", response.status);
+  return response.json() as Promise<Cs2OperatorDiscoveryPayload>;
+}
+
+export async function mutateControl(
+  session: AdminSessionResponse,
+  command: AdminMutationCommand,
+): Promise<MutationResponse> {
   const response = await fetch("/api/control/mutations", {
     method: "POST",
     headers: {
@@ -47,11 +64,15 @@ export async function setAutopilot(session: AdminSessionResponse, enabled: boole
       "content-type": "application/json",
       "x-csrf-token": session.csrfToken,
     },
-    body: JSON.stringify({ type: "autopilot.set", enabled }),
+    body: JSON.stringify(command),
   });
-  if (!response.ok && response.status !== 409) throw new AdminApiError("Autopilot command failed", response.status);
+  if (!response.ok && response.status !== 409) throw new AdminApiError("Control command failed", response.status);
   return {
     httpStatus: response.status,
     result: await response.json() as AdminMutationResult,
   };
+}
+
+export async function setAutopilot(session: AdminSessionResponse, enabled: boolean): Promise<MutationResponse> {
+  return mutateControl(session, { type: "autopilot.set", enabled });
 }
