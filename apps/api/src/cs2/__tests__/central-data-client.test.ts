@@ -100,6 +100,32 @@ describe("GridCentralDataClient", () => {
     ).resolves.toEqual([]);
   });
 
+  it("parses GRID's placeholder team logo as no logo", async () => {
+    const request = vi.fn()
+      .mockResolvedValueOnce(response({ data: { titles: [
+        { id: "title-cs2", name: "Counter-Strike 2", nameShortened: "CS2" },
+      ] } }))
+      .mockResolvedValueOnce(response({ data: { allSeries: {
+        edges: [{ node: seriesNode({ teams: [
+          { baseInfo: { id: "team-a", logoUrl: "https://cdn.grid.gg/assets/team-logos/generic", name: "Team A", nameShortened: "A" } },
+          { baseInfo: { id: "team-b", logoUrl: "https://cdn.grid.gg/assets/team-logos/f910e6", name: "Team B", nameShortened: "B" } },
+        ] }) }],
+        pageInfo: { endCursor: null, hasNextPage: false },
+      } } }));
+    const client = new GridCentralDataClient({ request } as GridGraphqlRequester);
+
+    const [series] = await client.fetchSeries({ from: new Date("2026-09-01"), to: new Date("2026-09-02") }, ["tournament-1"]);
+
+    expect(series?.participants).toEqual([
+      { state: "known", displayOrder: 1, team: { gridTeamId: "team-a", name: "Team A", shortName: "A" } },
+      {
+        state: "known",
+        displayOrder: 2,
+        team: { gridTeamId: "team-b", name: "Team B", shortName: "B", logoUrl: "https://cdn.grid.gg/assets/team-logos/f910e6" },
+      },
+    ]);
+  });
+
   it("returns no series for an empty page without an end cursor", async () => {
     const request = vi.fn()
       .mockResolvedValueOnce(response({ data: { titles: [
