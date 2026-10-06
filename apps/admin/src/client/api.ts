@@ -4,6 +4,7 @@ import type {
   AdminMutationCommand,
   AdminMutationResult,
   Cs2OperatorDiscoveryPayload,
+  OperatorAuditPage,
 } from "@arena/contracts";
 import type { AdminSessionResponse } from "../shared/session.js";
 
@@ -57,6 +58,22 @@ export async function discoverGridSeries(): Promise<Cs2OperatorDiscoveryPayload>
   const response = await fetch("/api/control/discovery", { headers: { accept: "application/json" } });
   if (!response.ok) throw new AdminApiError("GRID discovery failed", response.status);
   return response.json() as Promise<Cs2OperatorDiscoveryPayload>;
+}
+
+export async function readAudit(filters: {
+  actorId?: string;
+  from?: string;
+  to?: string;
+  cursor?: string;
+}): Promise<OperatorAuditPage> {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined) query.set(key, value);
+  }
+  const suffix = query.size === 0 ? "" : `?${query.toString()}`;
+  const response = await fetch(`/api/control/audit${suffix}`, { headers: { accept: "application/json" } });
+  if (!response.ok) throw new AdminApiError("Operator audit is unavailable", response.status);
+  return response.json() as Promise<OperatorAuditPage>;
 }
 
 export async function mutateControl(

@@ -224,6 +224,34 @@ button:focus-visible, a:focus-visible { outline: 3px solid var(--yellow); outlin
 .publish-confirmation-summary span { color: var(--muted); }
 .publish-modal .field { margin: 24px 0 30px; }
 
+.audit-page__header { align-items: flex-end; }
+.audit-page__header .secondary-action { flex: 0 0 auto; }
+.audit-filters { display: grid; grid-template-columns: 1.35fr 1fr 1fr auto; align-items: end; gap: 12px; margin-top: 28px; padding: 20px; border: 1px solid var(--line); background: var(--paper-deep); }
+.audit-filters__actions { display: flex; align-items: center; gap: 10px; }
+.audit-filters__actions > button:first-child { padding: 8px 0; border: 0; border-bottom: 1px solid var(--ink); color: var(--ink); background: transparent; cursor: pointer; }
+.audit-filters button:disabled { opacity: 0.5; cursor: wait; }
+.audit-log { margin-top: 24px; border: 1px solid var(--line); background: #faf9f5; }
+.audit-log__heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; padding: 22px 24px; border-bottom: 1px solid var(--line); }
+.audit-log__heading h2 { margin: 7px 0 0; font-size: 1.2rem; }
+.audit-log__heading > span { color: var(--muted); font-family: "Space Mono", monospace; font-size: 0.66rem; }
+.audit-table-wrap { overflow-x: auto; }
+.audit-table { width: 100%; min-width: 1120px; border-collapse: collapse; text-align: left; }
+.audit-table th { padding: 11px 14px; border-bottom: 1px solid var(--line); color: var(--muted); font-family: "Space Mono", monospace; font-size: 0.61rem; font-weight: 500; text-transform: uppercase; }
+.audit-table td { max-width: 240px; padding: 15px 14px; border-bottom: 1px solid var(--line); vertical-align: top; font-size: 0.72rem; }
+.audit-table tr:last-child td { border-bottom: 0; }
+.audit-table td > strong, .audit-table td > small { display: block; }
+.audit-table td > small { margin-top: 4px; color: var(--muted); font-size: 0.64rem; }
+.audit-table td > code, .request-id { display: block; max-width: 190px; overflow: hidden; font-family: "Space Mono", monospace; font-size: 0.63rem; text-overflow: ellipsis; white-space: nowrap; }
+.audit-result { display: inline-block; padding: 5px 7px; border: 1px solid var(--line); font-family: "Space Mono", monospace; font-size: 0.61rem; text-transform: capitalize; }
+.audit-result--succeeded, .audit-result--requested { border-color: #88cbae; color: #176c49; background: #e5f3eb; }
+.audit-result--refused, .audit-result--failed { border-color: #d4a09b; color: var(--danger); background: #f2e5e0; }
+.audit-change { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.audit-change code { max-width: 90px; overflow: hidden; font-family: "Space Mono", monospace; font-size: 0.62rem; text-overflow: ellipsis; white-space: nowrap; }
+.audit-change i { color: var(--muted); font-style: normal; }
+.audit-reason { display: block; color: var(--danger); line-height: 1.45; }
+.audit-empty { min-height: 260px; }
+.audit-log__pagination { display: flex; justify-content: center; padding: 18px; border-top: 1px solid var(--line); }
+
 .signin, .loading-screen, .error-screen { min-height: 100vh; display: grid; place-items: center; padding: 28px; }
 .signin { background: var(--rail); }
 .signin__panel { width: min(100%, 780px); background: var(--paper); border-left: 8px solid var(--yellow); }
@@ -275,6 +303,10 @@ button:focus-visible, a:focus-visible { outline: 3px solid var(--yellow); outlin
   .candidate-series { grid-template-columns: 1fr; }
   .candidate-series__action { justify-content: space-between; }
   .candidate-series__action > span { text-align: left; }
+  .audit-page__header { display: block; }
+  .audit-page__header .secondary-action { margin-top: 24px; }
+  .audit-filters { grid-template-columns: 1fr; }
+  .audit-filters__actions { justify-content: flex-start; }
   .signin, .loading-screen, .error-screen { padding: 16px; }
 }
 

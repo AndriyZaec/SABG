@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { BrowserRouter, Navigate, NavLink, Route, Routes } from "react-router-dom";
 import type { AdminSessionResponse } from "../shared/session.js";
 import { logout, readSession } from "./api.js";
+import { AuditPage } from "./AuditPage.js";
 import { CatalogPage } from "./CatalogPage.js";
 import { OverviewPage } from "./OverviewPage.js";
 import { PublishPage } from "./PublishPage.js";
@@ -18,25 +19,6 @@ const routes = [
   { path: "/publish", label: "Publish", detail: "Tournament switch" },
   { path: "/audit", label: "Audit", detail: "Operator history" },
 ] as const;
-
-const pageCopy = {
-  overview: {
-    title: "Overview",
-    description: "Monitor the active tournament, application state, and autopilot from one control surface.",
-  },
-  catalog: {
-    title: "Series catalog",
-    description: "Review active Series and make deliberate changes to priority and stream configuration.",
-  },
-  publish: {
-    title: "Publish tournament",
-    description: "Inspect GRID candidates and switch the active tournament through the guarded publication flow.",
-  },
-  audit: {
-    title: "Operator audit",
-    description: "Trace state-changing commands, their actor, target, and final result.",
-  },
-} as const;
 
 function SignIn() {
   return (
@@ -77,28 +59,6 @@ function ErrorScreen({ retry }: { retry: () => void }) {
         <button className="secondary-action" type="button" onClick={retry}>Try again</button>
       </div>
     </main>
-  );
-}
-
-function PlaceholderPage({ page }: { page: keyof typeof pageCopy }) {
-  const copy = pageCopy[page];
-  return (
-    <section className="page">
-      <header className="page__header">
-        <div>
-          <h1>{copy.title}</h1>
-          <p>{copy.description}</p>
-        </div>
-        <span className="page__phase">Controls arrive in Phase 5</span>
-      </header>
-      <div className="workspace-placeholder">
-        <div className="workspace-placeholder__rule" />
-        <div>
-          <h2>Workspace ready</h2>
-          <p>The secure route and application shell are in place. Operational data will be connected next.</p>
-        </div>
-      </div>
-    </section>
   );
 }
 
@@ -155,7 +115,7 @@ function Shell({ session, onSignedOut }: { session: AdminSessionResponse; onSign
               <Route path="/" element={<OverviewPage session={session} onSessionExpired={onSignedOut} />} />
               <Route path="/catalog" element={<CatalogPage session={session} onSessionExpired={onSignedOut} />} />
               <Route path="/publish" element={<PublishPage session={session} onSessionExpired={onSignedOut} />} />
-              <Route path="/audit" element={<PlaceholderPage page="audit" />} />
+              <Route path="/audit" element={<AuditPage onSessionExpired={onSignedOut} />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </main>

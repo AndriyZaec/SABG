@@ -6,6 +6,7 @@ import type {
   AdminMutationCommand,
   AdminMutationResult,
   Cs2OperatorDiscoveryPayload,
+  OperatorAuditEntry,
   OperatorAuditPage,
 } from "@arena/contracts";
 
@@ -123,6 +124,14 @@ export function createFixtureControlClient(): AdminControlClient {
     skipRequested,
     ...(streamUrl !== undefined ? { streamUrl } : {}),
   });
+  const auditEntries: OperatorAuditEntry[] = [
+    { id: randomUUID(), createdAt: new Date(Date.now() - 2 * 60_000).toISOString(), actorId: "1", actorLogin: "local-operator", action: "series.skip.request", targetId: "2985953", result: "requested", requestId: randomUUID(), details: { before: false, after: true } },
+    { id: randomUUID(), createdAt: new Date(Date.now() - 8 * 60_000).toISOString(), actorId: "1", actorLogin: "local-operator", action: "series.stream.set", targetId: "2985953", result: "succeeded", requestId: randomUUID(), details: { before: null, after: "https://twitch.tv/sabg" } },
+    { id: randomUUID(), createdAt: new Date(Date.now() - 20 * 60_000).toISOString(), actorId: "legacy-wizard", actorLogin: "legacy-wizard", action: "series.priority.set", targetId: "2985953", result: "succeeded", requestId: randomUUID(), details: { before: false, after: true } },
+    { id: randomUUID(), createdAt: new Date(Date.now() - 45 * 60_000).toISOString(), actorId: "1", actorLogin: "local-operator", action: "tournament.publish", targetId: "fixture-tournament", result: "refused", requestId: randomUUID(), details: { reason: "A CS2 Series is running; Skip it or wait for it to finish" } },
+    { id: randomUUID(), createdAt: new Date(Date.now() - 90 * 60_000).toISOString(), actorId: "legacy-wizard", actorLogin: "legacy-wizard", action: "autopilot.set", targetId: "cs2.autopilot.enabled", result: "succeeded", requestId: randomUUID(), details: { before: false, after: true } },
+    { id: randomUUID(), createdAt: new Date(Date.now() - 3 * 60 * 60_000).toISOString(), actorId: "1", actorLogin: "local-operator", action: "series.stream.set", targetId: "2985953", result: "failed", requestId: randomUUID(), details: { reason: "Control service was unavailable" } },
+  ];
   return {
     status: async () => ({
       status: 200,
@@ -193,16 +202,48 @@ export function createFixtureControlClient(): AdminControlClient {
         }],
       },
     }),
-    audit: async () => ({ status: 200, body: { entries: [] } }),
-    mutate: async (command) => {
+    audit: async (filters) => {
+      const filtered = auditEntries.filter((entry) => (
+        (filters.actorId === undefined || entry.actorId === filters.actorId)
+        && (filters.from === undefined || entry.createdAt > filters.from)
+        && (filters.to === undefined || entry.createdAt < filters.to)
+      ));
+      const offset = filters.cursor === undefined
+        ? 0
+        : Number.parseInt(Buffer.from(filters.cursor, "base64url").toString("utf8"), 10);
+      const entries = filtered.slice(offset, offset + 4);
+      const nextOffset = offset + entries.length;
+      return {
+        status: 200,
+        body: {
+          entries,
+          ...(nextOffset < filtered.length ? { nextCursor: Buffer.from(String(nextOffset), "utf8").toString("base64url") } : {}),
+        },
+      };
+    },
+    mutate: async (command, actor) => {
       if (command.type === "autopilot.set") autopilotEnabled = command.enabled;
       if (command.type === "series.priority.set") priority = command.priority;
       if (command.type === "series.stream.set") streamUrl = command.streamUrl ?? undefined;
       if (command.type === "series.skip.request") skipRequested = true;
       if (command.type === "tournament.publish") activeTournamentId = command.gridTournamentId;
+      const result: AdminMutationResult = { status: command.type === "series.skip.request" ? "requested" : "succeeded" };
+      auditEntries.unshift({
+        id: randomUUID(),
+        createdAt: now(),
+        actorId: actor.id,
+        actorLogin: actor.login,
+        action: command.type,
+        targetId: command.type === "autopilot.set"
+          ? "cs2.autopilot.enabled"
+          : command.type === "tournament.publish" ? command.gridTournamentId : command.gridSeriesId,
+        result: result.status,
+        requestId: randomUUID(),
+        details: {},
+      });
       return {
         status: 200,
-        body: { status: command.type === "series.skip.request" ? "requested" : "succeeded" },
+        body: result,
         requestId: randomUUID(),
       };
     },
