@@ -1,9 +1,14 @@
 import type { Series } from "@arena/contracts";
 import { describe, expect, it, vi } from "vitest";
 
+const settingsMocks = vi.hoisted(() => ({ getActiveCs2TournamentId: vi.fn() }));
+
 vi.mock("../../db/repositories/cs2-catalog.repository.js", () => ({ cs2CatalogRepository: {} }));
 vi.mock("../../db/repositories/series.repository.js", () => ({ seriesRepository: {} }));
-vi.mock("../../db/repositories/settings.repository.js", () => ({ settingsRepository: {} }));
+vi.mock("../../db/repositories/settings.repository.js", () => ({
+  CS2_AUTOPILOT_SETTING: "cs2_autopilot",
+  settingsRepository: { getActiveCs2TournamentId: settingsMocks.getActiveCs2TournamentId },
+}));
 vi.mock("../series-runner.js", () => ({ Cs2SeriesRunner: {} }));
 vi.mock("../catalog-synchronizer.js", () => ({ synchronizeCs2Catalog: vi.fn() }));
 
@@ -298,6 +303,13 @@ describe("runCs2CatalogSync", () => {
     expect(window.to.getTime()).toBeGreaterThan(now.getTime());
   });
 
+  it("reads the active tournament from the database when none is supplied", async () => {
+    settingsMocks.getActiveCs2TournamentId.mockResolvedValueOnce("830797");
+    const synchronize = vi.fn().mockResolvedValue({ discovered: 0, persisted: 0, supported: 0, incompleteParticipants: 0, withdrawn: 0 });
+    await runCs2CatalogSync({ hasRunner: false }, { synchronize, now });
+    expect(synchronize).toHaveBeenCalledWith(expect.any(Object), { now, tournamentIds: ["830797"] });
+  });
+
   it("logs a failed sync instead of throwing", async () => {
     const synchronize = vi.fn().mockRejectedValue(new Error("GRID down"));
     await expect(runCs2CatalogSync({ hasRunner: false }, { synchronize, now, tournamentIds: ["830797"] })).resolves.toBeUndefined();
@@ -319,6 +331,35 @@ describe("Cs2Autopilot.hasRunner", () => {
     finishPriming();
     await tick;
     expect(autopilot.hasRunner).toBe(false);
+  });
+});
+
+describe("Cs2Autopilot.runWhileIdle", () => {
+  it("accepts operator work immediately after the queue becomes idle", async () => {
+    const { autopilot } = setup({ enabled: false });
+    await autopilot.tick();
+    const task = vi.fn().mockResolvedValue("published");
+
+    await expect(autopilot.runWhileIdle(task)).resolves.toEqual({ kind: "completed", value: "published" });
+    expect(task).toHaveBeenCalledOnce();
+  });
+
+  it("returns busy instead of queuing operator work behind an in-flight tick", async () => {
+    const { autopilot, deps } = setup({ enabled: false });
+    let finishRuntimeRead: () => void = () => {};
+    deps.listActiveRunSeries = () => new Promise((resolve) => {
+      finishRuntimeRead = () => resolve([]);
+    });
+    const tick = autopilot.tick();
+    await settle();
+    const task = vi.fn().mockResolvedValue(undefined);
+    const result = autopilot.runWhileIdle(task);
+
+    finishRuntimeRead();
+    await tick;
+
+    await expect(result).resolves.toEqual({ kind: "busy" });
+    expect(task).not.toHaveBeenCalled();
   });
 });
 
@@ -359,4 +400,3 @@ describe("Cs2Autopilot operator skip", () => {
     expect(runners[0]!.skipCalls).toBe(0);
   });
 });
-

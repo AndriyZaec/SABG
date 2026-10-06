@@ -1,6 +1,5 @@
 import type { Cs2SeriesLifecycle } from "@arena/contracts";
 import { cs2CatalogRepository, type Cs2CatalogSeriesInput } from "../db/repositories/cs2-catalog.repository.js";
-import { cs2CatalogConfig } from "./catalog-config.js";
 import { GridCentralDataClient, type GridCatalogSeries, type GridCatalogWindow } from "./central-data-client.js";
 
 export interface Cs2CatalogSource {
@@ -36,14 +35,14 @@ export async function synchronizeCs2Catalog(
     signal?: AbortSignal;
     source?: Cs2CatalogSource;
     store?: Cs2CatalogStore;
-    tournamentIds?: readonly string[];
-  } = {},
+    tournamentIds: readonly string[];
+  },
 ): Promise<Cs2CatalogSyncResult> {
   const now = options.now ?? new Date();
   if (Number.isNaN(now.getTime())) throw new Error("CS2 catalog synchronization time is invalid");
   const source = options.source ?? new GridCentralDataClient();
   const store = options.store ?? cs2CatalogRepository;
-  const tournamentIds = [...new Set(options.tournamentIds ?? cs2CatalogConfig.tournamentIds)];
+  const tournamentIds = [...new Set(options.tournamentIds)];
   if (tournamentIds.length === 0) return { discovered: 0, persisted: 0, supported: 0, incompleteParticipants: 0, withdrawn: 0 };
   const selectedTournamentIds = new Set(tournamentIds);
   const providerSeries = await source.fetchSeries(window, tournamentIds, options.signal);

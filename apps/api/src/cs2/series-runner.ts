@@ -1,5 +1,5 @@
 import type { IsoDateTime } from "@arena/contracts";
-import { tryAcquireSeriesRuntimeLock, type ReleaseFixtureRuntimeLock } from "../db/client.js";
+import { tryAcquireSeriesRuntimeLock, type ReleaseDatabaseLock } from "../db/client.js";
 import { cs2IdentityRepository } from "../db/repositories/cs2-identity.repository.js";
 import { matchRepository } from "../db/repositories/match.repository.js";
 import { seriesRepository } from "../db/repositories/series.repository.js";
@@ -78,7 +78,7 @@ export class Cs2SeriesRunner {
     private readonly orchestrator: Cs2SeriesOrchestrator,
     private readonly poller: Cs2LivePoller,
     private readonly writeQueue: WriteQueue,
-    private readonly releaseLock: ReleaseFixtureRuntimeLock,
+    private readonly releaseLock: ReleaseDatabaseLock,
   ) {}
 
   static async start(options: Cs2SeriesRunnerStartOptions): Promise<Cs2SeriesRunnerStartResult> {

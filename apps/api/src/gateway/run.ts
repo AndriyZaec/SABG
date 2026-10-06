@@ -16,7 +16,7 @@ import {
   checkDatabaseConnection,
   closeDatabaseConnection,
   tryAcquireFixtureRuntimeLock,
-  type ReleaseFixtureRuntimeLock,
+  type ReleaseDatabaseLock,
 } from "../db/client.js";
 import { calculateLobbyDurationMs, createGameSource, type GameSource } from "./game-source.js";
 import { REPLAY_CYCLE_EXIT_CODE, shouldCycleReplay } from "./replay-cycle-policy.js";
@@ -29,7 +29,7 @@ async function main(): Promise<void> {
   const writeQueue = new WriteQueue();
   let gatewayServer: ReturnType<typeof createGatewayServer> | undefined;
   let gameSource: GameSource | undefined;
-  let releaseRuntimeLock: ReleaseFixtureRuntimeLock | undefined;
+  let releaseRuntimeLock: ReleaseDatabaseLock | undefined;
   let activeWork: Promise<unknown> = Promise.resolve();
   let shutdownPromise: Promise<void> | undefined;
 

@@ -100,23 +100,10 @@ assert_no_active_cs2_arenas() {
     || fail "$active_arenas unfinished CS2 arena(s) exist; deploy refused (run autopilot-off and wait for the running series to end)"
 }
 
-# A series between maps has no open arena, but a restart abandons it: count active series of the configured
-# tournaments that already ran an arena. Run after inspect_active_cs2_arenas, which starts PostgreSQL.
+# A series between maps has no open arena, but a restart abandons it: count active series of the
+# database-backed active tournament that already ran an arena. Run after inspect_active_cs2_arenas,
+# which starts PostgreSQL.
 inspect_running_cs2_series() {
-  tournaments=
-  old_ifs=$IFS
-  IFS=,
-  for id in $catalog_tournament_ids; do
-    case "$id" in
-      ''|*[!A-Za-z0-9._:-]*) fail "CS2_CATALOG_TOURNAMENT_IDS contains an invalid id" ;;
-    esac
-    tournaments="${tournaments:+$tournaments,}'$id'"
-  done
-  IFS=$old_ifs
-  if [ -z "$tournaments" ]; then
-    printf '0\n'
-    return 0
-  fi
   # shellcheck disable=SC2016
   competition_table=$(printf '%s\n' "SELECT to_regclass('public.cs2_competition');" | compose exec -T postgres sh -ec \
     'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -v ON_ERROR_STOP=1') \
@@ -126,8 +113,8 @@ inspect_running_cs2_series() {
     return 0
   fi
   # shellcheck disable=SC2016
-  printf "SELECT count(DISTINCT s.id) FROM series s JOIN cs2_competition c ON c.id = s.competition_id JOIN \"match\" m ON m.series_id = s.id JOIN arena a ON a.match_id = m.id WHERE s.status = 'active' AND c.grid_tournament_id IN (%s);\n" \
-    "$tournaments" | compose exec -T postgres sh -ec \
+  printf '%s\n' "SELECT count(DISTINCT s.id) FROM series s JOIN cs2_competition c ON c.id = s.competition_id JOIN \"match\" m ON m.series_id = s.id JOIN arena a ON a.match_id = m.id WHERE s.status = 'active' AND c.grid_tournament_id = coalesce((SELECT value FROM settings WHERE name = 'cs2_active_tournament'), '');" \
+    | compose exec -T postgres sh -ec \
     'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -v ON_ERROR_STOP=1' \
     || fail "could not verify current series status"
 }
@@ -141,6 +128,37 @@ assert_no_running_cs2_series() {
     || fail "a CS2 series is still running; deploy refused (run autopilot-off and wait for it to end, or skip it)"
 }
 
+inspect_active_tournament_schema() {
+  compose up -d --wait --wait-timeout 60 postgres >/dev/null \
+    || fail "could not start PostgreSQL to verify the active tournament schema"
+  compose exec -T postgres sh -ec \
+    'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At --command="SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = '\''public'\'' AND table_name = '\''settings'\'' AND column_name = '\''value'\'')"' \
+    || fail "could not verify the active tournament schema"
+}
+
+inspect_active_tournament() {
+  compose exec -T postgres sh -ec \
+    'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At --command="SELECT value FROM settings WHERE name = '\''cs2_active_tournament'\''"' \
+    || fail "could not read the active tournament setting"
+}
+
+assert_deploy_safe() {
+  active_tournament_schema=$(inspect_active_tournament_schema)
+  case "$active_tournament_schema" in
+    t)
+      active_cs2_arenas=$(inspect_active_cs2_arenas)
+      assert_no_active_cs2_arenas "$active_cs2_arenas"
+      active_tournament=$(inspect_active_tournament)
+      # Without an active tournament, only the tournament-specific series check is unavailable.
+      [ -n "$active_tournament" ] || return 0
+      running_cs2_series=$(inspect_running_cs2_series)
+      assert_no_running_cs2_series "$running_cs2_series"
+      ;;
+    f) return 0 ;;
+    *) fail "active tournament schema query returned an invalid result" ;;
+  esac
+}
+
 staging_dir="$deploy_path/.deploy-$revision"
 rm -rf "$staging_dir"
 mkdir -p "$staging_dir"
@@ -150,10 +168,23 @@ migration_may_have_started=false
 vapid_public_key=
 vapid_private_key=
 vapid_subject=
-catalog_tournament_ids=
+app_control_token=
+app_control_host=
+app_control_port=
+admin_control_token=
+admin_control_url=
+admin_public_origin=
+admin_host=
 vapid_public_key_count=0
 vapid_private_key_count=0
 vapid_subject_count=0
+app_control_token_count=0
+app_control_host_count=0
+app_control_port_count=0
+admin_control_token_count=0
+admin_control_url_count=0
+admin_public_origin_count=0
+admin_host_count=0
 had_compose=false
 had_caddyfile=false
 had_init_script=false
@@ -164,7 +195,8 @@ cleanup() {
   exit_code=$?
   set +e
   if [ "$rollback_needed" = true ] && [ "$succeeded" = false ]; then
-    compose stop --timeout 60 app >/dev/null 2>&1
+    compose stop --timeout 60 admin app >/dev/null 2>&1 \
+      || compose stop --timeout 60 app >/dev/null 2>&1
     if [ "$migration_may_have_started" = true ]; then
       printf 'Deployment failed after migrations may have started; attempted config retained and app stopped.\n' >&2
     else
@@ -217,7 +249,7 @@ tar -xzf "$archive" -C "$staging_dir"
 [ -f "$staging_dir/deploy/postgres-init.sh" ] || fail "archive is missing deploy/postgres-init.sh"
 [ -f "$staging_dir/deploy/mongo-init.sh" ] || fail "archive is missing deploy/mongo-init.sh"
 [ -f "$staging_dir/deploy/remote-event-control.sh" ] || fail "archive is missing deploy/remote-event-control.sh"
-for required_env in app postgres mongo migrate caddy; do
+for required_env in app admin postgres mongo migrate caddy; do
   [ -f "$deploy_path/deploy/$required_env.env" ] || fail "missing deploy/$required_env.env"
   [ "$(stat -c %a "$deploy_path/deploy/$required_env.env")" = 600 ] \
     || fail "deploy/$required_env.env must have mode 0600"
@@ -227,12 +259,19 @@ while IFS='=' read -r key value || [ -n "$key" ]; do
     VAPID_PUBLIC_KEY) vapid_public_key=$value; vapid_public_key_count=$((vapid_public_key_count + 1)) ;;
     VAPID_PRIVATE_KEY) vapid_private_key=$value; vapid_private_key_count=$((vapid_private_key_count + 1)) ;;
     VAPID_SUBJECT) vapid_subject=$value; vapid_subject_count=$((vapid_subject_count + 1)) ;;
-    CS2_CATALOG_TOURNAMENT_IDS) catalog_tournament_ids=$value ;;
+    CS2_CONTROL_MACHINE_TOKEN) app_control_token=$value; app_control_token_count=$((app_control_token_count + 1)) ;;
+    CS2_CONTROL_HOST) app_control_host=$value; app_control_host_count=$((app_control_host_count + 1)) ;;
+    CS2_CONTROL_PORT) app_control_port=$value; app_control_port_count=$((app_control_port_count + 1)) ;;
   esac
 done < "$deploy_path/deploy/app.env"
 [ "$vapid_public_key_count" -eq 1 ] || fail "deploy/app.env must contain VAPID_PUBLIC_KEY exactly once"
 [ "$vapid_private_key_count" -eq 1 ] || fail "deploy/app.env must contain VAPID_PRIVATE_KEY exactly once"
 [ "$vapid_subject_count" -eq 1 ] || fail "deploy/app.env must contain VAPID_SUBJECT exactly once"
+[ "$app_control_token_count" -eq 1 ] || fail "deploy/app.env must contain CS2_CONTROL_MACHINE_TOKEN exactly once"
+[ "$app_control_host_count" -eq 1 ] || fail "deploy/app.env must contain CS2_CONTROL_HOST exactly once"
+[ "$app_control_port_count" -eq 1 ] || fail "deploy/app.env must contain CS2_CONTROL_PORT exactly once"
+[ "$app_control_host" = app-control ] || fail "deploy/app.env must use CS2_CONTROL_HOST=app-control"
+[ "$app_control_port" = 4101 ] || fail "deploy/app.env must use CS2_CONTROL_PORT=4101"
 [ "$vapid_public_key" = "$expected_vapid_public_key" ] \
   || fail "frontend and backend VAPID public keys do not match"
 case "$vapid_private_key" in
@@ -242,6 +281,34 @@ case "$vapid_subject" in
   mailto:?*|https://?*) ;;
   *) fail "VAPID_SUBJECT must be a mailto: or HTTPS URL" ;;
 esac
+while IFS='=' read -r key value || [ -n "$key" ]; do
+  case "$key" in
+    ''|\#*) ;;
+    NODE_ENV|ADMIN_PORT|ADMIN_GITHUB_CLIENT_ID|ADMIN_GITHUB_CLIENT_SECRET|ADMIN_GITHUB_ALLOWED_USER_IDS|ADMIN_SESSION_SECRET) ;;
+    CS2_CONTROL_MACHINE_TOKEN) admin_control_token=$value; admin_control_token_count=$((admin_control_token_count + 1)) ;;
+    CS2_CONTROL_URL) admin_control_url=$value; admin_control_url_count=$((admin_control_url_count + 1)) ;;
+    ADMIN_PUBLIC_ORIGIN) admin_public_origin=$value; admin_public_origin_count=$((admin_public_origin_count + 1)) ;;
+    *) fail "deploy/admin.env contains unsupported key: $key" ;;
+  esac
+done < "$deploy_path/deploy/admin.env"
+[ "$admin_control_token_count" -eq 1 ] \
+  || fail "deploy/admin.env must contain CS2_CONTROL_MACHINE_TOKEN exactly once"
+[ "$admin_control_url_count" -eq 1 ] || fail "deploy/admin.env must contain CS2_CONTROL_URL exactly once"
+[ "$admin_public_origin_count" -eq 1 ] || fail "deploy/admin.env must contain ADMIN_PUBLIC_ORIGIN exactly once"
+[ "${#app_control_token}" -ge 32 ] || fail "CS2_CONTROL_MACHINE_TOKEN must contain at least 32 characters"
+[ "$admin_control_token" = "$app_control_token" ] \
+  || fail "deploy/app.env and deploy/admin.env must use the same CS2_CONTROL_MACHINE_TOKEN"
+[ "$admin_control_url" = http://app-control:4101 ] \
+  || fail "deploy/admin.env must use CS2_CONTROL_URL=http://app-control:4101"
+while IFS='=' read -r key value || [ -n "$key" ]; do
+  if [ "$key" = SABG_ADMIN_HOST ]; then
+    admin_host=$value
+    admin_host_count=$((admin_host_count + 1))
+  fi
+done < "$deploy_path/deploy/caddy.env"
+[ "$admin_host_count" -eq 1 ] || fail "deploy/caddy.env must contain SABG_ADMIN_HOST exactly once"
+[ "$admin_public_origin" = "https://$admin_host" ] \
+  || fail "ADMIN_PUBLIC_ORIGIN must match the HTTPS SABG_ADMIN_HOST"
 
 current_image=
 current_revision=
@@ -261,6 +328,7 @@ fi
 # CS2 Arena is unfinished. A live runtime must remain active through settlement or explicit refund.
 SABG_IMAGE="$image" SABG_PLATFORM=linux/amd64 SABG_VCS_REF="$revision" \
   SABG_APP_ENV_FILE="$deploy_path/deploy/app.env" \
+  SABG_ADMIN_ENV_FILE="$deploy_path/deploy/admin.env" \
   SABG_POSTGRES_ENV_FILE="$deploy_path/deploy/postgres.env" \
   SABG_MONGO_ENV_FILE="$deploy_path/deploy/mongo.env" \
   SABG_MIGRATE_ENV_FILE="$deploy_path/deploy/migrate.env" \
@@ -285,11 +353,16 @@ docker pull "$image"
 docker run --rm --network none --read-only --tmpfs /tmp --env-file "$deploy_path/deploy/app.env" \
   "$image" node -e "import('./dist/push/config/env.js')" \
   || fail "application image rejected the VAPID configuration"
+docker run --rm --network none --read-only --tmpfs /tmp --env-file "$deploy_path/deploy/app.env" \
+  "$image" node --input-type=module -e \
+  "import('./dist/cs2/catalog-config.js').then(({ cs2CatalogConfig }) => { if (cs2CatalogConfig.tournamentIds.length > 1) throw new Error('Only one active CS2 tournament is supported') })" \
+  || fail "deploy/app.env must configure at most one CS2 catalog tournament"
+docker run --rm --network none --read-only --tmpfs /tmp --env-file "$deploy_path/deploy/admin.env" \
+  "$image" node --input-type=module -e \
+  "import('/admin/dist/server/config.js').then(({ readAdminConfig }) => readAdminConfig(process.env))" \
+  || fail "application image rejected the admin configuration"
 if [ -f "$deploy_path/compose.yml" ]; then
-  active_cs2_arenas=$(inspect_active_cs2_arenas)
-  assert_no_active_cs2_arenas "$active_cs2_arenas"
-  running_cs2_series=$(inspect_running_cs2_series)
-  assert_no_running_cs2_series "$running_cs2_series"
+  assert_deploy_safe
 fi
 
 mkdir -p "$deploy_path/deploy"
@@ -321,10 +394,7 @@ fi
 rollback_needed=true
 if [ "$had_compose" = true ]; then
   compose stop --timeout 60 app
-  active_cs2_arenas=$(inspect_active_cs2_arenas)
-  assert_no_active_cs2_arenas "$active_cs2_arenas"
-  running_cs2_series=$(inspect_running_cs2_series)
-  assert_no_running_cs2_series "$running_cs2_series"
+  assert_deploy_safe
 fi
 install -m 0644 "$staging_dir/compose.yml" "$deploy_path/compose.yml"
 install -m 0644 "$staging_dir/deploy/Caddyfile" "$deploy_path/deploy/Caddyfile"
@@ -353,10 +423,13 @@ compose up --abort-on-container-exit --exit-code-from mongo-init mongo-init
 migration_may_have_started=true
 # Named, so the one-shot mongo-init that already ran isn't restarted: --wait fails on an exited container.
 # app brings up postgres, db-init and migrate through its dependencies; caddy is recreated below.
-compose up -d --wait --wait-timeout 180 app
+compose up -d --wait --wait-timeout 180 app admin
 compose exec -T app node -e \
   "fetch('http://127.0.0.1:4000/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))" \
   || fail "application health check failed"
+compose exec -T admin node -e \
+  "fetch('http://127.0.0.1:4174/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))" \
+  || fail "admin health check failed"
 compose up -d --force-recreate --wait --wait-timeout 60 caddy
 if [ "$had_compose" = true ]; then
   previous_release="$deploy_path/.previous-release"

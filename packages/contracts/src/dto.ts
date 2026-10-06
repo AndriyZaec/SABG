@@ -126,7 +126,7 @@ export type Cs2SeriesMapSummary =
 
 export interface Cs2SeriesDetail extends Cs2SeriesSummary {
   maps: Cs2SeriesMapSummary[];
-  /** Normalized Twitch or Kick channel URL set by the operator, e.g. `https://twitch.tv/eslcs`. */
+  /** Normalized Twitch, Kick, or YouTube stream URL set by the operator. */
   streamUrl?: string;
 }
 

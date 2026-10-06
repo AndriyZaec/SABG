@@ -16,8 +16,9 @@ const queryClient = postgres(databaseUrl);
 
 const FIXTURE_RUNTIME_LOCK_NAMESPACE = 1_397_315_407;
 const CS2_SERIES_RUNTIME_LOCK_NAMESPACE = 1_397_315_408;
+export const OPERATOR_MUTATION_LOCK_ID = 1_397_315_409;
 
-export type ReleaseFixtureRuntimeLock = () => Promise<void>;
+export type ReleaseDatabaseLock = () => Promise<void>;
 
 export const db = drizzle(queryClient, { schema });
 export type DatabaseTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -29,7 +30,7 @@ export async function checkDatabaseConnection(): Promise<void> {
 // Keep the reserved session locked so cleanup cannot race an active gateway across containers.
 export async function tryAcquireFixtureRuntimeLock(
   fixtureId: number,
-): Promise<ReleaseFixtureRuntimeLock | undefined> {
+): Promise<ReleaseDatabaseLock | undefined> {
   const connection = await queryClient.reserve();
   try {
     const [row] = await connection<{ acquired: boolean }[]>`
@@ -60,7 +61,7 @@ export async function tryAcquireFixtureRuntimeLock(
 
 export async function tryAcquireSeriesRuntimeLock(
   gridSeriesId: string,
-): Promise<ReleaseFixtureRuntimeLock | undefined> {
+): Promise<ReleaseDatabaseLock | undefined> {
   const connection = await queryClient.reserve();
   try {
     const [row] = await connection<{ acquired: boolean }[]>`
@@ -83,6 +84,33 @@ export async function tryAcquireSeriesRuntimeLock(
       await connection`
         select pg_advisory_unlock(${CS2_SERIES_RUNTIME_LOCK_NAMESPACE}, hashtext(${gridSeriesId}))
       `;
+    } finally {
+      connection.release();
+    }
+  };
+}
+
+export async function tryAcquireOperatorMutationLock(): Promise<ReleaseDatabaseLock | undefined> {
+  const connection = await queryClient.reserve();
+  try {
+    const [row] = await connection<{ acquired: boolean }[]>`
+      select pg_try_advisory_lock(${OPERATOR_MUTATION_LOCK_ID}) as acquired
+    `;
+    if (!row?.acquired) {
+      connection.release();
+      return undefined;
+    }
+  } catch (error) {
+    connection.release();
+    throw error;
+  }
+
+  let released = false;
+  return async () => {
+    if (released) return;
+    released = true;
+    try {
+      await connection`select pg_advisory_unlock(${OPERATOR_MUTATION_LOCK_ID})`;
     } finally {
       connection.release();
     }
