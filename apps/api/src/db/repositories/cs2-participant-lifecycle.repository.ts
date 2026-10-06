@@ -7,8 +7,9 @@ export interface Cs2ParticipantAssignmentInput {
   displayOrder: 1 | 2;
   gridTeamId: string;
   name: string;
-  shortName?: string;
-  logoUrl?: string;
+  /** `undefined` leaves the stored value as is; `null` clears it. */
+  shortName?: string | null;
+  logoUrl?: string | null;
   score?: number;
 }
 
@@ -88,8 +89,8 @@ export async function reconcileSeriesParticipants(
         target: cs2Teams.gridTeamId,
         set: {
           name: team.name,
-          shortName: team.shortName ?? null,
-          logoUrl: team.logoUrl ?? null,
+          ...(team.shortName !== undefined ? { shortName: team.shortName } : {}),
+          ...(team.logoUrl !== undefined ? { logoUrl: team.logoUrl } : {}),
           updatedAt: now,
         },
       })

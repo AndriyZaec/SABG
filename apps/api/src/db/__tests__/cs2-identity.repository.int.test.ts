@@ -70,6 +70,24 @@ describe.skipIf(!RUN)("cs2IdentityRepository (integration, requires DATABASE_URL
     ]);
   });
 
+  it("keeps a stored short name and logo when the sync input has neither", async () => {
+    await cs2IdentityRepository.synchronizeSeriesTeams(seriesId, [
+      { gridTeamId: firstGridTeamId, name: "Team A", shortName: "TA", logoUrl: "https://img/a", score: 2 },
+      { gridTeamId: secondGridTeamId, name: "Team B Renamed", score: 1 },
+    ]);
+
+    await cs2IdentityRepository.synchronizeSeriesTeams(seriesId, [
+      { gridTeamId: firstGridTeamId, name: "Team A", score: 2 },
+      { gridTeamId: secondGridTeamId, name: "Team B Renamed", score: 1 },
+    ]);
+
+    const [team] = await db
+      .select({ shortName: schema.cs2Teams.shortName, logoUrl: schema.cs2Teams.logoUrl })
+      .from(schema.cs2Teams)
+      .where(eq(schema.cs2Teams.gridTeamId, firstGridTeamId));
+    expect(team).toEqual({ shortName: "TA", logoUrl: "https://img/a" });
+  });
+
   it("is idempotent under concurrent synchronization", async () => {
     const input = [
       { gridTeamId: firstGridTeamId, name: "Team A", score: 2 },
