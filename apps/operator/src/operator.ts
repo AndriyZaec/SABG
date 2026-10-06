@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { createReadStream } from "node:fs";
 import { readFile } from "node:fs/promises";
-import type { Cs2OperatorDiscoveryPayload } from "@arena/contracts";
+import { normalizeCs2StreamUrl, type Cs2OperatorDiscoveryPayload } from "@arena/contracts";
 
 export type RemoteCommand =
   | "status"
@@ -220,23 +220,9 @@ export function assertGridId(value: string): string {
   return value;
 }
 
-const STREAM_LINK = /^(?:https?:\/\/)?(?:www\.|m\.)?(twitch\.tv|kick\.com)\/([^/?#]*)\/?(?:[?#].*)?$/iu;
-const TWITCH_CHANNEL = /^[A-Za-z0-9][A-Za-z0-9_]{3,24}$/u;
-const KICK_CHANNEL = /^[A-Za-z0-9_-]{1,50}$/u;
-
-/** A pasted Twitch or Kick channel link as the one URL form the server and the web accept. */
+/** A pasted provider link as the one URL form the server and the web accept. */
 export function normalizeStreamUrl(input: string): string {
-  const match = STREAM_LINK.exec(input.trim());
-  if (match === null) throw new Error("Stream URL must be a Twitch or Kick channel link, e.g. https://twitch.tv/<channel>");
-  const host = match[1]!.toLowerCase();
-  const channel = match[2]!;
-  if (host === "twitch.tv") {
-    if (!TWITCH_CHANNEL.test(channel)) throw new Error("Twitch channel must be 4-25 letters, digits or _, not starting with _");
-    return `https://twitch.tv/${channel.toLowerCase()}`;
-  }
-  if (!KICK_CHANNEL.test(channel)) throw new Error("Kick channel must be 1-50 letters, digits, _ or -");
-  // Kick's channel URL turns the username's _ into -.
-  return `https://kick.com/${channel.replace(/_/gu, "-")}`;
+  return normalizeCs2StreamUrl(input).url;
 }
 
 export function buildSshInvocation(

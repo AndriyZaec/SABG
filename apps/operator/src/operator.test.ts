@@ -134,6 +134,7 @@ describe("stream URL", () => {
     ["kick.com/SomeChannel", "https://kick.com/SomeChannel"],
     ["https://kick.com/user_name", "https://kick.com/user-name"],
     ["https://www.kick.com/some-channel/", "https://kick.com/some-channel"],
+    ["https://youtu.be/dQw4w9WgXcQ", "https://www.youtube.com/watch?v=dQw4w9WgXcQ"],
   ])("normalizes %s to %s", (input, expected) => {
     expect(normalizeStreamUrl(input)).toBe(expected);
   });
