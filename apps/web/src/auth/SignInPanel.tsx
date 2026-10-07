@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import { useAuth } from "./AuthContext.js";
 
@@ -24,6 +25,7 @@ export function SignInPanel() {
 
   return (
     <div className="nb-row" style={{ gap: 10 }}>
+      <Link to="/guide" className="nb-masthead__guide">Devnet guide</Link>
       <WalletMultiButton />
 
       {connected && (

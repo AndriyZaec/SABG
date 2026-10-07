@@ -416,6 +416,8 @@ a { color: var(--ink); text-decoration: none; }
   border-bottom: var(--bw-thick) solid var(--ink);
 }
 .nb-brand { display: flex; align-items: center; gap: 12px; }
+.nb-masthead__guide { font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.85rem; line-height: 1.2; padding: 11px 5px 11px 8px; }
+.nb-masthead__guide:hover { background: var(--paper-2); }
 .nb-brand__logo {
   font-family: var(--font-display);
   text-transform: uppercase;
