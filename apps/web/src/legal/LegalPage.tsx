@@ -39,7 +39,7 @@ export function LegalPage({ document }: { document: LegalDocument }) {
         <Link className="legal-header__back" to="/">Enter arena</Link>
       </header>
 
-      <main className="legal-frame" id="legal-content">
+      <main className="legal-frame" id="legal-content" tabIndex={-1}>
         <article className="legal-document">
           <header className="legal-document__intro">
             <div className="legal-document__meta">

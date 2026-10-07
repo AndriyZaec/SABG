@@ -61,6 +61,9 @@
   outline: 3px solid var(--blue);
   outline-offset: 3px;
 }
+.legal-frame:focus,
+.legal-document h1:focus,
+.legal-copy section:focus { outline: none; }
 
 .legal-frame {
   padding: 0 clamp(12px, 3vw, 36px) clamp(12px, 3vw, 36px);
