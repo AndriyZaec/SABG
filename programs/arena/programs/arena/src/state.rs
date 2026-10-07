@@ -22,7 +22,7 @@ pub struct Arena {
     pub entry_fee_lamports: u64,
     /// Running total held in escrow.
     pub prize_pool_lamports: u64,
-    /// Optional platform fee in basis points (0 for MVP).
+    /// Platform fee in basis points, fixed at arena initialization.
     pub platform_fee_bps: u16,
     pub player_count: u32,
     /// Open until the authority settles winners or cancels for deterministic refunds.

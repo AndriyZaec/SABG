@@ -13,6 +13,8 @@ setProvider(provider);
 const program = workspace.Arena as Program<ArenaProgram>;
 const authority = provider.wallet as anchor.Wallet;
 const entryFee = new BN(0.1 * LAMPORTS_PER_SOL);
+const platformFeeBps = 1_000;
+const treasury = new PublicKey("nvy4VWVymKZpYZEBtwNYUzJzG9R11P7Wc7khvenMpzW");
 
 let nextArenaId = Date.now();
 const freshArenaId = () => new BN(nextArenaId++);
@@ -35,6 +37,20 @@ const entryPassPda = (arena: web3.PublicKey, player: web3.PublicKey) =>
     program.programId,
   )[0];
 
+const anchorErrorCode = (error: unknown): string | undefined => {
+  if (typeof error !== "object" || error === null) return undefined;
+  return (error as { error?: { errorCode?: { code?: string } } }).error?.errorCode?.code;
+};
+
+const expectAnchorError = async (operation: () => Promise<unknown>, expectedCode: string) => {
+  try {
+    await operation();
+    assert.fail(`expected Anchor error ${expectedCode}`);
+  } catch (error) {
+    assert.equal(anchorErrorCode(error), expectedCode);
+  }
+};
+
 const fundedPlayer = async (): Promise<web3.Keypair> => {
   const kp = Keypair.generate();
   if (process.env["SELF_FUND_TEST_PLAYERS"] === "true") {
@@ -53,9 +69,13 @@ const fundedPlayer = async (): Promise<web3.Keypair> => {
   return kp;
 };
 
-const initArena = async (arenaId: anchor.BN) =>
+const initArena = async (
+  arenaId: anchor.BN,
+  arenaEntryFee: anchor.BN = entryFee,
+  arenaPlatformFeeBps = platformFeeBps,
+) =>
   program.methods
-    .initArena(arenaId, entryFee, authority.publicKey, 0)
+    .initArena(arenaId, arenaEntryFee, authority.publicKey, arenaPlatformFeeBps)
     .accounts({ authority: authority.publicKey })
     .rpc();
 
@@ -79,8 +99,13 @@ describe("arena — escrow + entry pass", () => {
     const arena = await program.account.arena.fetch(arenaPda);
     assert.equal(arena.entryFeeLamports.toString(), entryFee.toString());
     assert.equal(arena.prizePoolLamports.toString(), "0");
+    assert.equal(arena.platformFeeBps, platformFeeBps);
     assert.equal(arena.playerCount, 0);
     assert.deepEqual(arena.state, { open: {} });
+  });
+
+  it("rejects an arena with a fee other than 10%", async () => {
+    await expectAnchorError(() => initArena(freshArenaId(), entryFee, 0), "InvalidPlatformFee");
   });
 
   it("buy_entry moves the fee into escrow and grows the pool", async () => {
@@ -123,23 +148,43 @@ describe("arena — escrow + entry pass", () => {
 describe("arena — payout", () => {
   const writableWinner = (pubkey: web3.PublicKey) => ({ pubkey, isWritable: true, isSigner: false });
 
-  it("pays the whole pool to a single winner and marks the arena settled", async () => {
+  before(async () => {
+    if ((await provider.connection.getBalance(treasury)) === 0) {
+      const transaction = new web3.Transaction().add(
+        web3.SystemProgram.transfer({
+          fromPubkey: authority.publicKey,
+          toPubkey: treasury,
+          lamports: 0.001 * LAMPORTS_PER_SOL,
+        }),
+      );
+      await provider.sendAndConfirm(transaction);
+    }
+  });
+
+  it("pays 10% to treasury and the remaining pool to a single winner", async () => {
     const arenaId = freshArenaId();
     const { arena, escrow } = deriveArena(arenaId);
     await initArena(arenaId);
     const p1 = await buyIn(arena);
     await buyIn(arena);
     const pool = entryFee.toNumber() * 2;
+    const expectedFee = pool / 10;
 
     const before = await provider.connection.getBalance(p1.publicKey);
+    const treasuryBefore = await provider.connection.getBalance(treasury);
     await program.methods
       .settlePayout()
-      .accounts({ arena, escrow, payoutAuthority: authority.publicKey })
+      .accounts({ arena, escrow, treasury, payoutAuthority: authority.publicKey })
       .remainingAccounts([writableWinner(p1.publicKey)])
       .rpc();
     const after = await provider.connection.getBalance(p1.publicKey);
 
-    assert.equal(after - before, pool, "winner receives the whole pool");
+    assert.equal(after - before, pool - expectedFee, "winner receives the distributable pool");
+    assert.equal(
+      (await provider.connection.getBalance(treasury)) - treasuryBefore,
+      expectedFee,
+      "treasury receives the platform fee",
+    );
     assert.equal(await provider.connection.getBalance(escrow), 0, "escrow drained");
 
     const state = await program.account.arena.fetch(arena);
@@ -147,23 +192,104 @@ describe("arena — payout", () => {
     assert.equal(state.prizePoolLamports.toString(), "0");
   });
 
-  it("splits the pool equally between winners", async () => {
+  it("rounds the fee down and gives the winner remainder to the first winner", async () => {
     const arenaId = freshArenaId();
     const { arena, escrow } = deriveArena(arenaId);
-    await initArena(arenaId);
+    await initArena(arenaId, new BN(1_000_007));
     const p1 = await buyIn(arena);
     const p2 = await buyIn(arena);
 
     const b1 = await provider.connection.getBalance(p1.publicKey);
     const b2 = await provider.connection.getBalance(p2.publicKey);
+    const treasuryBefore = await provider.connection.getBalance(treasury);
     await program.methods
       .settlePayout()
-      .accounts({ arena, escrow, payoutAuthority: authority.publicKey })
+      .accounts({ arena, escrow, treasury, payoutAuthority: authority.publicKey })
       .remainingAccounts([writableWinner(p1.publicKey), writableWinner(p2.publicKey)])
       .rpc();
 
-    assert.equal((await provider.connection.getBalance(p1.publicKey)) - b1, entryFee.toNumber());
-    assert.equal((await provider.connection.getBalance(p2.publicKey)) - b2, entryFee.toNumber());
+    assert.equal((await provider.connection.getBalance(treasury)) - treasuryBefore, 200_001);
+    assert.equal((await provider.connection.getBalance(p1.publicKey)) - b1, 900_007);
+    assert.equal((await provider.connection.getBalance(p2.publicKey)) - b2, 900_006);
+    assert.equal(await provider.connection.getBalance(escrow), 0);
+  });
+
+  it("does not charge the platform fee on unsolicited escrow deposits", async () => {
+    const arenaId = freshArenaId();
+    const { arena, escrow } = deriveArena(arenaId);
+    await initArena(arenaId);
+    const winner = await buyIn(arena);
+    const donation = 1_000_000;
+    await provider.sendAndConfirm(
+      new web3.Transaction().add(
+        web3.SystemProgram.transfer({
+          fromPubkey: authority.publicKey,
+          toPubkey: escrow,
+          lamports: donation,
+        }),
+      ),
+    );
+
+    const winnerBefore = await provider.connection.getBalance(winner.publicKey);
+    const treasuryBefore = await provider.connection.getBalance(treasury);
+    await program.methods
+      .settlePayout()
+      .accounts({ arena, escrow, treasury, payoutAuthority: authority.publicKey })
+      .remainingAccounts([writableWinner(winner.publicKey)])
+      .rpc();
+
+    const expectedFee = entryFee.toNumber() / 10;
+    assert.equal((await provider.connection.getBalance(treasury)) - treasuryBefore, expectedFee);
+    assert.equal(
+      (await provider.connection.getBalance(winner.publicKey)) - winnerBefore,
+      entryFee.toNumber() - expectedFee + donation,
+    );
+    assert.equal(await provider.connection.getBalance(escrow), 0);
+  });
+
+  it("rejects an incorrect treasury", async () => {
+    const arenaId = freshArenaId();
+    const { arena, escrow } = deriveArena(arenaId);
+    await initArena(arenaId);
+    const winner = await buyIn(arena);
+    const incorrectTreasury = (await fundedPlayer()).publicKey;
+
+    await expectAnchorError(
+      () =>
+        program.methods
+          .settlePayout()
+          .accounts({ arena, escrow, treasury: incorrectTreasury, payoutAuthority: authority.publicKey })
+          .remainingAccounts([writableWinner(winner.publicKey)])
+          .rpc(),
+      "InvalidTreasury",
+    );
+  });
+
+  it("rolls back the fee transfer when a winner transfer fails", async () => {
+    const arenaId = freshArenaId();
+    const { arena, escrow } = deriveArena(arenaId);
+    await initArena(arenaId);
+    const winner = await buyIn(arena);
+    const escrowBefore = await provider.connection.getBalance(escrow);
+    const winnerBefore = await provider.connection.getBalance(winner.publicKey);
+    const treasuryBefore = await provider.connection.getBalance(treasury);
+
+    let threw = false;
+    try {
+      await program.methods
+        .settlePayout()
+        .accounts({ arena, escrow, treasury, payoutAuthority: authority.publicKey })
+        .remainingAccounts([{ pubkey: winner.publicKey, isWritable: false, isSigner: false }])
+        .rpc();
+    } catch (_e) {
+      threw = true;
+    }
+
+    assert.isTrue(threw, "a read-only winner must make settlement fail");
+    assert.equal(await provider.connection.getBalance(escrow), escrowBefore);
+    assert.equal(await provider.connection.getBalance(winner.publicKey), winnerBefore);
+    assert.equal(await provider.connection.getBalance(treasury), treasuryBefore);
+    assert.deepEqual((await program.account.arena.fetch(arena)).state, { open: {} });
   });
 
   it("rejects an unauthorized payout authority", async () => {
@@ -177,7 +303,7 @@ describe("arena — payout", () => {
     try {
       await program.methods
         .settlePayout()
-        .accounts({ arena, escrow, payoutAuthority: impostor.publicKey })
+        .accounts({ arena, escrow, treasury, payoutAuthority: impostor.publicKey })
         .remainingAccounts([writableWinner(p1.publicKey)])
         .signers([impostor])
         .rpc();
@@ -196,18 +322,18 @@ describe("arena — payout", () => {
     const settle = () =>
       program.methods
         .settlePayout()
-        .accounts({ arena, escrow, payoutAuthority: authority.publicKey })
+        .accounts({ arena, escrow, treasury, payoutAuthority: authority.publicKey })
         .remainingAccounts([writableWinner(p1.publicKey)])
         .rpc();
 
     await settle();
-    let threw = false;
-    try {
-      await settle();
-    } catch (_e) {
-      threw = true;
-    }
-    assert.isTrue(threw, "second settle must fail");
+    const treasuryAfterSettlement = await provider.connection.getBalance(treasury);
+    await expectAnchorError(settle, "ArenaNotOpen");
+    assert.equal(
+      await provider.connection.getBalance(treasury),
+      treasuryAfterSettlement,
+      "failed repeat settlement cannot pay the fee twice",
+    );
   });
 });
 
@@ -245,12 +371,18 @@ describe("arena — cancellation + refund", () => {
     assert.deepEqual((await program.account.arena.fetch(arena)).state, { cancelled: {} });
 
     const before = await provider.connection.getBalance(player.publicKey);
+    const treasuryBefore = await provider.connection.getBalance(treasury);
     await program.methods
       .refund()
       .accounts({ arena, entryPass, escrow, player: player.publicKey })
       .rpc();
     const after = await provider.connection.getBalance(player.publicKey);
     assert.equal(after - before, entryFee.toNumber(), "player receives the exact entry fee");
+    assert.equal(
+      await provider.connection.getBalance(treasury),
+      treasuryBefore,
+      "cancelled arenas do not charge the platform fee",
+    );
 
     const state = await program.account.arena.fetch(arena);
     const pass = await program.account.entryPass.fetch(entryPass);
@@ -294,7 +426,7 @@ describe("arena — result + badge", () => {
     const winner = await buyIn(arena);
     await program.methods
       .settlePayout()
-      .accounts({ arena, escrow, payoutAuthority: authority.publicKey })
+      .accounts({ arena, escrow, treasury, payoutAuthority: authority.publicKey })
       .remainingAccounts([{ pubkey: winner.publicKey, isWritable: true, isSigner: false }])
       .rpc();
     return { arena, winner };

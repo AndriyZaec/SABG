@@ -547,6 +547,11 @@
           }
         },
         {
+          "name": "treasury",
+          "writable": true,
+          "address": "nvy4VWVymKZpYZEBtwNYUzJzG9R11P7Wc7khvenMpzW"
+        },
+        {
           "name": "payout_authority",
           "signer": true
         },
@@ -633,7 +638,7 @@
     {
       "code": 6006,
       "name": "InvalidPlatformFee",
-      "msg": "Platform fee exceeds 100%"
+      "msg": "Platform fee must be 10%"
     },
     {
       "code": 6007,
@@ -659,6 +664,16 @@
       "code": 6011,
       "name": "InvalidWinner",
       "msg": "Escrow cannot receive a winner payout"
+    },
+    {
+      "code": 6012,
+      "name": "AccountingOverflow",
+      "msg": "Arena accounting overflow"
+    },
+    {
+      "code": 6013,
+      "name": "InvalidTreasury",
+      "msg": "Invalid platform treasury"
     }
   ],
   "types": [
@@ -705,7 +720,7 @@
           {
             "name": "platform_fee_bps",
             "docs": [
-              "Optional platform fee in basis points (0 for MVP)."
+              "Platform fee in basis points, fixed at arena initialization."
             ],
             "type": "u16"
           },
