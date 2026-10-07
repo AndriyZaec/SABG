@@ -32,6 +32,9 @@ const Cs2ArenaScreen = lazy(() =>
 const Cs2SeriesScreen = lazy(() =>
   import("./cs2/Cs2SeriesScreen.js").then((m) => ({ default: m.Cs2SeriesScreen })),
 );
+const GuideScreen = lazy(() =>
+  import("./guide/GuideScreen.js").then((m) => ({ default: m.GuideScreen })),
+);
 
 export function App() {
   return (
@@ -54,6 +57,7 @@ export function App() {
                 <Route path="/cs2" element={<Cs2LobbyScreen />} />
                 <Route path="/cs2/series/:seriesId" element={<Cs2SeriesScreen />} />
                 <Route path="/cs2/arena/:arenaId" element={<Cs2ArenaScreen />} />
+                <Route path="/guide" element={<GuideScreen />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </Suspense>
