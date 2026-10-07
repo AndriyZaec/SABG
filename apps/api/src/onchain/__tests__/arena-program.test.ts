@@ -3,9 +3,17 @@ import * as anchor from "@coral-xyz/anchor";
 import { ComputeBudgetProgram, Keypair, PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
 import bs58 from "bs58";
 import {
+  ARENA_PLATFORM_FEE_BPS,
+  ARENA_TREASURY_ADDRESS,
+  calculatePlatformFeeLamports,
+} from "@arena/contracts/onchain";
+import {
+  assertArenaConfiguration,
   assertAuthorityCanProvision,
   assertArenaRecyclableState,
   assertEscrowEmpty,
+  assertPlatformFeeBps,
+  buildSettlementAccounts,
   deriveArenaPdas,
   deriveOnchainArenaId,
   loadKeypair,
@@ -76,6 +84,76 @@ describe("automatic arena cycling safety", () => {
     expect(() => assertArenaRecyclableState("cancelled", 0, 42)).not.toThrow();
     expect(() => assertArenaRecyclableState("open", 0, 42)).toThrow("arena is not terminal");
     expect(() => assertArenaRecyclableState("settled", 1, 42)).toThrow("escrow still holds 1 lamports");
+  });
+});
+
+describe("platform fee configuration", () => {
+  const authority = Keypair.generate().publicKey;
+  const expected = {
+    authority,
+    payoutAuthority: authority,
+    entryFeeLamports: new anchor.BN(100),
+    platformFeeBps: ARENA_PLATFORM_FEE_BPS,
+  };
+
+  it("rejects any mismatched provisioned arena configuration", () => {
+    expect(() =>
+      assertArenaConfiguration(
+        { ...expected, authority: Keypair.generate().publicKey },
+        expected,
+        42,
+      ),
+    ).toThrow("unexpected configuration");
+    expect(() =>
+      assertArenaConfiguration(
+        { ...expected, payoutAuthority: Keypair.generate().publicKey },
+        expected,
+        42,
+      ),
+    ).toThrow("unexpected configuration");
+    expect(() =>
+      assertArenaConfiguration({ ...expected, platformFeeBps: 0 }, expected, 42),
+    ).toThrow("unexpected configuration");
+    expect(() =>
+      assertArenaConfiguration(
+        { ...expected, entryFeeLamports: new anchor.BN(101) },
+        expected,
+        42,
+      ),
+    ).toThrow("unexpected configuration");
+    expect(() => assertPlatformFeeBps(0, 42)).toThrow("expected 1000 fee bps, found 0");
+  });
+
+  it("includes the fixed treasury in settlement accounts", () => {
+    const arena = Keypair.generate().publicKey;
+    const escrow = Keypair.generate().publicKey;
+    const accounts = buildSettlementAccounts(arena, escrow, authority);
+
+    expect(accounts).toEqual({
+      arena,
+      escrow,
+      treasury: new PublicKey(ARENA_TREASURY_ADDRESS),
+      payoutAuthority: authority,
+    });
+  });
+});
+
+describe("platform fee calculation", () => {
+  it("matches floor rounding across safe integer boundaries", () => {
+    expect(calculatePlatformFeeLamports(0)).toBe(0);
+    expect(calculatePlatformFeeLamports(9)).toBe(0);
+    expect(calculatePlatformFeeLamports(19)).toBe(1);
+
+    const maximum = Number.MAX_SAFE_INTEGER;
+    const expected = Number((BigInt(maximum) * 1_000n) / 10_000n);
+    expect(calculatePlatformFeeLamports(maximum)).toBe(expected);
+  });
+
+  it("rejects negative and unsafe values", () => {
+    expect(() => calculatePlatformFeeLamports(-1)).toThrow("non-negative safe integer");
+    expect(() => calculatePlatformFeeLamports(Number.MAX_SAFE_INTEGER + 1)).toThrow(
+      "non-negative safe integer",
+    );
   });
 });
 

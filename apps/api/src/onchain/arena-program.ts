@@ -42,6 +42,45 @@ type LooseMethods = Record<string, (...args: unknown[]) => RpcBuilder>;
 
 const ARENA_ACCOUNT_SPACE = 137;
 const TRANSACTION_FEE_HEADROOM_LAMPORTS = 10_000;
+const treasury = new PublicKey(onchainConfig.treasuryAddress);
+
+interface ArenaConfiguration {
+  authority: PublicKey;
+  payoutAuthority: PublicKey;
+  entryFeeLamports: anchor.BN;
+  platformFeeBps: number;
+}
+
+export function assertArenaConfiguration(
+  actual: ArenaConfiguration,
+  expected: ArenaConfiguration,
+  onchainArenaId: number,
+): void {
+  if (
+    !actual.authority.equals(expected.authority) ||
+    !actual.payoutAuthority.equals(expected.payoutAuthority) ||
+    !actual.entryFeeLamports.eq(expected.entryFeeLamports) ||
+    actual.platformFeeBps !== expected.platformFeeBps
+  ) {
+    throw new Error(`On-chain arena ${onchainArenaId} exists with unexpected configuration`);
+  }
+}
+
+export function assertPlatformFeeBps(platformFeeBps: number, onchainArenaId: number): void {
+  if (platformFeeBps !== onchainConfig.platformFeeBps) {
+    throw new Error(
+      `Cannot settle on-chain arena ${onchainArenaId}: expected ${onchainConfig.platformFeeBps} fee bps, found ${platformFeeBps}`,
+    );
+  }
+}
+
+export function buildSettlementAccounts(
+  arena: PublicKey,
+  escrow: PublicKey,
+  payoutAuthority: PublicKey,
+): Record<string, PublicKey> {
+  return { arena, escrow, treasury, payoutAuthority };
+}
 
 export function assertAuthorityCanProvision(
   balanceLamports: number,
@@ -84,15 +123,26 @@ function decodeArenaState(state: unknown): "open" | "settled" | "cancelled" {
   throw new Error("On-chain arena has an unknown state");
 }
 
+async function fetchArenaSnapshot(
+  program: anchor.Program,
+  arena: PublicKey,
+  onchainArenaId: number,
+): Promise<{ state: "open" | "settled" | "cancelled"; platformFeeBps: number }> {
+  const accountInfo = await program.provider.connection.getAccountInfo(arena, "finalized");
+  if (!accountInfo) throw new Error(`On-chain arena ${onchainArenaId} does not exist`);
+  const decoded = program.coder.accounts.decode("arena", accountInfo.data) as {
+    state: unknown;
+    platformFeeBps: number;
+  };
+  return { state: decodeArenaState(decoded.state), platformFeeBps: decoded.platformFeeBps };
+}
+
 async function fetchArenaState(
   program: anchor.Program,
   arena: PublicKey,
   onchainArenaId: number,
 ): Promise<"open" | "settled" | "cancelled"> {
-  const accountInfo = await program.provider.connection.getAccountInfo(arena, "finalized");
-  if (!accountInfo) throw new Error(`On-chain arena ${onchainArenaId} does not exist`);
-  const decoded = program.coder.accounts.decode("arena", accountInfo.data) as { state: unknown };
-  return decodeArenaState(decoded.state);
+  return (await fetchArenaSnapshot(program, arena, onchainArenaId)).state;
 }
 
 function deriveEntryPass(programId: PublicKey, arena: PublicKey, player: PublicKey): PublicKey {
@@ -168,13 +218,17 @@ export async function provisionArena(
   const { arena, escrow } = deriveArenaPdas(program.programId, arenaId);
   const existing = await connection.getAccountInfo(arena, "confirmed");
   if (existing) {
-    const decoded = program.coder.accounts.decode("Arena", existing.data) as {
-      authority: PublicKey;
-      entryFeeLamports: anchor.BN;
-    };
-    if (!decoded.authority.equals(authority.publicKey) || !decoded.entryFeeLamports.eq(new anchor.BN(entryFeeLamports))) {
-      throw new Error(`On-chain arena ${onchainArenaId} exists with unexpected authority or entry fee`);
-    }
+    const decoded = program.coder.accounts.decode("Arena", existing.data) as ArenaConfiguration;
+    assertArenaConfiguration(
+      decoded,
+      {
+        authority: authority.publicKey,
+        payoutAuthority: authority.publicKey,
+        entryFeeLamports: new anchor.BN(entryFeeLamports),
+        platformFeeBps: onchainConfig.platformFeeBps,
+      },
+      onchainArenaId,
+    );
     return { onchainArenaId, escrowAccount: escrow.toBase58() };
   }
 
@@ -189,7 +243,12 @@ export async function provisionArena(
   );
 
   const signature = await (program.methods as unknown as LooseMethods)
-    .initArena!(arenaId, new anchor.BN(entryFeeLamports), authority.publicKey, 0)
+    .initArena!(
+      arenaId,
+      new anchor.BN(entryFeeLamports),
+      authority.publicKey,
+      onchainConfig.platformFeeBps,
+    )
     .accounts({ arena, escrow, authority: authority.publicKey })
     .rpc();
 
@@ -330,7 +389,9 @@ export async function settlePayoutOnchain(
 ): Promise<PayoutSettlement> {
   const { program, authority } = buildProgram();
   const { arena, escrow } = deriveArenaPdas(program.programId, new anchor.BN(onchainArenaId));
-  const state = await fetchArenaState(program, arena, onchainArenaId);
+  const snapshot = await fetchArenaSnapshot(program, arena, onchainArenaId);
+  assertPlatformFeeBps(snapshot.platformFeeBps, onchainArenaId);
+  const state = snapshot.state;
   if (state === "settled") return { status: "already-settled" };
   if (state !== "open") throw new Error(`Cannot settle on-chain arena ${onchainArenaId}: it is ${state}`);
   const remainingAccounts = winnerWallets.map((w) => ({
@@ -341,7 +402,7 @@ export async function settlePayoutOnchain(
   const connection = program.provider.connection;
   const transaction = await (program.methods as unknown as LooseMethods)
     .settlePayout!()
-    .accounts({ arena, escrow, payoutAuthority: authority.publicKey })
+    .accounts(buildSettlementAccounts(arena, escrow, authority.publicKey))
     .remainingAccounts(remainingAccounts)
     .transaction();
   const latestBlockhash = await connection.getLatestBlockhash("confirmed");
