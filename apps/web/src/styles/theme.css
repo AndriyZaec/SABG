@@ -288,13 +288,13 @@ a { color: var(--ink); text-decoration: none; }
 .nb-footer__cols {
   display: grid;
   grid-template-columns: 1.4fr 1fr 1fr;
-  gap: 28px;
+  gap: 20px;
   max-width: 1000px;
   margin: 0 auto;
-  padding: 34px 20px 24px;
+  padding: 22px 20px 16px;
 }
 @media (max-width: 640px) {
-  .nb-footer__cols { grid-template-columns: 1fr; gap: 24px; }
+  .nb-footer__cols { grid-template-columns: 1fr; gap: 18px; padding-block: 22px 18px; }
 }
 .nb-footer__logo {
   font-family: var(--font-display);
@@ -306,100 +306,50 @@ a { color: var(--ink); text-decoration: none; }
   font-family: var(--font-mono);
   font-size: 0.8rem;
   opacity: 0.65;
-  margin: 8px 0 12px;
+  margin: 6px 0 4px;
   max-width: 240px;
 }
-.nb-footer__badge {
-  display: inline-block;
-  font-family: var(--font-mono);
-  font-weight: 700;
-  text-transform: uppercase;
-  font-size: 0.65rem;
-  letter-spacing: 0.1em;
-  border: 2px solid var(--survive);
-  color: var(--survive);
-  padding: 2px 9px;
-  justify-self: start;
-}
-.nb-footer__badges { display: flex; gap: 8px; flex-wrap: wrap; }
-/* Solana wordmark chip: brand gradient (purple → green) as the border */
-.nb-footer__badge--solana {
-  color: var(--paper);
-  border: 2px solid transparent;
-  background:
-    linear-gradient(var(--ink), var(--ink)) padding-box,
-    linear-gradient(135deg, #9945ff, #14f195) border-box;
-}
-.nb-footer__col { display: grid; gap: 8px; align-content: start; }
+.nb-footer__col { display: grid; gap: 6px; align-content: start; }
 .nb-footer__head {
   font-family: var(--font-display);
   text-transform: uppercase;
   font-size: 0.9rem;
   letter-spacing: 0.06em;
-  margin-bottom: 6px;
+  margin-bottom: 2px;
   opacity: 0.85;
-}
-/* how it works — deliberately muted, reference not CTA */
-.nb-footer__steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-.nb-footer__steps li {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-family: var(--font-mono);
-  font-size: 0.78rem;
-  opacity: 0.6;
-}
-.nb-footer__num {
-  font-family: var(--font-display);
-  font-size: 0.78rem;
-  width: 20px;
-  height: 20px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1.5px solid var(--paper);
-  opacity: 0.8;
-  flex: none;
 }
 .nb-footer__link {
   font-family: var(--font-mono);
   font-weight: 700;
   font-size: 0.8rem;
-  color: var(--survive);
+  color: var(--paper);
   border-bottom: 2px solid transparent;
   width: fit-content;
 }
-.nb-footer__link:hover { border-bottom-color: var(--survive); }
+.nb-footer__link:hover { color: var(--survive); border-bottom-color: var(--survive); }
+.nb-footer__link:focus-visible,
+.nb-footer__social a:focus-visible { outline: 3px solid var(--yellow); outline-offset: 3px; }
 .nb-footer__muted { font-family: var(--font-mono); font-size: 0.75rem; opacity: 0.55; }
-.nb-footer__social { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+.nb-footer__social { display: flex; gap: 4px; margin-top: 4px; }
 .nb-footer__social a {
-  font-family: var(--font-mono);
-  font-weight: 700;
-  text-transform: uppercase;
-  font-size: 0.68rem;
-  letter-spacing: 0.05em;
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
   color: var(--paper);
-  border: 2px solid var(--paper);
-  padding: 5px 11px;
-  transition: background 0.04s ease, color 0.04s ease;
+  transition: color 0.04s ease;
 }
-.nb-footer__social a:hover { background: var(--paper); color: var(--ink); }
-.nb-footer__bar {
-  border-top: var(--bw) solid rgba(244, 240, 228, 0.22);
-  max-width: 1000px;
-  margin: 0 auto;
-  padding: 12px 20px;
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-  font-family: var(--font-mono);
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  opacity: 0.55;
+.nb-footer__social a:hover { color: var(--survive); }
+.nb-footer__social-icon {
+  width: 20px;
+  height: 20px;
+  background: currentColor;
+  mask-position: center;
+  mask-repeat: no-repeat;
+  mask-size: contain;
 }
-
+.nb-footer__social-icon--x { mask-image: url("../assets/social/x.svg"); }
+.nb-footer__social-icon--instagram { mask-image: url("../assets/social/instagram.svg"); }
 .nb-shell { min-height: 100%; display: flex; flex-direction: column; }
 .nb-main { flex: 1 0 auto; }
 .nb-masthead {

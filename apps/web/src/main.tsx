@@ -19,10 +19,7 @@ async function start() {
 
   document.title = "SABG — Live esports prediction game";
 
-  const [{ Buffer }, { App }] = await Promise.all([import("buffer"), import("./App.js")]);
-
-  // Solana web3/wallet-adapter expect Node's Buffer in the browser.
-  globalThis.Buffer = globalThis.Buffer ?? Buffer;
+  const { App } = await import("./App.js");
 
   const manifest = document.createElement("link");
   manifest.rel = "manifest";
