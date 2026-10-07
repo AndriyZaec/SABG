@@ -1,68 +1,38 @@
 import { lazy, Suspense } from "react";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { SolanaProviders } from "./solana/WalletProvider.js";
-import { AuthProvider } from "./auth/AuthContext.js";
-import { StyleScreen } from "./screens/StyleScreen.js";
-import { Masthead } from "./ui/Masthead.js";
-import { Footer } from "./ui/Footer.js";
-import { Loading } from "./ui/Loading.js";
-import { EventAccessGate } from "./access/EventAccessGate.js";
+import { BrowserRouter, Route, Routes } from "react-router-dom";
 
-const ArenaScreen = lazy(() =>
-  import("./screens/ArenaScreen.js").then((m) => ({ default: m.ArenaScreen })),
+const LegalRoute = lazy(() =>
+  import("./legal/LegalRoute.js").then((module) => ({ default: module.LegalRoute })),
 );
-const LeaderboardScreen = lazy(() =>
-  import("./screens/LeaderboardScreen.js").then((m) => ({ default: m.LeaderboardScreen })),
-);
-const SpectatorScreen = lazy(() =>
-  import("./screens/SpectatorScreen.js").then((m) => ({ default: m.SpectatorScreen })),
-);
-const SummaryScreen = lazy(() =>
-  import("./screens/SummaryScreen.js").then((m) => ({ default: m.SummaryScreen })),
-);
-const PayoutScreen = lazy(() =>
-  import("./screens/PayoutScreen.js").then((m) => ({ default: m.PayoutScreen })),
-);
-const Cs2LobbyScreen = lazy(() =>
-  import("./cs2/Cs2LobbyScreen.js").then((m) => ({ default: m.Cs2LobbyScreen })),
-);
-const Cs2ArenaScreen = lazy(() =>
-  import("./cs2/Cs2ArenaScreen.js").then((m) => ({ default: m.Cs2ArenaScreen })),
-);
-const Cs2SeriesScreen = lazy(() =>
-  import("./cs2/Cs2SeriesScreen.js").then((m) => ({ default: m.Cs2SeriesScreen })),
-);
+const GameApp = lazy(async () => {
+  const { Buffer } = await import("buffer");
+  globalThis.Buffer = globalThis.Buffer ?? Buffer;
+  const module = await import("./GameApp.js");
+  return { default: module.GameApp };
+});
 
 export function App() {
   return (
-    <EventAccessGate>
-      <SolanaProviders>
-        <AuthProvider>
-          <BrowserRouter>
-          <div className="nb-shell">
-          <Masthead />
-          <main className="nb-main">
-            <Suspense fallback={<Loading />}>
-              <Routes>
-                <Route path="/" element={<Cs2LobbyScreen />} />
-                <Route path="/style" element={<StyleScreen />} />
-                <Route path="/arena/:arenaId" element={<ArenaScreen />} />
-                <Route path="/arena/:arenaId/leaderboard" element={<LeaderboardScreen />} />
-                <Route path="/arena/:arenaId/spectate" element={<SpectatorScreen />} />
-                <Route path="/arena/:arenaId/summary" element={<SummaryScreen />} />
-                <Route path="/arena/:arenaId/payout" element={<PayoutScreen />} />
-                <Route path="/cs2" element={<Cs2LobbyScreen />} />
-                <Route path="/cs2/series/:seriesId" element={<Cs2SeriesScreen />} />
-                <Route path="/cs2/arena/:arenaId" element={<Cs2ArenaScreen />} />
-                <Route path="*" element={<Navigate to="/" replace />} />
-              </Routes>
-            </Suspense>
-          </main>
-          <Footer />
-          </div>
-          </BrowserRouter>
-        </AuthProvider>
-      </SolanaProviders>
-    </EventAccessGate>
+    <BrowserRouter>
+      <Suspense fallback={<AppLoading />}>
+        <Routes>
+          <Route path="/terms" element={<LegalRoute />} />
+          <Route path="/privacy" element={<LegalRoute />} />
+          <Route path="/cookies" element={<LegalRoute />} />
+          <Route path="/*" element={<GameApp />} />
+        </Routes>
+      </Suspense>
+    </BrowserRouter>
+  );
+}
+
+function AppLoading() {
+  return (
+    <main className="nb-access">
+      <div className="nb-access__loading" role="status">
+        <span className="nb-access__mark">SABG</span>
+        <span>Loading SABG...</span>
+      </div>
+    </main>
   );
 }
