@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { trackPageView } from "../analytics/analytics.js";
 import "./landing.css";
 
 const SCENES = [
@@ -32,6 +33,10 @@ export function LandingPage() {
     secondsLeft: PREDICTION_SECONDS,
     round: 0,
   });
+
+  useEffect(() => {
+    trackPageView("/", window.location.search);
+  }, []);
 
   useEffect(() => {
     const observer = new IntersectionObserver(
