@@ -1,6 +1,3 @@
-export const LEGAL_VERSION = "1.0";
-export const LEGAL_EFFECTIVE_DATE = "October 7, 2026";
-
 export interface LegalSection {
   id: string;
   title: string;
@@ -12,6 +9,7 @@ export interface LegalDocument {
   path: "/terms" | "/privacy" | "/cookies";
   navLabel: string;
   title: string;
+  lastUpdated: string;
   summary: string;
   noticeLabel: string;
   notice: string;
@@ -22,18 +20,19 @@ const terms: LegalDocument = {
   path: "/terms",
   navLabel: "Terms",
   title: "Terms of Use",
+  lastUpdated: "October 7, 2026",
   summary:
     "These Terms govern access to SABG, including Arena entry, live predictions, settlement, refunds, and use of a self-custodial Solana wallet.",
   noticeLabel: "Risk notice",
   notice:
-    "SABG is experimental software involving digital assets and irreversible blockchain transactions. You may lose your entire Arena entry. Use SABG only if you understand the risks and its use is lawful where you are located.",
+    "SABG involves digital assets and irreversible blockchain transactions. You may lose your entire Arena entry. Use SABG only if you understand the risks and its use is lawful where you are located.",
   sections: [
     {
       id: "agreement",
       title: "1. Agreement and operator",
       paragraphs: [
         "These Terms of Use form an agreement between you and the SABG development team (SABG, we, us, or our). They apply to the SABG website, game interface, smart-contract interactions, APIs, and related services collectively referred to as the Service.",
-        "By accepting these Terms before entering an Arena or by otherwise using a paid-entry feature, you confirm that you have read and agree to these Terms. If you do not agree, do not enter an Arena or use a paid feature.",
+        "By accessing or using the Service, including entering an Arena, you confirm that you have read and agree to these Terms. If you do not agree, do not use the Service.",
       ],
     },
     {
@@ -46,10 +45,10 @@ const terms: LegalDocument = {
     },
     {
       id: "service",
-      title: "3. The Service and beta status",
+      title: "3. The Service",
       paragraphs: [
-        "SABG is a beta live-event survival game. Participants answer time-limited yes-or-no questions about an event. Incorrect or missed answers may eliminate a participant. The participants who remain active when an Arena finishes share the distributable prize pool according to the Arena rules shown in the interface.",
-        "SABG may change, pause, restrict, or discontinue features while the Service is developed. Features may contain errors or become unavailable. Nothing in the Service is investment, legal, financial, or tax advice, and SABG does not act as your broker, adviser, fiduciary, wallet custodian, or agent.",
+        "SABG is a live-event survival game. Participants answer time-limited yes-or-no questions about an event. Incorrect or missed answers may eliminate a participant. The participants who remain active when an Arena finishes share the distributable prize pool according to the Arena rules shown in the interface.",
+        "SABG may change, pause, restrict, or discontinue features. Features may contain errors or become unavailable. Nothing in the Service is investment, legal, financial, or tax advice, and SABG does not act as your broker, adviser, fiduciary, wallet custodian, or agent.",
       ],
     },
     {
@@ -152,8 +151,8 @@ const terms: LegalDocument = {
       id: "changes",
       title: "15. Changes and general terms",
       paragraphs: [
-        "SABG may update these Terms as the Service, risks, or legal requirements change. The current version and effective date appear at the top of this page. A material change will require acceptance of the new version before a later paid entry; continued browsing alone does not replace that acceptance.",
-        "If any provision is unenforceable, it will be limited to the minimum extent necessary and the remaining provisions will continue to apply. Failure to enforce a provision is not a waiver. These Terms and the policies linked here form the agreement about your use of the Service. No governing law, court forum, or arbitration procedure is designated in this version.",
+        "SABG may update these Terms as the Service, risks, or legal requirements change. The Last updated date at the top identifies the current Terms. Changes apply prospectively when posted. If you continue to use the Service after updated Terms take effect, you agree to them; if you do not agree, stop using the Service.",
+        "If any provision is unenforceable, it will be limited to the minimum extent necessary and the remaining provisions will continue to apply. Failure to enforce a provision is not a waiver. These Terms and the policies linked here form the agreement about your use of the Service. No governing law, court forum, or arbitration procedure is designated by these Terms.",
       ],
     },
   ],
@@ -163,6 +162,7 @@ const privacy: LegalDocument = {
   path: "/privacy",
   navLabel: "Privacy",
   title: "Privacy Policy",
+  lastUpdated: "October 7, 2026",
   summary:
     "This Policy explains what the SABG development team processes when you browse the app, connect a wallet, play an Arena, request notifications, or contact us.",
   noticeLabel: "Key point",
@@ -184,7 +184,7 @@ const privacy: LegalDocument = {
         "SABG does not ask for your legal name, postal address, phone number, date of birth, payment-card details, private key, or seed phrase as part of ordinary gameplay. We process the information needed to authenticate wallets, run Arenas, execute transactions, provide notifications, secure the Service, and answer support requests.",
       ],
       bullets: [
-        "Wallet and profile data: wallet address, an internal user identifier, generated public alias, and any optional profile fields offered by the Service.",
+        "Wallet and profile data: wallet address, an internal user identifier, and a generated public alias.",
         "Authentication data: a nonce, the message you sign, its signature during verification, and a time-limited session token. The nonce is short-lived; the browser stores the resulting session locally.",
         "Gameplay data: Arenas joined, predictions, answer and receipt times, correctness, score, elimination status, rankings, winners, follows, and notification preferences.",
         "Transaction data: entry amount, Arena and escrow identifiers, transaction signatures, payment or refund status, payout amount and status, and related public blockchain records.",
@@ -206,7 +206,7 @@ const privacy: LegalDocument = {
       title: "4. How we use information",
       paragraphs: [
         "We use information to provide and secure SABG, authenticate wallets, process Arena entry, record predictions, calculate game state, determine results, execute or reconcile payouts and refunds, show leaderboards, send requested notifications, diagnose failures, prevent abuse, answer support requests, enforce our Terms, and comply with legal obligations.",
-        "Where applicable law requires a legal basis, processing may be necessary to provide the Service you request, for our legitimate interests in operating and protecting SABG, to comply with law, or based on your consent. You may withdraw consent where processing depends on it, without affecting earlier processing.",
+        "Where applicable law requires a legal basis, processing may be necessary to provide the Service you request, for our legitimate interests in operating and protecting SABG, or to comply with law.",
       ],
     },
     {
@@ -221,13 +221,13 @@ const privacy: LegalDocument = {
       id: "sharing",
       title: "6. When information is disclosed",
       paragraphs: [
-        "We do not sell personal information. Information may be disclosed to service providers and infrastructure operators only as needed to operate SABG, to professional advisers, during a reorganization of the Service, when you direct us to share it, or when reasonably necessary to comply with law, protect rights and safety, investigate abuse, or enforce the Terms.",
+        "We do not sell personal information. Information may be disclosed to service providers and infrastructure operators as needed to operate SABG, when you direct us to share it, or when reasonably necessary to comply with law, protect rights and safety, investigate abuse, or enforce the Terms.",
       ],
       bullets: [
         "Solana validators, RPC providers, and block explorers process public wallet and transaction data.",
         "Phantom, Solflare, or another wallet you choose processes wallet interactions under its own policy.",
-        "GRID and TxOdds provide event data used by SABG; SABG does not provide them your wallet private key.",
-        "Browser push services operated by Apple, Google, Microsoft, Mozilla, or another browser provider deliver notifications you request.",
+        "Event-data providers supply match information used by SABG; SABG does not send them your wallet credentials.",
+        "Your browser's push provider delivers notifications you request.",
         "Twitch, Kick, or YouTube may receive device, IP, request, and viewing data when an embedded stream loads.",
         "Google receives request information when the browser loads hosted fonts used by the interface.",
         "Hosting, database, security, email, and support providers may process information needed to supply those services.",
@@ -238,7 +238,6 @@ const privacy: LegalDocument = {
       title: "7. Cookies and browser storage",
       paragraphs: [
         "SABG uses an essential invite-access cookie and browser local storage for the wallet session, stream layout, and sound preference. The app also registers a service worker used for requested push notifications. These technologies and their current duration are described in the Cookie Policy.",
-        "SABG does not currently run first-party advertising pixels, session replay, Google Analytics, or PostHog. Third-party wallets, streams, fonts, and browser services may process data under their own policies.",
       ],
     },
     {
@@ -269,7 +268,7 @@ const privacy: LegalDocument = {
       id: "international",
       title: "11. International processing and age",
       paragraphs: [
-        "SABG and its providers may process information in countries other than your own. Those locations may have different data-protection laws. Where required, transfers will be handled using an available lawful mechanism.",
+        "SABG and its providers may process information in countries other than your own. Those locations may have different data-protection laws.",
         "The Service is not intended for anyone under 18, and we do not knowingly collect personal information from children. If you believe a person under 18 has provided information to SABG, contact legal@sabg.fun.",
       ],
     },
@@ -277,7 +276,7 @@ const privacy: LegalDocument = {
       id: "changes-contact",
       title: "12. Changes and contact",
       paragraphs: [
-        "We may update this Policy when the Service or our data practices change. The version and effective date at the top identify the current notice. Material changes will be presented as required by applicable law.",
+        "We may update this Policy when the Service or our data practices change. The Last updated date at the top identifies the current notice. Material changes will be presented as required by applicable law.",
         "For privacy questions and rights requests, contact legal@sabg.fun. For gameplay, payout, refund, or account support, contact support@sabg.fun.",
       ],
     },
@@ -288,11 +287,12 @@ const cookies: LegalDocument = {
   path: "/cookies",
   navLabel: "Cookies",
   title: "Cookie Policy",
+  lastUpdated: "October 7, 2026",
   summary:
     "This Policy describes the cookie, local storage, service worker, and third-party browser technologies currently used by the SABG consumer app.",
   noticeLabel: "Current status",
   notice:
-    "SABG currently uses necessary storage and preference storage. SABG does not currently load Google Analytics, PostHog, advertising pixels, or session-replay software.",
+    "SABG currently uses necessary storage and preference storage. SABG does not currently use optional analytics or advertising technologies.",
   sections: [
     {
       id: "technologies",
@@ -317,9 +317,9 @@ const cookies: LegalDocument = {
         "SABG currently stores the following first-party values in browser local storage. Local storage normally remains until the app removes it, you clear it, the browser evicts it, or the storage context is reset.",
       ],
       bullets: [
-        "arena.session stores the wallet session token, wallet address, and SABG user profile so a page reload does not require another signature. SABG removes it on wallet sign-out or when a different connected wallet invalidates the restored session.",
-        "cs2.streamPip stores the position, size, and collapsed state of the optional stream player.",
-        "cs2.roundSoundMuted stores whether CS2 round sounds are muted.",
+        "Wallet session data keeps you signed in after a page reload. It includes the session token, wallet address, and SABG user profile and is removed on wallet sign-out or when a different connected wallet invalidates the restored session.",
+        "Stream layout data remembers the optional video player's position, size, and collapsed state.",
+        "Sound preference data remembers whether CS2 round sounds are muted.",
       ],
     },
     {
@@ -334,21 +334,14 @@ const cookies: LegalDocument = {
       id: "third-parties",
       title: "5. Third-party technologies",
       paragraphs: [
-        "The interface loads fonts from Google Fonts. When an operator-provided stream is available, the app may embed Twitch, Kick, or YouTube content. Wallet extensions, Solana RPC providers, stream platforms, font hosting, and browser push providers may receive IP address, device, request, wallet, or viewing information and may use their own cookies or storage.",
+        "The interface loads fonts from Google Fonts. Google may receive IP address, device, and request information. When an operator-provided stream is available, the app may embed Twitch, Kick, or YouTube content; the stream provider may receive IP address, device, request, and viewing information.",
+        "Wallet extensions and Solana RPC providers may process wallet, transaction, device, and request information. Your browser's push provider processes the subscription and delivery information needed for notifications. These providers may use their own cookies or storage.",
         "YouTube embeds use youtube-nocookie.com, but this does not mean that YouTube processes no information. SABG does not control third-party retention or browser technologies. Review the provider's privacy and cookie information before using its service.",
       ],
     },
     {
-      id: "analytics",
-      title: "6. Analytics and advertising",
-      paragraphs: [
-        "SABG does not currently initialize Google Analytics, PostHog, advertising pixels, retargeting, or session replay in the consumer app. If optional analytics is introduced later, this Policy will be updated and analytics will remain disabled unless the required choice or consent has been obtained.",
-        "Package names present in application dependencies do not by themselves mean SABG uses an analytics service. Third-party wallets and embedded providers may perform their own measurement independently of SABG.",
-      ],
-    },
-    {
       id: "controls",
-      title: "7. Your controls",
+      title: "6. Your controls",
       paragraphs: [
         "You can remove or block cookies and local storage through browser settings, sign out to remove the stored SABG wallet session, and manage notification or service-worker permissions through browser or device settings. Wallet extensions provide their own connection and storage controls.",
         "Blocking necessary storage may cause invite access, wallet sessions, saved preferences, streams, or notifications to stop working. Clearing browser data does not remove server records or public Solana transactions.",
@@ -356,9 +349,9 @@ const cookies: LegalDocument = {
     },
     {
       id: "changes-contact",
-      title: "8. Changes and contact",
+      title: "7. Changes and contact",
       paragraphs: [
-        "We may update this Policy when storage purposes, providers, or the Service change. The version and effective date at the top identify the current notice.",
+        "We may update this Policy when storage purposes, providers, or the Service change. The Last updated date at the top identifies the current notice.",
         "For questions about browser technologies or privacy, contact legal@sabg.fun. For product support, contact support@sabg.fun.",
       ],
     },

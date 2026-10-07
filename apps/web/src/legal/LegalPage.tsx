@@ -1,11 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Link, useLocation } from "react-router-dom";
-import {
-  LEGAL_EFFECTIVE_DATE,
-  LEGAL_VERSION,
-  legalDocuments,
-  type LegalDocument,
-} from "./legalDocuments.js";
+import { legalDocuments, type LegalDocument } from "./legalDocuments.js";
 import "./legal.css";
 
 export function LegalPage({ document }: { document: LegalDocument }) {
@@ -48,8 +43,7 @@ export function LegalPage({ document }: { document: LegalDocument }) {
         <article className="legal-document">
           <header className="legal-document__intro">
             <div className="legal-document__meta">
-              <span>Version {LEGAL_VERSION}</span>
-              <span>Effective {LEGAL_EFFECTIVE_DATE}</span>
+              <span>Last updated {document.lastUpdated}</span>
             </div>
             <h1 ref={titleRef} tabIndex={-1}>
               {document.title}
