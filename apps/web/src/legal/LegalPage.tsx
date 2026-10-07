@@ -49,10 +49,6 @@ export function LegalPage({ document }: { document: LegalDocument }) {
               {document.title}
             </h1>
             <p className="legal-document__summary">{document.summary}</p>
-            <div className="legal-notice">
-              <strong>{document.noticeLabel}</strong>
-              <p>{document.notice}</p>
-            </div>
           </header>
 
           <div className="legal-document__layout">

@@ -95,26 +95,6 @@
   margin: 28px 0 0;
   font: 600 clamp(1rem, 2vw, 1.2rem)/1.65 "Archivo", sans-serif;
 }
-.legal-notice {
-  display: grid;
-  grid-template-columns: minmax(120px, 0.25fr) 1fr;
-  max-width: 900px;
-  margin-top: clamp(28px, 5vw, 48px);
-  border: var(--bw) solid var(--ink);
-  background: var(--white);
-}
-.legal-notice strong {
-  padding: 17px;
-  background: var(--yellow);
-  border-right: var(--bw) solid var(--ink);
-  font: 400 1.05rem/1.1 var(--font-display);
-  text-transform: uppercase;
-}
-.legal-notice p {
-  margin: 0;
-  padding: 16px 18px;
-  font: 700 0.86rem/1.6 var(--font-mono);
-}
 
 .legal-document__layout {
   display: grid;
@@ -187,8 +167,6 @@
   .legal-frame { padding: 0; }
   .legal-document { border-width: var(--bw-thick) 0 0; }
   .legal-document__meta { display: grid; }
-  .legal-notice { grid-template-columns: 1fr; }
-  .legal-notice strong { border-right: 0; border-bottom: var(--bw) solid var(--ink); }
   .legal-document__layout { grid-template-columns: 1fr; gap: 36px; }
   .legal-toc { position: static; columns: 2; column-gap: 24px; }
   .legal-toc > strong { column-span: all; }

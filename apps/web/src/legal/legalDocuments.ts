@@ -11,8 +11,6 @@ export interface LegalDocument {
   title: string;
   lastUpdated: string;
   summary: string;
-  noticeLabel: string;
-  notice: string;
   sections: LegalSection[];
 }
 
@@ -23,9 +21,6 @@ const terms: LegalDocument = {
   lastUpdated: "October 7, 2026",
   summary:
     "These Terms govern access to SABG, including Arena entry, live predictions, settlement, refunds, and use of a self-custodial Solana wallet.",
-  noticeLabel: "Risk notice",
-  notice:
-    "SABG involves digital assets and irreversible blockchain transactions. You may lose your entire Arena entry. Use SABG only if you understand the risks and its use is lawful where you are located.",
   sections: [
     {
       id: "agreement",
@@ -96,6 +91,7 @@ const terms: LegalDocument = {
       id: "blockchain-risks",
       title: "9. Blockchain and technical risks",
       paragraphs: [
+        "SABG involves digital assets and irreversible blockchain transactions. You may lose your entire Arena entry. Use SABG only if you understand the risks and its use is lawful where you are located.",
         "By using SABG, you accept risks including smart-contract defects, software errors, wallet compromise, phishing, incorrect signatures, front-end attacks, RPC failure, network congestion, transaction failure, protocol changes, loss of access, regulatory change, and volatility in SOL or other digital assets.",
         "Solana transactions and records are public and generally irreversible. SABG cannot delete public blockchain records or reverse a finalized entry, refund, or payout. Never provide a private key or seed phrase to SABG or to anyone claiming to represent SABG.",
       ],
@@ -165,9 +161,6 @@ const privacy: LegalDocument = {
   lastUpdated: "October 7, 2026",
   summary:
     "This Policy explains what the SABG development team processes when you browse the app, connect a wallet, play an Arena, request notifications, or contact us.",
-  noticeLabel: "Key point",
-  notice:
-    "A wallet address is pseudonymous, not anonymous. Your wallet and transaction activity may be permanently visible on Solana and can be linked with gameplay records.",
   sections: [
     {
       id: "scope",
@@ -213,6 +206,7 @@ const privacy: LegalDocument = {
       id: "visibility",
       title: "5. Public and participant-visible data",
       paragraphs: [
+        "A wallet address is pseudonymous, not anonymous. Your wallet and transaction activity may be permanently visible on Solana and can be linked with gameplay records.",
         "Solana is a public blockchain. Wallet addresses, transaction signatures, amounts, program accounts, entry records, refunds, and payouts recorded on-chain can be viewed, copied, and linked by anyone. SABG cannot modify or delete those records.",
         "Within the Service, other event participants may see generated aliases, rankings, scores, status, winners, join times, and settled gameplay information. Aggregate prediction percentages may be shown while an Arena is running. Do not use a wallet or alias that you expect to remain unlinked from your activity.",
       ],
@@ -290,14 +284,12 @@ const cookies: LegalDocument = {
   lastUpdated: "October 7, 2026",
   summary:
     "This Policy describes the cookie, local storage, service worker, and third-party browser technologies currently used by the SABG consumer app.",
-  noticeLabel: "Current status",
-  notice:
-    "SABG currently uses necessary storage and preference storage. SABG does not currently use optional analytics or advertising technologies.",
   sections: [
     {
       id: "technologies",
       title: "1. Cookies and similar technologies",
       paragraphs: [
+        "SABG currently uses necessary storage and preference storage. SABG does not currently use optional analytics or advertising technologies.",
         "Cookies are small values a website stores through your browser. Local storage keeps values in the browser without sending them automatically with every request. Service workers support background browser functions such as requested push notifications. This Policy refers to these together as browser technologies.",
         "Some browser technologies are necessary for requested functionality or security. Others remember your choices. Third-party content may use its own technologies under the provider's policy.",
       ],
