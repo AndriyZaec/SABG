@@ -863,6 +863,35 @@ a { color: var(--ink); text-decoration: none; }
   font-family: var(--font-mono) !important;
 }
 
+/* ---- Analytics consent banner ---- */
+/* Above menus (30), below the wallet modal. */
+.nb-consent {
+  position: fixed;
+  z-index: 40;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--white);
+  border-top: var(--bw-thick) solid var(--ink);
+}
+.nb-consent__inner {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 14px 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.nb-consent__text { flex: 1; margin: 0; font-size: 0.9rem; }
+.nb-consent__text a { color: var(--ink); text-decoration: underline; font-weight: 700; }
+.nb-consent__actions { display: flex; flex: none; gap: 10px; }
+.has-consent-banner .nb-footer { padding-bottom: 96px; }
+@media (max-width: 640px) {
+  .nb-consent__inner { flex-direction: column; align-items: stretch; gap: 12px; }
+  .nb-consent__actions .nb-btn { flex: 1; }
+  .has-consent-banner .nb-footer { padding-bottom: 170px; }
+}
+
 /* ---- Mobile adaptive pass ---- */
 @media (max-width: 560px) {
   .nb-container { padding: 18px 14px 44px; }

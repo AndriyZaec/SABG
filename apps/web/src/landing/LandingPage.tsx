@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { trackPageView } from "../analytics/analytics.js";
+import { ConsentBanner } from "../analytics/ConsentBanner.js";
 import "./landing.css";
 
 const SCENES = [
@@ -284,6 +285,7 @@ export function LandingPage() {
           </footer>
         </section>
       </main>
+      <ConsentBanner policyHref={`${appUrl()}/cookies`} />
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect } from "react";
 import { BrowserRouter, Route, Routes, useLocation } from "react-router-dom";
 import { trackPageView } from "./analytics/analytics.js";
+import { ConsentBanner } from "./analytics/ConsentBanner.js";
 
 const LegalRoute = lazy(() =>
   import("./legal/LegalRoute.js").then((module) => ({ default: module.LegalRoute })),
@@ -24,6 +25,7 @@ export function App() {
           <Route path="/*" element={<GameApp />} />
         </Routes>
       </Suspense>
+      <ConsentBanner policyHref="/cookies" />
     </BrowserRouter>
   );
 }
