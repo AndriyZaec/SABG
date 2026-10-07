@@ -1,4 +1,4 @@
-const STEPS = ["Buy in", "Answer Yes / No", "Survive", "Take the pool"];
+import { Link } from "react-router-dom";
 
 // Devnet program (mirrors @arena/contracts/onchain ARENA_PROGRAM_ID; hardcoded to keep the IDL out
 // of the eager bundle). Linked to Solana Explorer so the on-chain claim is verifiable.
@@ -6,50 +6,54 @@ const PROGRAM_ID = "84o7QQ3vkGkm3D6wfaqEHxFN93p3Q2b6SFtfazzxZuxH";
 const EXPLORER = `https://explorer.solana.com/address/${PROGRAM_ID}?cluster=devnet`;
 const SHORT_ID = `${PROGRAM_ID.slice(0, 4)}…${PROGRAM_ID.slice(-4)}`;
 
-/** Real page footer: brand, the game loop (muted), and the verifiable on-chain program. */
 export function Footer() {
   return (
     <footer className="nb-footer">
       <div className="nb-footer__cols">
         <div className="nb-footer__brand">
           <span className="nb-footer__logo">SABG</span>
-          <p className="nb-footer__tag">Read the game. Survive the match.</p>
-          {/* placeholder handles — wire real profiles later */}
+          <p className="nb-footer__tag">Live esports survival games built around match predictions.</p>
           <div className="nb-footer__social">
-            <a href="#" aria-label="SABG on X">X</a>
-            <a href="#" aria-label="SABG on Discord">Discord</a>
-            <a href="#" aria-label="SABG on GitHub">GitHub</a>
+            <a
+              href="https://x.com/sabg_sol"
+              target="_blank"
+              rel="noreferrer"
+              aria-label="SABG on X"
+            >
+              <span className="nb-footer__social-icon nb-footer__social-icon--x" aria-hidden="true" />
+            </a>
+            <a
+              href="https://www.instagram.com/sabg_sol"
+              target="_blank"
+              rel="noreferrer"
+              aria-label="SABG on Instagram"
+            >
+              <span
+                className="nb-footer__social-icon nb-footer__social-icon--instagram"
+                aria-hidden="true"
+              />
+            </a>
           </div>
         </div>
 
-        <div className="nb-footer__col">
-          <span className="nb-footer__head">How it works</span>
-          <ol className="nb-footer__steps">
-            {STEPS.map((s, i) => (
-              <li key={s}>
-                <span className="nb-footer__num">{i + 1}</span>
-                {s}
-              </li>
-            ))}
-          </ol>
-        </div>
-
-        <div className="nb-footer__col">
-          <span className="nb-footer__head">On-chain</span>
+        <nav className="nb-footer__col" aria-label="Product">
+          <span className="nb-footer__head">Product</span>
+          <Link className="nb-footer__link" to="/">Arenas</Link>
           <a className="nb-footer__link" href={EXPLORER} target="_blank" rel="noreferrer">
-            Program {SHORT_ID} ↗
+            Program {SHORT_ID}
           </a>
-          <div className="nb-footer__badges">
-            <span className="nb-footer__badge nb-footer__badge--solana">Solana</span>
-            <span className="nb-footer__badge">Devnet</span>
-          </div>
-        </div>
+          <span className="nb-footer__muted">Solana Devnet</span>
+        </nav>
+
+        <nav className="nb-footer__col" aria-label="Legal and support">
+          <span className="nb-footer__head">Legal</span>
+          <a className="nb-footer__link" href="/terms" target="_blank" rel="noreferrer">Terms</a>
+          <a className="nb-footer__link" href="/privacy" target="_blank" rel="noreferrer">Privacy</a>
+          <a className="nb-footer__link" href="/cookies" target="_blank" rel="noreferrer">Cookies</a>
+          <a className="nb-footer__link" href="mailto:support@sabg.fun">Support</a>
+        </nav>
       </div>
 
-      <div className="nb-footer__bar">
-        <span>© 2026 SABG · Fan Battle Royale</span>
-        <span>Read the game. Survive the match.</span>
-      </div>
     </footer>
   );
 }
