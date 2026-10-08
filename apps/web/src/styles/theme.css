@@ -896,11 +896,14 @@ button.nb-footer__link {
 .nb-consent__text { flex: 1; margin: 0; font-size: 0.9rem; }
 .nb-consent__text a { color: var(--ink); text-decoration: underline; font-weight: 700; }
 .nb-consent__actions { display: flex; flex: none; gap: 10px; }
-.has-consent-banner .nb-footer { padding-bottom: 96px; }
+.nb-footer { padding-bottom: var(--consent-banner-height, 0px); }
+.cs2-stream-pip,
+.cs2-stream-pip__expand { bottom: calc(16px + var(--consent-banner-height, 0px)); }
 @media (max-width: 640px) {
-  .nb-consent__inner { flex-direction: column; align-items: stretch; gap: 12px; }
-  .nb-consent__actions .nb-btn { flex: 1; }
-  .has-consent-banner .nb-footer { padding-bottom: 170px; }
+  .nb-consent__inner { flex-direction: column; align-items: stretch; gap: 8px; padding: 10px 14px; }
+  .nb-consent__text { font-size: 0.8rem; line-height: 1.4; }
+  .nb-consent__actions { gap: 8px; }
+  .nb-consent__actions .nb-btn { flex: 1; padding: 8px 10px; min-height: 44px; font-size: 0.75rem; }
 }
 
 /* ---- Mobile adaptive pass ---- */

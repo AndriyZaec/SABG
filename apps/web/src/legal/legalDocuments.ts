@@ -184,7 +184,7 @@ const privacy: LegalDocument = {
         "Notification data: browser push endpoint and the cryptographic subscription values needed to deliver a requested notification.",
         "Technical and security data: IP address used for short-lived invite rate limiting, request and error details, browser or device information made available to our infrastructure, and operational logs.",
         "Communications: the email address, wallet address, transaction details, and other information you choose to include when contacting support or legal.",
-        "Analytics data: if you accept analytics cookies, pages visited, referring site and campaign tags, approximate location, browser and device information, and visit times collected through Google Analytics. SABG does not send wallet addresses or user identifiers to Google Analytics.",
+        "Analytics data: if you accept analytics cookies, pages visited, referring site and campaign tags, approximate location, browser and device information, and visit times collected through Google Analytics. SABG does not deliberately add wallet addresses or account identifiers to analytics events.",
       ],
     },
     {
@@ -321,10 +321,10 @@ const cookies: LegalDocument = {
       id: "analytics",
       title: "4. Optional analytics cookies",
       paragraphs: [
-        "SABG uses Google Analytics to understand how people find and use the landing page and the app. Google Analytics loads only after you select Accept in the cookie banner. If you select Reject, it does not load and sets no cookies.",
+        "SABG uses Google Analytics to understand how people find and use the landing page and the app. Google Analytics loads only after you select Allow analytics in the cookie banner. If you select No thanks, it does not load and sets no cookies. You can use SABG without accepting analytics cookies.",
         "sabg_consent is a first-party cookie that records whether you accepted or rejected analytics. It lasts six months, uses SameSite=Lax, and applies to sabg.fun and its subdomains, so one choice covers the landing page and the app.",
-        "If you accept, Google Analytics sets the first-party cookies _ga and _ga_ followed by an identifier. They distinguish visitors and sessions and last up to two years. Google receives pages visited, referring site and campaign tags, approximate location, browser and device information, and visit times. SABG does not send wallet addresses or user identifiers to Google Analytics.",
-        "You can change your choice at any time through Cookie settings in the app footer. Rejecting after accepting removes the analytics cookies and reloads the page.",
+        "If you accept, Google Analytics sets the first-party cookies _ga and _ga_ followed by an identifier. They distinguish visitors and sessions and last up to two years. Google receives pages visited, referring site and campaign tags, approximate location, browser and device information, and visit times. SABG does not deliberately add wallet addresses or account identifiers to analytics events.",
+        "You can change your choice at any time through Cookie settings in the app footer. Selecting No thanks after allowing analytics stops analytics collection on the current page and removes the analytics cookies without reloading the page.",
       ],
     },
     {

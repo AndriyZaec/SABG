@@ -1,4 +1,4 @@
-import { useEffect, useSyncExternalStore } from "react";
+import { useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import {
   analyticsEnabled,
   denyConsent,
@@ -10,23 +10,35 @@ import {
 export function ConsentBanner({ policyHref }: { policyHref: string }) {
   const { consent, settingsOpen } = useSyncExternalStore(subscribeConsent, getConsentSnapshot);
   const visible = analyticsEnabled && (consent === "unset" || settingsOpen);
+  const bannerRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    document.body.classList.toggle("has-consent-banner", visible);
+  useLayoutEffect(() => {
+    const banner = bannerRef.current;
+    if (!visible || !banner) return;
+    const updateHeight = () => {
+      document.documentElement.style.setProperty("--consent-banner-height", `${banner.getBoundingClientRect().height}px`);
+    };
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(banner);
+    return () => {
+      observer.disconnect();
+      document.documentElement.style.removeProperty("--consent-banner-height");
+    };
   }, [visible]);
 
   if (!visible) return null;
 
   return (
-    <div className="nb-consent" role="region" aria-label="Cookie consent">
+    <div className="nb-consent" ref={bannerRef} role="region" aria-label="Optional analytics">
       <div className="nb-consent__inner">
         <p className="nb-consent__text">
-          We use Google Analytics cookies to see how people find and use SABG.{" "}
+          Optional analytics helps us improve SABG. You can use the app without it.{" "}
           <a href={policyHref} target="_blank" rel="noreferrer">Cookie Policy</a>
         </p>
         <div className="nb-consent__actions">
-          <button type="button" className="nb-btn" onClick={denyConsent}>Reject</button>
-          <button type="button" className="nb-btn" onClick={grantConsent}>Accept</button>
+          <button type="button" className="nb-btn" onClick={denyConsent}>No thanks</button>
+          <button type="button" className="nb-btn" onClick={grantConsent}>Allow analytics</button>
         </div>
       </div>
     </div>

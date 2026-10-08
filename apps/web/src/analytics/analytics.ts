@@ -21,6 +21,7 @@ declare global {
   interface Window {
     dataLayer?: unknown[];
     gtag?: (...args: unknown[]) => void;
+    [key: `ga-disable-${string}`]: boolean | undefined;
   }
 }
 
@@ -29,6 +30,26 @@ export function normalizePath(pathname: string): string {
     if (pattern.test(pathname)) return pathname.replace(pattern, template);
   }
   return pathname;
+}
+
+function analyticsLocation(pathname: string, search: string): string {
+  const source = new URLSearchParams(search);
+  const campaign = new URLSearchParams();
+  for (const key of ["utm_source", "utm_medium", "utm_campaign"]) {
+    const value = source.get(key);
+    if (value) campaign.set(key, value);
+  }
+  const query = campaign.toString();
+  return window.location.origin + normalizePath(pathname) + (query ? `?${query}` : "");
+}
+
+function referrerOrigin(): string {
+  try {
+    const url = new URL(document.referrer);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.origin : "";
+  } catch {
+    return "";
+  }
 }
 
 function sharedDomain(): string | null {
@@ -79,7 +100,13 @@ export function getConsentSnapshot(): ConsentSnapshot {
 
 let gaLoaded = false;
 let lastPath: string | null = null;
-let pageLocation: string | null = null;
+// Returning visitors can load GA before the router's first effect runs.
+let pageLocation = analyticsLocation(window.location.pathname, window.location.search);
+let pageReferrer = referrerOrigin();
+
+function pageContext() {
+  return { page_location: pageLocation, page_referrer: pageReferrer };
+}
 
 function loadGa() {
   if (gaLoaded || !MEASUREMENT_ID) return;
@@ -90,7 +117,10 @@ function loadGa() {
     // gtag.js expects the arguments object itself, not an array copy.
     window.dataLayer!.push(arguments);
   };
+  window.gtag("consent", "default", { analytics_storage: "granted" });
   window.gtag("js", new Date());
+  // Set defaults for automatic events too, before GA initializes.
+  window.gtag("set", pageContext());
   window.gtag("config", MEASUREMENT_ID, { send_page_view: false });
 
   const script = document.createElement("script");
@@ -100,21 +130,25 @@ function loadGa() {
 }
 
 function sendPageView() {
-  if (!gaLoaded || !pageLocation) return;
-  window.gtag?.("event", "page_view", { page_location: pageLocation });
+  if (snapshot.consent !== "granted" || !gaLoaded) return;
+  window.gtag?.("set", pageContext());
+  window.gtag?.("event", "page_view", pageContext());
 }
 
 export function trackPageView(pathname: string, search: string) {
   if (!analyticsEnabled) return;
   // StrictMode runs effects twice in dev; one path change is one page view.
   if (pathname + search === lastPath) return;
+  if (lastPath !== null) pageReferrer = window.location.origin;
   lastPath = pathname + search;
-  pageLocation = window.location.origin + normalizePath(pathname) + search;
+  pageLocation = analyticsLocation(pathname, search);
   sendPageView();
 }
 
 export function grantConsent() {
   writeConsent("granted");
+  if (MEASUREMENT_ID) window[`ga-disable-${MEASUREMENT_ID}`] = false;
+  if (gaLoaded) window.gtag?.("consent", "update", { analytics_storage: "granted" });
   setSnapshot({ consent: "granted", settingsOpen: false });
   loadGa();
   sendPageView();
@@ -122,10 +156,11 @@ export function grantConsent() {
 
 export function denyConsent() {
   writeConsent("denied");
+  // Consent mode alone can still send cookieless pings; opt out of collection entirely.
+  if (MEASUREMENT_ID) window[`ga-disable-${MEASUREMENT_ID}`] = true;
   if (gaLoaded) {
+    window.gtag?.("consent", "update", { analytics_storage: "denied" });
     deleteGaCookies();
-    window.location.reload();
-    return;
   }
   setSnapshot({ consent: "denied", settingsOpen: false });
 }
