@@ -184,6 +184,7 @@ const privacy: LegalDocument = {
         "Notification data: browser push endpoint and the cryptographic subscription values needed to deliver a requested notification.",
         "Technical and security data: IP address used for short-lived invite rate limiting, request and error details, browser or device information made available to our infrastructure, and operational logs.",
         "Communications: the email address, wallet address, transaction details, and other information you choose to include when contacting support or legal.",
+        "Analytics data: if you accept analytics cookies, pages visited, referring site and campaign tags, approximate location, browser and device information, and visit times collected through Google Analytics. SABG does not deliberately add wallet addresses or account identifiers to analytics events.",
       ],
     },
     {
@@ -199,7 +200,8 @@ const privacy: LegalDocument = {
       title: "4. How we use information",
       paragraphs: [
         "We use information to provide and secure SABG, authenticate wallets, process Arena entry, record predictions, calculate game state, determine results, execute or reconcile payouts and refunds, show leaderboards, send requested notifications, diagnose failures, prevent abuse, answer support requests, enforce our Terms, and comply with legal obligations.",
-        "Where applicable law requires a legal basis, processing may be necessary to provide the Service you request, for our legitimate interests in operating and protecting SABG, or to comply with law.",
+        "If you accept analytics cookies, we also use analytics data to understand how people find and use SABG and to improve the Service.",
+        "Where applicable law requires a legal basis, processing may be necessary to provide the Service you request, for our legitimate interests in operating and protecting SABG, or to comply with law. Analytics relies on your consent, which you can withdraw at any time through Cookie settings.",
       ],
     },
     {
@@ -224,6 +226,7 @@ const privacy: LegalDocument = {
         "Your browser's push provider delivers notifications you request.",
         "Twitch, Kick, or YouTube may receive device, IP, request, and viewing data when an embedded stream loads.",
         "Google receives request information when the browser loads hosted fonts used by the interface.",
+        "Google receives page, device, and approximate location information through Google Analytics if you accept analytics cookies.",
         "Hosting, database, security, email, and support providers may process information needed to supply those services.",
       ],
     },
@@ -231,7 +234,7 @@ const privacy: LegalDocument = {
       id: "storage",
       title: "7. Cookies and browser storage",
       paragraphs: [
-        "SABG uses an essential invite-access cookie and browser local storage for the wallet session, stream layout, and sound preference. The app also registers a service worker used for requested push notifications. These technologies and their current duration are described in the Cookie Policy.",
+        "SABG uses an essential invite-access cookie, a preference cookie for your analytics choice, optional analytics cookies if you accept them, and browser local storage for the wallet session, stream layout, and sound preference. The app also registers a service worker used for requested push notifications. These technologies and their current duration are described in the Cookie Policy.",
       ],
     },
     {
@@ -289,9 +292,9 @@ const cookies: LegalDocument = {
       id: "technologies",
       title: "1. Cookies and similar technologies",
       paragraphs: [
-        "SABG currently uses necessary storage and preference storage. SABG does not currently use optional analytics or advertising technologies.",
+        "SABG currently uses necessary storage, preference storage, and optional analytics cookies that load only with your consent. SABG does not currently use advertising technologies.",
         "Cookies are small values a website stores through your browser. Local storage keeps values in the browser without sending them automatically with every request. Service workers support background browser functions such as requested push notifications. This Policy refers to these together as browser technologies.",
-        "Some browser technologies are necessary for requested functionality or security. Others remember your choices. Third-party content may use its own technologies under the provider's policy.",
+        "Some browser technologies are necessary for requested functionality or security. Others remember your choices or, with your consent, measure how the Service is used. Third-party content may use its own technologies under the provider's policy.",
       ],
     },
     {
@@ -315,8 +318,18 @@ const cookies: LegalDocument = {
       ],
     },
     {
+      id: "analytics",
+      title: "4. Optional analytics cookies",
+      paragraphs: [
+        "SABG uses Google Analytics to understand how people find and use the landing page and the app. Google Analytics loads only after you select Allow analytics in the cookie banner. If you select No thanks, it does not load and sets no cookies. You can use SABG without accepting analytics cookies.",
+        "sabg_consent is a first-party cookie that records whether you accepted or rejected analytics. It lasts six months, uses SameSite=Lax, and applies to sabg.fun and its subdomains, so one choice covers the landing page and the app.",
+        "If you accept, Google Analytics sets the first-party cookies _ga and _ga_ followed by an identifier. They distinguish visitors and sessions and last up to two years. Google receives pages visited, referring site and campaign tags, approximate location, browser and device information, and visit times. SABG does not deliberately add wallet addresses or account identifiers to analytics events.",
+        "You can change your choice at any time through Cookie settings in the app footer. Selecting No thanks after allowing analytics stops analytics collection on the current page and removes the analytics cookies without reloading the page.",
+      ],
+    },
+    {
       id: "push",
-      title: "4. Service worker and push notifications",
+      title: "5. Service worker and push notifications",
       paragraphs: [
         "The game app registers a service worker. If you choose Notify me and grant browser permission, the browser creates a push subscription and SABG stores its endpoint and cryptographic delivery values. The service worker displays the requested Arena notification and opens the related page when selected.",
         "Your browser and push provider may retain the subscription until it is unsubscribed, invalidated, or removed through browser settings. Stopping a series follow prevents that follow from triggering future messages but may not immediately remove the browser push subscription record.",
@@ -324,24 +337,24 @@ const cookies: LegalDocument = {
     },
     {
       id: "third-parties",
-      title: "5. Third-party technologies",
+      title: "6. Third-party technologies",
       paragraphs: [
-        "The interface loads fonts from Google Fonts. Google may receive IP address, device, and request information. When an operator-provided stream is available, the app may embed Twitch, Kick, or YouTube content; the stream provider may receive IP address, device, request, and viewing information.",
+        "The interface loads fonts from Google Fonts. Google may receive IP address, device, and request information. If you accept analytics cookies, Google also processes analytics data under its own policy, as described in section 4. When an operator-provided stream is available, the app may embed Twitch, Kick, or YouTube content; the stream provider may receive IP address, device, request, and viewing information.",
         "Wallet extensions and Solana RPC providers may process wallet, transaction, device, and request information. Your browser's push provider processes the subscription and delivery information needed for notifications. These providers may use their own cookies or storage.",
         "YouTube embeds use youtube-nocookie.com, but this does not mean that YouTube processes no information. SABG does not control third-party retention or browser technologies. Review the provider's privacy and cookie information before using its service.",
       ],
     },
     {
       id: "controls",
-      title: "6. Your controls",
+      title: "7. Your controls",
       paragraphs: [
-        "You can remove or block cookies and local storage through browser settings, sign out to remove the stored SABG wallet session, and manage notification or service-worker permissions through browser or device settings. Wallet extensions provide their own connection and storage controls.",
+        "You can accept or reject analytics through Cookie settings in the app footer. You can remove or block cookies and local storage through browser settings, sign out to remove the stored SABG wallet session, and manage notification or service-worker permissions through browser or device settings. Wallet extensions provide their own connection and storage controls.",
         "Blocking necessary storage may cause invite access, wallet sessions, saved preferences, streams, or notifications to stop working. Clearing browser data does not remove server records or public Solana transactions.",
       ],
     },
     {
       id: "changes-contact",
-      title: "7. Changes and contact",
+      title: "8. Changes and contact",
       paragraphs: [
         "We may update this Policy when storage purposes, providers, or the Service change. The Last updated date at the top identifies the current notice.",
         "For questions about browser technologies or privacy, contact legal@sabg.fun. For product support, contact support@sabg.fun.",

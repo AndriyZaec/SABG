@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { analyticsEnabled, openConsentSettings } from "../analytics/analytics.js";
 
 // Devnet program (mirrors @arena/contracts/onchain ARENA_PROGRAM_ID; hardcoded to keep the IDL out
 // of the eager bundle). Linked to Solana Explorer so the on-chain claim is verifiable.
@@ -49,7 +50,17 @@ export function Footer() {
           <span className="nb-footer__head">Legal</span>
           <a className="nb-footer__link" href="/terms" target="_blank" rel="noreferrer">Terms</a>
           <a className="nb-footer__link" href="/privacy" target="_blank" rel="noreferrer">Privacy</a>
-          <a className="nb-footer__link" href="/cookies" target="_blank" rel="noreferrer">Cookies</a>
+          <span className="nb-footer__pair">
+            <a className="nb-footer__link" href="/cookies" target="_blank" rel="noreferrer">Cookies</a>
+            {analyticsEnabled && (
+              <>
+                <span aria-hidden="true">/</span>
+                <button type="button" className="nb-footer__link" onClick={openConsentSettings}>
+                  Cookie settings
+                </button>
+              </>
+            )}
+          </span>
           <a className="nb-footer__link" href="mailto:support@sabg.fun">Support</a>
         </nav>
       </div>
