@@ -377,8 +377,11 @@ button.nb-footer__link {
   border-bottom: var(--bw-thick) solid var(--ink);
 }
 .nb-brand { display: flex; align-items: center; gap: 12px; }
+.nb-masthead__actions { gap: 10px; min-width: 0; max-width: 100%; }
 .nb-masthead__guide { font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.85rem; line-height: 1.2; padding: 11px 5px 11px 8px; }
 .nb-masthead__guide:hover { background: var(--paper-2); }
+.nb-masthead__guide:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
+.nb-masthead__guide-icon { display: none; }
 .nb-brand__logo {
   font-family: var(--font-display);
   text-transform: uppercase;
@@ -823,6 +826,7 @@ button.nb-footer__link {
 /* ---- Account dropdown ---- */
 .nb-menu { position: relative; }
 .nb-menu__trigger { gap: 8px; }
+.nb-menu__icon { display: none; }
 .nb-menu__caret { font-size: 0.8rem; line-height: 1; }
 .nb-menu__panel {
   position: absolute;
@@ -973,9 +977,18 @@ button.nb-footer__link {
   .guide-loop { grid-template-columns: 1fr 1fr; }
   .guide-loop > div:nth-child(2) { border-right: 0; }
   .guide-loop > div:nth-child(-n + 2) { border-bottom: var(--bw) solid var(--ink); }
-  /* masthead already wraps (brand ↕ wallet); just tighten the frame */
-  .nb-masthead { padding: 10px 14px; gap: 10px; }
-  .nb-masthead--match .nb-masthead__guide { display: none; }
+  .nb-masthead { padding: 10px 14px; gap: 10px; flex-wrap: nowrap; }
+  .nb-brand { flex-shrink: 0; }
+  .nb-brand__logo { font-size: 1.5rem; }
+  .nb-masthead__actions { gap: 6px; justify-content: flex-end; flex-wrap: nowrap; }
+  .nb-masthead__guide { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; flex-shrink: 0; }
+  .nb-masthead__guide-label { display: none; }
+  .nb-masthead__guide-icon { display: block; }
+  .nb-masthead .wallet-adapter-button { font-size: 0.75rem !important; padding-right: 10px !important; padding-left: 10px !important; min-height: 44px; }
+  .nb-masthead .wallet-adapter-button-start-icon { display: none; }
+  .nb-masthead .nb-menu__trigger { width: 44px; height: 44px; padding: 0; }
+  .nb-masthead .nb-menu__label, .nb-masthead .nb-menu__caret { display: none; }
+  .nb-masthead .nb-menu__icon { display: block; }
   /* scoreboard: reclaim the padding names/score were eating */
   .nb-scoreboard__team { padding: 12px 10px; }
   .nb-scoreboard__score { padding: 0 12px; gap: 6px; }
