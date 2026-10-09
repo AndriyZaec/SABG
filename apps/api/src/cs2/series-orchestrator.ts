@@ -20,7 +20,7 @@ const PUSH_FOLLOWER_BATCH_SIZE = 10;
 import { sendPushToUser } from "../push/service.js";
 import { cancelArenaOnchain } from "../onchain/index.js";
 import { payoutService } from "../payout/index.js";
-import type { Arena, Cs2GameSnapshot, Cs2Match, IsoDateTime, PredictionRound, Series, Uuid } from "@arena/contracts";
+import type { Arena, ArenaCancelledReason, Cs2GameSnapshot, Cs2Match, IsoDateTime, PredictionRound, Series, Uuid } from "@arena/contracts";
 import { Cs2ArenaRuntime, type Cs2ArenaPersistence } from "./arena-runtime.js";
 import {
   initialCs2SeriesLifecycleState,
@@ -101,7 +101,7 @@ export class Cs2SeriesOrchestrator {
         prizePoolLamports: 0,
       }));
 
-    const matchWasLive = arena.status === "live" || arena.status === "finished";
+    const matchWasLive = arena.status === "live" || arena.status === "finished" || arena.cancelledReason === "insufficient_players";
     this.lifecycleState = {
       ...this.lifecycleState,
       openedThrough: matchIndex,
@@ -117,6 +117,15 @@ export class Cs2SeriesOrchestrator {
       return;
     }
     if (arena.status === "cancelled") {
+      if (arena.cancelledReason === "insufficient_players") {
+        // The real map started even though the player arena didn't. Follow its end, not its signals.
+        if (latestMatch.status !== "finished") {
+          await matchRepository.setStatus(latestMatch.id, "live");
+          this.reconcilingCrashClosedMatch = true;
+        } else {
+          this.reconcilingFinishedMatch = true;
+        }
+      }
       if (arena.cancelledReason === "no_show") {
         await seriesRepository.setStatus(this.series.id, "invalid");
         this.lifecycleState = { ...this.lifecycleState, invalid: true };
@@ -411,6 +420,22 @@ export class Cs2SeriesOrchestrator {
     const opened = this.arenasByMatchIndex.get(matchIndex);
     if (opened === undefined) return;
     await closeEntrySubmissions(opened.arenaId);
+    const arena = await arenaRepository.findById(opened.arenaId);
+    if (arena?.cancelledReason === "insufficient_players") {
+      // Cancellation succeeded but a later write failed: retry without starting or paying the arena.
+      opened.detached = true;
+      await matchRepository.setStatus(opened.matchId, "live");
+      return;
+    }
+    if (arena?.status !== "lobby" && arena?.status !== "live") {
+      throw new Error(`Cannot start CS2 arena ${opened.arenaId}: it is no longer open`);
+    }
+    const paidEntries = (await entryPassRepository.listByArenaId(opened.arenaId)).filter((pass) => pass.status === "paid");
+    if (paidEntries.length < 2) {
+      await this.cancelArena(matchIndex, "insufficient_players");
+      await matchRepository.setStatus(opened.matchId, "live");
+      return;
+    }
     // Throwing keeps the poll uncommitted; once the game ends the reducer re-emits the cancel and it completes.
     if ((await arenaRepository.setLiveIfOpen(opened.arenaId)) === undefined) {
       throw new Error(`Cannot start CS2 arena ${opened.arenaId}: it is no longer open`);
@@ -427,7 +452,7 @@ export class Cs2SeriesOrchestrator {
     if (matchId !== undefined) await matchRepository.setStatus(matchId, "finished");
   }
 
-  private async cancelArena(matchIndex: number, reason: "no_show" | "series_decided" | "forfeit" | "operator_skip"): Promise<void> {
+  private async cancelArena(matchIndex: number, reason: ArenaCancelledReason): Promise<void> {
     // restore() creates no runtime for an already-cancelled arena, so fall back to the DB.
     const opened = this.arenasByMatchIndex.get(matchIndex);
     const arenaId = opened?.arenaId ?? (await this.findArenaIdByMatchIndex(matchIndex));

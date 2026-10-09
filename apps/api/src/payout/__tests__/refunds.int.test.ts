@@ -121,6 +121,16 @@ describe.skipIf(!RUN)("processPendingRefunds (integration, requires DATABASE_URL
     expect(await arenaRepository.findById(live.arenaId)).toMatchObject({ prizePoolLamports: 1000, activePlayersCount: 1 });
   });
 
+  it("refunds the full paid entry when the arena lacks a second player", async () => {
+    const { arenaId, passes } = await seedArena("cancelled", null, 1);
+    await db.update(schema.arenas).set({ cancelledReason: "insufficient_players" }).where(eq(schema.arenas.id, arenaId));
+    await processPendingRefunds();
+    expect(await entryPassRepository.listByArenaId(arenaId)).toEqual([
+      expect.objectContaining({ id: passes[0]!.id, amountLamports: 1000, status: "refunded" }),
+    ]);
+    expect(await arenaRepository.findById(arenaId)).toMatchObject({ prizePoolLamports: 0, activePlayersCount: 0 });
+  });
+
   it("keeps a failed wallet paid, skips clearing balances, and finishes on the next run", async () => {
     const onchainArenaId = 900_000_000 + Math.floor(Math.random() * 1_000_000);
     const { arenaId, passes } = await seedArena("cancelled", onchainArenaId, 2);

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { BN } from "@coral-xyz/anchor";
+import { ARENA_PLATFORM_FEE_BPS } from "@arena/contracts/onchain";
 import { LAMPORTS_PER_SOL, Transaction } from "@solana/web3.js";
 import {
   DEFAULT_ENTRY_FEE_LAMPORTS,
@@ -146,7 +147,7 @@ export function useArenaEntry(options: ArenaEntryOptions = {}): ArenaEntry {
     if (!program || !publicKey || targetArenaId === null) return;
     await run(() =>
       program.methods
-        .initArena(targetArenaId, DEFAULT_ENTRY_FEE_LAMPORTS, publicKey, 0)
+        .initArena(targetArenaId, DEFAULT_ENTRY_FEE_LAMPORTS, publicKey, ARENA_PLATFORM_FEE_BPS)
         .accounts({ authority: publicKey })
         .rpc(),
     );

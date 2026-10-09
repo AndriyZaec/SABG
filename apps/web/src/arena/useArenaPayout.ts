@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { BN } from "@coral-xyz/anchor";
+import { ARENA_TREASURY_ADDRESS } from "@arena/contracts/onchain";
 import { PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { DEMO_ARENA_ID, deriveArenaPdas, onchainArenaState, useArenaProgram } from "../solana/program.js";
 
@@ -93,7 +94,7 @@ export function useArenaPayout(options: ArenaPayoutOptions = {}): PayoutState {
         }));
         await program.methods
           .settlePayout()
-          .accountsPartial({ arena, escrow, payoutAuthority: publicKey })
+          .accountsPartial({ arena, escrow, treasury: new PublicKey(ARENA_TREASURY_ADDRESS), payoutAuthority: publicKey })
           .remainingAccounts(remainingAccounts)
           .rpc();
         await refresh();

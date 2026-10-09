@@ -1,4 +1,4 @@
-import type { Answer, Arena, Cs2Match, Cs2SeriesDetail } from "@arena/contracts";
+import type { Answer, Arena, ArenaCancelledReason, Cs2Match, Cs2SeriesDetail } from "@arena/contracts";
 import { Link, useParams } from "react-router-dom";
 import { useCs2ArenaSocket } from "./live/useCs2ArenaSocket.js";
 import { SeriesHeader } from "./live/SeriesHeader.js";
@@ -18,6 +18,28 @@ import { PendingPredictionsList } from "../arena/live/PendingPredictionsList.js"
 import { WinnerBanner } from "../arena/live/WinnerBanner.js";
 import { Loading } from "../ui/Loading.js";
 import { Panel } from "../ui/Panel.js";
+import { Badge } from "../ui/Badge.js";
+
+function Cs2ArenaCancelled({ arena, match, reason }: { arena: Arena; match: Cs2Match; reason: ArenaCancelledReason | undefined }) {
+  const entry = useCs2ArenaEntry({
+    ...(arena.onchainArenaId != null ? { onchainArenaId: arena.onchainArenaId } : {}),
+    backendArenaId: arena.id,
+  });
+  return (
+    <div className="nb-container">
+      <Link className="cs2-back cs2-back--spaced" to={`/cs2/series/${match.seriesId}`}>← Back to series</Link>
+      <Panel title="Arena cancelled" accent="red">
+        <p>{reason === "insufficient_players"
+          ? "At least 2 players are required to start an arena."
+          : "This arena did not take place."}</p>
+        <p>Paid entries will be refunded in full.</p>
+        {entry.entryRefunded
+          ? <Badge tone="neutral">Entry refunded</Badge>
+          : entry.hasEntry && <Badge tone="neutral">Refund processing</Badge>}
+      </Panel>
+    </div>
+  );
+}
 
 function teamPresentation(team: Cs2Match["teamScores"][number], series?: Cs2SeriesDetail) {
   const participant = series?.participants.find(
@@ -151,11 +173,9 @@ export function Cs2ArenaScreen() {
   // Always the second child, so moving from lobby to live keeps the same player instead of reloading it.
   const withStream = (body: React.JSX.Element) => <>{body}<Cs2SeriesStream seriesId={match.seriesId} /></>;
 
-  if (arena.status === "cancelled") {
+  if (arena.status === "cancelled" || view?.cancelled) {
     return withStream(
-      <div className="nb-container">
-        <Panel accent="red">This arena was cancelled ({arena.cancelledReason ?? "cancelled"}).</Panel>
-      </div>,
+      <Cs2ArenaCancelled arena={arena} match={match} reason={arena.cancelledReason ?? view?.cancelled?.reason} />,
     );
   }
 
@@ -175,10 +195,6 @@ export function Cs2ArenaScreen() {
 
   if (!view) {
     return withStream(<div className="nb-container"><Loading label="Loading arena…" /></div>);
-  }
-
-  if (view.cancelled) {
-    return withStream(<div className="nb-container"><Panel accent="red">This arena was cancelled ({view.cancelled.reason}).</Panel></div>);
   }
 
   return withStream(
