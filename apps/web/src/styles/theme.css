@@ -975,6 +975,7 @@ button.nb-footer__link {
   .guide-loop > div:nth-child(-n + 2) { border-bottom: var(--bw) solid var(--ink); }
   /* masthead already wraps (brand ↕ wallet); just tighten the frame */
   .nb-masthead { padding: 10px 14px; gap: 10px; }
+  .nb-masthead--match .nb-masthead__guide { display: none; }
   /* scoreboard: reclaim the padding names/score were eating */
   .nb-scoreboard__team { padding: 12px 10px; }
   .nb-scoreboard__score { padding: 0 12px; gap: 6px; }
