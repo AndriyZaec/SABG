@@ -64,13 +64,26 @@ export function createRestRouter(runtimeLookup: ArenaRuntimeLookup): RouterType 
 
   router.post<Record<string, never>, WalletNonceResponse | ApiError, WalletNonceRequest>(
     "/auth/nonce",
-    (req, res) => {
-      const { walletAddress } = req.body;
-      if (!walletAddress) {
+    async (req, res) => {
+      const body: unknown = req.body;
+      const walletAddress = typeof body === "object" && body !== null && "walletAddress" in body
+        ? body.walletAddress
+        : undefined;
+      if (typeof walletAddress !== "string" || walletAddress.length === 0) {
         res.status(400).json({ error: "bad_request", message: "walletAddress is required" });
         return;
       }
-      res.json({ nonce: issueNonce(walletAddress) });
+      if (walletAddress.length > 44 || !(await isValidSolanaWalletAddress(walletAddress))) {
+        res.status(400).json({ error: "bad_request", message: "walletAddress is not a valid Solana address" });
+        return;
+      }
+      const challenge = issueNonce(walletAddress, gatewayConfig.auth.signInDomain);
+      if (challenge === undefined) {
+        res.setHeader("Retry-After", "60");
+        res.status(503).json({ error: "nonce_store_full", message: "Sign-in temporarily unavailable; try again later" });
+        return;
+      }
+      res.json(challenge);
     },
   );
 
@@ -78,14 +91,26 @@ export function createRestRouter(runtimeLookup: ArenaRuntimeLookup): RouterType 
   router.post<Record<string, never>, WalletSignInResponse | ApiError, WalletSignInRequest>(
     "/auth/wallet",
     async (req, res) => {
-      const { walletAddress, message, signature } = req.body;
-      if (!walletAddress) {
+      const body: unknown = req.body;
+      if (typeof body !== "object" || body === null || Array.isArray(body)) {
+        res.status(400).json({ error: "bad_request", message: "A sign-in request object is required" });
+        return;
+      }
+      const walletAddress = "walletAddress" in body ? body.walletAddress : undefined;
+      const message = "message" in body ? body.message : undefined;
+      const signature = "signature" in body ? body.signature : undefined;
+      if (typeof walletAddress !== "string" || walletAddress.length === 0) {
         res.status(400).json({ error: "bad_request", message: "walletAddress is required" });
+        return;
+      }
+      if (walletAddress.length > 44 || !(await isValidSolanaWalletAddress(walletAddress))) {
+        res.status(400).json({ error: "bad_request", message: "walletAddress is not a valid Solana address" });
         return;
       }
 
       if (gatewayConfig.auth.requireSignature) {
-        if (!message || !signature) {
+        if (typeof message !== "string" || message.length === 0 || message.length > 1024
+          || typeof signature !== "string" || signature.length === 0 || signature.length > 88) {
           res.status(400).json({ error: "bad_request", message: "message and signature are required" });
           return;
         }
@@ -94,7 +119,7 @@ export function createRestRouter(runtimeLookup: ArenaRuntimeLookup): RouterType 
           return;
         }
         if (!consumeNonce(walletAddress, message)) {
-          res.status(401).json({ error: "unauthorized", message: "invalid or expired nonce" });
+          res.status(401).json({ error: "unauthorized", message: "invalid or expired sign-in challenge" });
           return;
         }
       }

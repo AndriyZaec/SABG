@@ -102,7 +102,7 @@ export function Cs2SeriesScreen() {
       <Link className="cs2-back" to="/">← All CS2 series</Link>
       <section className="cs2-match-hero">
         <div className="cs2-match-hero__event">
-          <TeamLogo name={series.competition.name} {...(series.competition.logoUrl ? { src: series.competition.logoUrl } : {})} />
+          <TeamLogo name={series.competition.name} fallback="trophy" {...(series.competition.logoUrl ? { src: series.competition.logoUrl } : {})} />
           <div><span className="nb-label">{series.competition.name}</span><strong>Best of {series.format}</strong></div>
           <Badge tone={series.lifecycle === "live" ? "live" : "neutral"}>{series.lifecycle}</Badge>
           {arenaForecastLabel[series.arena] !== undefined && <span className="cs2-soon-label cs2-soon-label--detail">{arenaForecastLabel[series.arena]}</span>}

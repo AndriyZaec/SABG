@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import bs58 from "bs58";
-import { buildSignInMessage } from "@arena/auth";
 import type { User } from "@arena/contracts";
 import { requestNonce, walletSignIn, setAuthToken } from "../api/client.js";
 
@@ -50,7 +49,7 @@ function clearSession(): void {
   }
 }
 
-/** Connect-then-sign-in: fetch nonce → build message → wallet signs → verify server-side. */
+/** Connect-then-sign-in: fetch server challenge → wallet signs → verify server-side. */
 export function useWalletAuth(): WalletAuth {
   const { publicKey, signMessage, connected } = useWallet();
   const [user, setUser] = useState<User | null>(() => loadSession()?.user ?? null);
@@ -70,12 +69,7 @@ export function useWalletAuth(): WalletAuth {
     setStatus("signing");
     setError(undefined);
     try {
-      const { nonce } = await requestNonce({ walletAddress: address });
-      const message = buildSignInMessage({
-        domain: window.location.host,
-        address,
-        nonce,
-      });
+      const { message } = await requestNonce({ walletAddress: address });
       const signature = bs58.encode(
         await signMessage(new TextEncoder().encode(message)),
       );

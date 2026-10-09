@@ -76,7 +76,7 @@ export function Cs2Catalog({ series, followedIds }: { series: Cs2SeriesSummary[]
   return (
     <div className="nb-container cs2-broadcast">
       <header className="cs2-broadcast__mast">
-        <TeamLogo name={competition.name} {...(competition.logoUrl ? { src: competition.logoUrl } : {})} />
+        <TeamLogo name={competition.name} fallback="trophy" {...(competition.logoUrl ? { src: competition.logoUrl } : {})} />
         <div><span className="nb-label">Event</span><h1>{competition.name}</h1></div>
         <div className="cs2-broadcast__signal">
           <Badge tone={liveSeries.length > 0 ? "live" : "neutral"}>{liveSeries.length > 0 ? "Live event" : "Off air"}</Badge>
