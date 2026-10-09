@@ -4,11 +4,16 @@
 
 Live CS2 predictions. Elimination rounds. On-chain prizes.
 
+[Website](https://sabg.fun) · [Open app](https://app.sabg.fun)
+
 ## What SABG is
 
 SABG is a live CS2 survival prediction game. Players follow the same match, answer shared Yes/No
 questions, and compete to stay in the arena. Correct answers keep them in the game; wrong or missed
 answers eliminate them.
+
+SABG turns watching professional CS2 events into a competition between viewers. Fans predict the
+same live moments and compete to be the last player standing.
 
 Each map has its own arena. Entry fees and prize-pool settlement run on **Solana devnet**. Live match
 processing, predictions, elimination, and realtime updates stay off-chain.
@@ -19,7 +24,8 @@ processing, predictions, elimination, and realtime updates stay off-chain.
 2. Connect a Solana wallet, sign in, and buy an entry while the arena is open for entry.
 3. Answer Yes/No questions about upcoming CS2 rounds before their prediction windows lock.
 4. Live provider data determines the result; wrong or missed answers eliminate the player.
-5. The remaining winner or winners receive the escrowed prize pool through an on-chain payout.
+5. A 10% platform fee is deducted at settlement; the remaining pool is shared among the winners
+   through an on-chain payout.
 
 The frontend includes live predictions, survivor counts, leaderboards, results, optional stream
 viewing, and push notifications for arena availability.
@@ -45,10 +51,14 @@ Solana devnet: arena provisioning -> entry escrow -> payouts / cancellation refu
 
 The Anchor program initializes arenas and escrow PDAs, issues one entry pass per wallet per arena,
 rejects duplicate entries, and enforces authority-gated settlement and cancellation. Cancelled
-arenas support entry refunds.
+arenas support entry refunds without a platform fee.
 
 The backend provisions on-chain arenas when enabled, verifies and relays wallet-signed entry
 transactions, and submits authority-signed payouts. Game logic remains off-chain.
+
+At settlement, the 10% platform fee goes to the treasury and the remaining 90% is split equally
+among winners. Amounts are rounded in lamports, with any fee-rounding remainder kept in the winner
+pool.
 
 This repository targets **Solana devnet only**.
 
