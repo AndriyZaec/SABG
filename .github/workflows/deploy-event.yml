@@ -21,7 +21,7 @@ jobs:
       contents: read
     services:
       postgres:
-        image: postgres:16.9-bookworm@sha256:253815cf7579ffa05e1673d92e78d37273e61be0e4414e9a1449337d7925be94
+        image: mirror.gcr.io/library/postgres:16.9-bookworm@sha256:253815cf7579ffa05e1673d92e78d37273e61be0e4414e9a1449337d7925be94
         env:
           POSTGRES_USER: arena
           POSTGRES_PASSWORD: arena
