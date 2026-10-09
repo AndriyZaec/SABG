@@ -1,10 +1,8 @@
-# SABG
-
-**Sports Arena Battle Ground**
+![SABG — Sports Arena Battle Ground](docs/sabg-banner.png)
 
 Live CS2 predictions. Elimination rounds. On-chain prizes.
 
-[Website](https://sabg.fun) · [Open app](https://app.sabg.fun)
+[Website](https://sabg.fun/?utm_source=github&utm_medium=referral&utm_campaign=repo_readme) · [Open app](https://app.sabg.fun/?utm_source=github&utm_medium=referral&utm_campaign=repo_readme)
 
 ## What SABG is
 
