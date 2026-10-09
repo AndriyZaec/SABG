@@ -76,10 +76,6 @@ if (env.EVENT_ACCESS_CODE_HASH !== undefined && !isEventAccessCodeHash(env.EVENT
   throw new Error("EVENT_ACCESS_CODE_HASH must be a valid scrypt event access hash");
 }
 
-if (env.NODE_ENV === "production" && env.EVENT_ACCESS_CODE_HASH === undefined) {
-  throw new Error("EVENT_ACCESS_CODE_HASH must be set to a valid scrypt event access hash in production");
-}
-
 const gameSource: GameSourceMode = env.GAME_SOURCE;
 
 export const gatewayConfig = {
