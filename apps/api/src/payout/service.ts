@@ -1,4 +1,5 @@
 import type { Arena, Payout, Uuid, WalletAddress } from "@arena/contracts";
+import { calculatePlatformFeeLamports } from "@arena/contracts/onchain";
 
 // Reject non-Solana destinations before releasing escrow.
 const BASE58_PUBKEY = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
@@ -63,9 +64,11 @@ export function createPayoutService(deps: PayoutServiceDeps): PayoutService {
         return;
       }
 
-      // Match the on-chain split exactly, including assigning the remainder to the first winner.
-      const share = Math.floor(arena.prizePoolLamports / resolved.length);
-      const remainder = arena.prizePoolLamports - share * resolved.length;
+      // Match the on-chain fee and split exactly, including assigning the remainder to the first winner.
+      const platformFeeLamports = calculatePlatformFeeLamports(arena.prizePoolLamports);
+      const distributablePoolLamports = arena.prizePoolLamports - platformFeeLamports;
+      const share = Math.floor(distributablePoolLamports / resolved.length);
+      const remainder = distributablePoolLamports - share * resolved.length;
 
       const existingPayouts = await deps.listPayouts(arenaId);
       const expectedUsers = new Set(resolved.map((winner) => winner.userId));

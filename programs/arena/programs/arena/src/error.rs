@@ -14,7 +14,7 @@ pub enum ArenaError {
     NoWinners,
     #[msg("Entry fee must be greater than zero")]
     InvalidEntryFee,
-    #[msg("Platform fee exceeds 100%")]
+    #[msg("Platform fee must be 10%")]
     InvalidPlatformFee,
     #[msg("Arena is not open")]
     ArenaNotOpen,
@@ -26,4 +26,8 @@ pub enum ArenaError {
     AccountingUnderflow,
     #[msg("Escrow cannot receive a winner payout")]
     InvalidWinner,
+    #[msg("Arena accounting overflow")]
+    AccountingOverflow,
+    #[msg("Invalid platform treasury")]
+    InvalidTreasury,
 }

@@ -13,6 +13,8 @@ use state::*;
 declare_id!("84o7QQ3vkGkm3D6wfaqEHxFN93p3Q2b6SFtfazzxZuxH");
 
 const MAX_BPS: u16 = 10_000;
+const PLATFORM_FEE_BPS: u16 = 1_000;
+const DEVNET_TREASURY: Pubkey = pubkey!("nvy4VWVymKZpYZEBtwNYUzJzG9R11P7Wc7khvenMpzW");
 
 #[program]
 pub mod arena {
@@ -27,7 +29,10 @@ pub mod arena {
         platform_fee_bps: u16,
     ) -> Result<()> {
         require!(entry_fee_lamports > 0, ArenaError::InvalidEntryFee);
-        require!(platform_fee_bps <= MAX_BPS, ArenaError::InvalidPlatformFee);
+        require!(
+            platform_fee_bps == PLATFORM_FEE_BPS,
+            ArenaError::InvalidPlatformFee
+        );
 
         let arena = &mut ctx.accounts.arena;
         arena.authority = ctx.accounts.authority.key();
@@ -94,13 +99,34 @@ pub mod arena {
         for winner in winners {
             require_keys_neq!(winner.key(), escrow.key(), ArenaError::InvalidWinner);
         }
-        let pool = escrow.lamports();
+        let gross_pool = arena.prize_pool_lamports;
+        let escrow_balance = escrow.lamports();
+        let fee_numerator = u128::from(gross_pool)
+            .checked_mul(u128::from(arena.platform_fee_bps))
+            .ok_or(ArenaError::AccountingOverflow)?;
+        let platform_fee = u64::try_from(fee_numerator / u128::from(MAX_BPS))
+            .map_err(|_| ArenaError::AccountingOverflow)?;
+        let winner_pool = escrow_balance
+            .checked_sub(platform_fee)
+            .ok_or(ArenaError::AccountingUnderflow)?;
         let n = winners.len() as u64;
-        let share = pool / n;
-        let remainder = pool - share * n;
+        let share = winner_pool / n;
+        let remainder = winner_pool - share * n;
 
         let arena_key = arena.key();
         let escrow_seeds: &[&[u8]] = &[b"escrow", arena_key.as_ref(), &[arena.escrow_bump]];
+
+        transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.system_program.to_account_info(),
+                Transfer {
+                    from: escrow.clone(),
+                    to: ctx.accounts.treasury.to_account_info(),
+                },
+                &[escrow_seeds],
+            ),
+            platform_fee,
+        )?;
 
         for (i, winner) in winners.iter().enumerate() {
             let amount = if i == 0 { share + remainder } else { share };
@@ -260,6 +286,9 @@ pub struct SettlePayout<'info> {
     /// CHECK: escrow PDA (system-owned) that the pooled lamports are paid out from.
     #[account(mut, seeds = [b"escrow", arena.key().as_ref()], bump = arena.escrow_bump)]
     pub escrow: SystemAccount<'info>,
+
+    #[account(mut, address = DEVNET_TREASURY @ ArenaError::InvalidTreasury)]
+    pub treasury: SystemAccount<'info>,
 
     pub payout_authority: Signer<'info>,
     pub system_program: Program<'info, System>,

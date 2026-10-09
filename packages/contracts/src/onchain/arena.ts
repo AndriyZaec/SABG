@@ -553,6 +553,11 @@ export type Arena = {
           }
         },
         {
+          "name": "treasury",
+          "writable": true,
+          "address": "nvy4VWVymKZpYZEBtwNYUzJzG9R11P7Wc7khvenMpzW"
+        },
+        {
           "name": "payoutAuthority",
           "signer": true
         },
@@ -639,7 +644,7 @@ export type Arena = {
     {
       "code": 6006,
       "name": "invalidPlatformFee",
-      "msg": "Platform fee exceeds 100%"
+      "msg": "Platform fee must be 10%"
     },
     {
       "code": 6007,
@@ -665,6 +670,16 @@ export type Arena = {
       "code": 6011,
       "name": "invalidWinner",
       "msg": "Escrow cannot receive a winner payout"
+    },
+    {
+      "code": 6012,
+      "name": "accountingOverflow",
+      "msg": "Arena accounting overflow"
+    },
+    {
+      "code": 6013,
+      "name": "invalidTreasury",
+      "msg": "Invalid platform treasury"
     }
   ],
   "types": [
@@ -711,7 +726,7 @@ export type Arena = {
           {
             "name": "platformFeeBps",
             "docs": [
-              "Optional platform fee in basis points (0 for MVP)."
+              "Platform fee in basis points, fixed at arena initialization."
             ],
             "type": "u16"
           },

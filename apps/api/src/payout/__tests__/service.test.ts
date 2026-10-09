@@ -45,7 +45,7 @@ describe("payout service — settleArena", () => {
     const { deps, created } = makeDeps();
     await createPayoutService(deps).settleArena("arena-1", ["u1", "u2"]);
 
-    expect(created.map((c) => c.amountLamports)).toEqual([150, 150]);
+    expect(created.map((c) => c.amountLamports)).toEqual([135, 135]);
     expect(deps.settleOnchain).toHaveBeenCalledWith(42, [WALLET.u1, WALLET.u2]);
     expect(deps.markSent).toHaveBeenCalledTimes(2);
     expect(deps.markSent).toHaveBeenCalledWith("p1", "sig-123");
@@ -55,7 +55,7 @@ describe("payout service — settleArena", () => {
   it("gives the remainder to the first winner", async () => {
     const { deps, created } = makeDeps({ findArena: vi.fn().mockResolvedValue(arena({ prizePoolLamports: 301 })) });
     await createPayoutService(deps).settleArena("arena-1", ["u1", "u2"]);
-    expect(created.map((c) => c.amountLamports)).toEqual([151, 150]);
+    expect(created.map((c) => c.amountLamports)).toEqual([136, 135]);
   });
 
   it("marks all payouts failed when the on-chain settle throws", async () => {
@@ -70,7 +70,7 @@ describe("payout service — settleArena", () => {
       id: "p-existing",
       arenaId: "arena-1",
       userId: "u1",
-      amountLamports: 300,
+      amountLamports: 270,
       status: "failed",
     };
     const { deps } = makeDeps({
@@ -90,7 +90,7 @@ describe("payout service — settleArena", () => {
       id: "p-existing",
       arenaId: "arena-1",
       userId: "u1",
-      amountLamports: 300,
+      amountLamports: 270,
       status: "sent",
       txSignature: "sig-123",
     };
@@ -120,7 +120,7 @@ describe("payout service — settleArena", () => {
       id: "p-existing",
       arenaId: "arena-1",
       userId: "u1",
-      amountLamports: 300,
+      amountLamports: 270,
       status: "failed",
     };
     const { deps } = makeDeps({
