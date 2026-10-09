@@ -9,6 +9,8 @@ export interface SignInMessageParams {
   nonce: string;
   /** ISO timestamp; defaults to now. */
   issuedAt?: string;
+  /** Server-defined expiration timestamp for a sign-in challenge. */
+  expirationTime?: string;
   statement?: string;
 }
 
@@ -31,5 +33,6 @@ export function buildSignInMessage(params: SignInMessageParams): string {
     "",
     `Nonce: ${params.nonce}`,
     `Issued At: ${issuedAt}`,
+    ...(params.expirationTime === undefined ? [] : [`Expiration Time: ${params.expirationTime}`]),
   ].join("\n");
 }

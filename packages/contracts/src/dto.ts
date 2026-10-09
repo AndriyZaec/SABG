@@ -36,12 +36,15 @@ export interface EventAccessSignInRequest {
   code: string;
 }
 
-/** POST /auth/nonce — request a fresh nonce to embed in the sign-in message. */
+/** POST /auth/nonce — request the server-issued sign-in challenge. */
 export interface WalletNonceRequest {
   walletAddress: WalletAddress;
 }
 export interface WalletNonceResponse {
   nonce: string;
+  /** Exact canonical text to sign, including the server's domain and timestamps. */
+  message: string;
+  expiresAt: IsoDateTime;
 }
 
 /** POST /auth/wallet — sign-in with Solana. */

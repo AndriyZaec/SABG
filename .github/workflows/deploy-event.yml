@@ -151,6 +151,7 @@ jobs:
           build-args: |
             VCS_REF=${{ github.sha }}
             VITE_VAPID_PUBLIC_KEY=${{ vars.VITE_VAPID_PUBLIC_KEY }}
+            VITE_GA_MEASUREMENT_ID=${{ vars.VITE_GA_MEASUREMENT_ID }}
           provenance: mode=max
           sbom: true
           cache-from: type=gha

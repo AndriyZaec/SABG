@@ -17,7 +17,7 @@ import type {
   WalletSignInRequest,
   WalletSignInResponse,
 } from "@arena/contracts";
-import { generateNonce, verifyWalletSignInRequest } from "@arena/auth";
+import { buildSignInMessage, generateNonce, verifyWalletSignInRequest } from "@arena/auth";
 
 // Development remains standalone by default; production builds use the same-origin real backend.
 const USE_MOCK = (import.meta.env.VITE_MOCK_API ?? (import.meta.env.PROD ? "false" : "true")) !== "false";
@@ -97,7 +97,19 @@ async function reportEventAccessFailure(response: Response): Promise<void> {
 export async function requestNonce(
   req: WalletNonceRequest,
 ): Promise<WalletNonceResponse> {
-  if (USE_MOCK) return { nonce: generateNonce() };
+  if (USE_MOCK) {
+    const nonce = generateNonce();
+    const now = Date.now();
+    const expiresAt = new Date(now + 5 * 60 * 1000).toISOString();
+    const message = buildSignInMessage({
+      domain: window.location.host,
+      address: req.walletAddress,
+      nonce,
+      issuedAt: new Date(now).toISOString(),
+      expirationTime: expiresAt,
+    });
+    return { nonce, message, expiresAt };
+  }
   return post<WalletNonceRequest, WalletNonceResponse>("/auth/nonce", req);
 }
 
