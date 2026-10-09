@@ -6,7 +6,6 @@ import type {
   Answer,
   ArenaCancelledMessage,
   ArenaFinishedMessage,
-  ClientMessage,
   LeaderboardMessage,
   MatchStateMessage,
   RoundLockMessage,
@@ -16,6 +15,7 @@ import type {
   ServerMessage,
   Uuid,
 } from "@arena/contracts";
+import { isClientMessage } from "@arena/contracts";
 import { authenticateWsUrl } from "./auth.js";
 import { logger } from "./logger.js";
 import type { ArenaRuntimeLike, ArenaRuntimeLookup, GatewayBroadcaster } from "./arena-runtime.js";
@@ -113,7 +113,17 @@ export class GatewayWebSocketServer implements GatewayBroadcaster, ArenaRuntimeL
     }
 
     const conn: Connection = { socket, userId, arenaId: undefined };
-    socket.on("message", (data) => this.handleMessage(conn, data.toString()));
+    socket.on("message", (data) => {
+      try {
+        this.handleMessage(conn, data.toString());
+      } catch (err: unknown) {
+        logger.error({ err, userId }, "ws message handling failed");
+        socket.close(1011, "message handling failed");
+      }
+    });
+    socket.on("error", (err) => {
+      logger.warn({ err, userId }, "ws connection error");
+    });
     socket.on("close", () => {
       if (expiryTimer !== undefined) clearTimeout(expiryTimer);
       this.removeConnection(conn);
@@ -121,12 +131,13 @@ export class GatewayWebSocketServer implements GatewayBroadcaster, ArenaRuntimeL
   }
 
   private handleMessage(conn: Connection, raw: string): void {
-    let message: ClientMessage;
+    let message: unknown;
     try {
-      message = JSON.parse(raw) as ClientMessage;
+      message = JSON.parse(raw);
     } catch {
       return;
     }
+    if (!isClientMessage(message)) return;
 
     switch (message.type) {
       case "subscribe":

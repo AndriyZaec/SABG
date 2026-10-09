@@ -6,7 +6,7 @@ import nacl from "tweetnacl";
 import bs58 from "bs58";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildSignInMessage } from "@arena/auth";
-import type { Arena, ArenaPlayer, EntryPass, Match, Prediction, PredictionRound, SoccerMatch, User } from "@arena/contracts";
+import type { Arena, ArenaPlayer, EntryPass, Match, Prediction, PredictionRound, SoccerMatch, User, WalletNonceResponse } from "@arena/contracts";
 
 const pushKey = createECDH("prime256v1");
 pushKey.setPrivateKey(Buffer.alloc(32, 1));
@@ -66,6 +66,7 @@ const { seriesRepository } = await import("../../db/repositories/series.reposito
 const { buildEntryTx, isOnchainArenaProvisioningEnabled, isValidSolanaWalletAddress, verifyPreparedEntryTransaction } = await import("../../onchain/index.js");
 const { createRestRouter } = await import("../rest.js");
 const { issueToken } = await import("../auth.js");
+const { gatewayConfig } = await import("../config.js");
 
 const ARENA_ID = "arena-1";
 const MATCH_ID = "match-1";
@@ -157,13 +158,14 @@ describe("REST gateway routes", () => {
       });
     };
 
-    const nonceFor = async (walletAddress: string): Promise<string> => {
+    const nonceFor = async (walletAddress: string): Promise<WalletNonceResponse> => {
       const res = await fetch(`${baseUrl}/auth/nonce`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ walletAddress }),
       });
-      return ((await res.json()) as { nonce: string }).nonce;
+      expect(res.status).toBe(200);
+      return await res.json() as WalletNonceResponse;
     };
 
     it("verifies a signed nonce, upserts the user, and returns a token", async () => {
@@ -172,8 +174,9 @@ describe("REST gateway routes", () => {
       const user: User = { id: "u1", walletAddress, username: "fan_wallet" };
       vi.mocked(userRepository.upsertByWallet).mockResolvedValue(user);
 
-      const nonce = await nonceFor(walletAddress);
-      const message = buildSignInMessage({ domain: "test", address: walletAddress, nonce });
+      const { message, expiresAt } = await nonceFor(walletAddress);
+      expect(message).toContain(`${gatewayConfig.auth.signInDomain} wants you to sign in`);
+      expect(message).toContain(`Expiration Time: ${expiresAt}`);
       const res = await signIn(kp.secretKey, walletAddress, message);
 
       expect(res.status).toBe(200);
@@ -186,8 +189,7 @@ describe("REST gateway routes", () => {
       const kp = nacl.sign.keyPair();
       const other = nacl.sign.keyPair();
       const walletAddress = bs58.encode(kp.publicKey);
-      const nonce = await nonceFor(walletAddress);
-      const message = buildSignInMessage({ domain: "test", address: walletAddress, nonce });
+      const { message } = await nonceFor(walletAddress);
       const res = await signIn(other.secretKey, walletAddress, message);
       expect(res.status).toBe(401);
     });
@@ -207,6 +209,120 @@ describe("REST gateway routes", () => {
         body: JSON.stringify({}),
       });
       expect(res.status).toBe(400);
+    });
+
+    it.each([{}, { walletAddress: 42 }, { walletAddress: [] }, { walletAddress: "" }])(
+      "rejects a malformed nonce request: %j",
+      async (body) => {
+        const res = await fetch(`${baseUrl}/auth/nonce`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        expect(res.status).toBe(400);
+        expect(isValidSolanaWalletAddress).not.toHaveBeenCalled();
+      },
+    );
+
+    it("rejects an invalid Solana address before issuing a nonce", async () => {
+      vi.mocked(isValidSolanaWalletAddress).mockResolvedValue(false);
+      const res = await fetch(`${baseUrl}/auth/nonce`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ walletAddress: "not-a-wallet" }),
+      });
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({
+        error: "bad_request", message: "walletAddress is not a valid Solana address",
+      });
+    });
+
+    it("rejects a nonce request without a JSON body", async () => {
+      const res = await fetch(`${baseUrl}/auth/nonce`, { method: "POST" });
+      expect(res.status).toBe(400);
+      expect(isValidSolanaWalletAddress).not.toHaveBeenCalled();
+    });
+
+    it("returns a retryable 503 when the nonce store reaches capacity", async () => {
+      const { issueNonce, consumeNonce } = await import("../nonce-store.js");
+      const wallets: string[] = [];
+      try {
+        for (let index = 0; index < 10_000; index += 1) {
+          const wallet = `capacity-test-${index}`;
+          if (issueNonce(wallet, "test") === undefined) break;
+          wallets.push(wallet);
+        }
+        const res = await fetch(`${baseUrl}/auth/nonce`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ walletAddress: bs58.encode(nacl.sign.keyPair().publicKey) }),
+        });
+        expect(res.status).toBe(503);
+        expect(res.headers.get("retry-after")).toBe("60");
+        expect(await res.json()).toEqual({
+          error: "nonce_store_full", message: "Sign-in temporarily unavailable; try again later",
+        });
+      } finally {
+        // Release this test's records by consuming their current challenges.
+        for (const wallet of wallets) {
+          const challenge = issueNonce(wallet, "test")!;
+          consumeNonce(wallet, challenge.message);
+        }
+      }
+    });
+
+    it.each([
+      "domain", "address", "statement", "nonce", "issuedAt", "expiration", "extraText",
+    ])("rejects a correctly signed message with altered %s, then accepts the original", async (field) => {
+      const kp = nacl.sign.keyPair();
+      const walletAddress = bs58.encode(kp.publicKey);
+      const { message } = await nonceFor(walletAddress);
+      const lines = message.split("\n");
+      switch (field) {
+        case "domain": lines[0] = "other.app wants you to sign in with your Solana account:"; break;
+        case "address": lines[1] = bs58.encode(nacl.sign.keyPair().publicKey); break;
+        case "statement": lines[3] = "A different statement."; break;
+        case "nonce": lines[5] = `${lines[5]}extra`; break;
+        case "issuedAt": lines[6] = "Issued At: 2000-01-01T00:00:00.000Z"; break;
+        case "expiration": lines[7] = "Expiration Time: 2099-01-01T00:00:00.000Z"; break;
+        case "extraText": lines.push("Extra text"); break;
+      }
+      expect((await signIn(kp.secretKey, walletAddress, lines.join("\n"))).status).toBe(401);
+      expect(userRepository.upsertByWallet).not.toHaveBeenCalled();
+
+      vi.mocked(userRepository.upsertByWallet).mockResolvedValue({ id: "u1", walletAddress, username: "fan" });
+      expect((await signIn(kp.secretKey, walletAddress, message)).status).toBe(200);
+      expect((await signIn(kp.secretKey, walletAddress, message)).status).toBe(401);
+      expect(userRepository.upsertByWallet).toHaveBeenCalledTimes(1);
+    });
+
+    it("rejects malformed sign-in fields without creating a session", async () => {
+      const walletAddress = bs58.encode(nacl.sign.keyPair().publicKey);
+      for (const body of [
+        { walletAddress: 42, message: "text", signature: "text" },
+        { walletAddress, message: {}, signature: "text" },
+        { walletAddress, message: "text", signature: [] },
+      ]) {
+        const res = await fetch(`${baseUrl}/auth/wallet`, {
+          method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+        });
+        expect(res.status).toBe(400);
+      }
+      expect((await fetch(`${baseUrl}/auth/wallet`, { method: "POST" })).status).toBe(400);
+      expect(userRepository.upsertByWallet).not.toHaveBeenCalled();
+    });
+
+    it("rejects a correctly signed challenge at its server-defined expiration", async () => {
+      const kp = nacl.sign.keyPair();
+      const walletAddress = bs58.encode(kp.publicKey);
+      const { message, expiresAt } = await nonceFor(walletAddress);
+      const clock = vi.spyOn(Date, "now").mockReturnValue(Date.parse(expiresAt));
+      try {
+        expect((await signIn(kp.secretKey, walletAddress, message)).status).toBe(401);
+        expect(userRepository.upsertByWallet).not.toHaveBeenCalled();
+      } finally {
+        clock.mockRestore();
+      }
     });
   });
 

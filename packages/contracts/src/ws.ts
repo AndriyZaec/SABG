@@ -136,3 +136,17 @@ export interface AnswerMessage {
 }
 
 export type ClientMessage = SubscribeMessage | AnswerMessage;
+
+/** Validate untrusted JSON before dispatching it as a client message. */
+export function isClientMessage(value: unknown): value is ClientMessage {
+  if (typeof value !== "object" || value === null || Array.isArray(value) || !("type" in value)) return false;
+  switch (value.type) {
+    case "subscribe":
+      return "arenaId" in value && typeof value.arenaId === "string" && value.arenaId.trim().length > 0;
+    case "answer":
+      return "roundId" in value && typeof value.roundId === "string" && value.roundId.trim().length > 0
+        && "answer" in value && (value.answer === "yes" || value.answer === "no");
+    default:
+      return false;
+  }
+}

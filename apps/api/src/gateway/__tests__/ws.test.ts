@@ -369,4 +369,87 @@ describe("GatewayWebSocketServer", () => {
     });
     socket.close();
   });
+
+  it("ignores malformed client messages and still processes a valid answer", async () => {
+    const socket = connect(issueToken("user-1"));
+    await waitForOpen(socket);
+    const messages = collectMessages(socket);
+    const submitAnswer = vi.fn((): SubmitAnswerOutcome => ({
+      ok: true,
+      receivedAt: "2024-01-01T00:00:00.000Z",
+    }));
+    gateway.registerRuntime(ARENA_ID, {
+      currentRound: undefined,
+      join: vi.fn(),
+      submitAnswer,
+      leaderboardSnapshot: () => [],
+      finalWinners: () => undefined,
+    });
+
+    try {
+      send(socket, { type: "subscribe", arenaId: ARENA_ID });
+      for (const raw of [
+        "{", "null", "[]", "42", '"text"', "{}",
+        '{"type":"unknown"}',
+        '{"type":"subscribe"}',
+        '{"type":"subscribe","arenaId":42}',
+        '{"type":"subscribe","arenaId":""}',
+        '{"type":"subscribe","arenaId":"   "}',
+        '{"type":"answer","roundId":"round-1","answer":"maybe"}',
+        '{"type":"answer","roundId":null,"answer":"yes"}',
+        '{"type":"answer","roundId":"","answer":"yes"}',
+        '{"type":"answer","roundId":"round-1"}',
+      ]) socket.send(raw);
+      send(socket, { type: "answer", roundId: "round-1", answer: "yes" });
+
+      await vi.waitFor(() => {
+        expect(messages).toContainEqual({
+          type: "answer.accepted",
+          roundId: "round-1",
+          answer: "yes",
+          receivedAt: "2024-01-01T00:00:00.000Z",
+        });
+      });
+      expect(submitAnswer).toHaveBeenCalledExactlyOnceWith("user-1", "round-1", "yes");
+      expect(socket.readyState).toBe(WebSocket.OPEN);
+    } finally {
+      socket.terminate();
+    }
+  });
+
+  it("closes only the affected connection when a runtime handler throws", async () => {
+    const submitAnswer = vi.fn((): SubmitAnswerOutcome => ({
+      ok: true,
+      receivedAt: "2024-01-01T00:00:00.000Z",
+    })).mockImplementationOnce(() => { throw new Error("runtime failure"); });
+    gateway.registerRuntime(ARENA_ID, {
+      currentRound: undefined,
+      join: vi.fn(),
+      submitAnswer,
+      leaderboardSnapshot: () => [],
+      finalWinners: () => undefined,
+    });
+    const socket = connect(issueToken("user-1"));
+    await waitForOpen(socket);
+    const closed = waitForClose(socket);
+    send(socket, { type: "subscribe", arenaId: ARENA_ID });
+    send(socket, { type: "answer", roundId: "round-1", answer: "yes" });
+    expect((await closed).code).toBe(1011);
+
+    const otherSocket = connect(issueToken("user-2"));
+    await waitForOpen(otherSocket);
+    const messages = collectMessages(otherSocket);
+    try {
+      send(otherSocket, { type: "subscribe", arenaId: ARENA_ID });
+      send(otherSocket, { type: "answer", roundId: "round-1", answer: "no" });
+      await vi.waitFor(() => {
+        expect(messages).toContainEqual({
+          type: "answer.accepted", roundId: "round-1", answer: "no",
+          receivedAt: "2024-01-01T00:00:00.000Z",
+        });
+      });
+    } finally {
+      otherSocket.terminate();
+    }
+  });
 });

@@ -26,7 +26,7 @@ export function verifyWalletSignature(input: VerifyInput): boolean {
   }
 }
 
-/** Convenience over the shared sign-in DTO. Does not check nonce freshness — the caller must. */
+/** Signature only; the server must also match its complete issued challenge and check freshness. */
 export function verifyWalletSignInRequest(req: WalletSignInRequest): boolean {
   return verifyWalletSignature({
     message: req.message,

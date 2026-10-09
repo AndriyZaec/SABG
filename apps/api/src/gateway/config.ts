@@ -26,6 +26,8 @@ const envSchema = z.object({
    * address (the standalone mock server keeps that permissive behavior regardless).
    */
   AUTH_REQUIRE_SIGNATURE: z.enum(["true", "false"]).default("true"),
+  /** Public app host (including port), independent of request Host/Origin headers. */
+  AUTH_SIGN_IN_DOMAIN: z.string().max(253).regex(/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?::[0-9]{1,5})?$/i).optional(),
   /** Comma-separated CORS origins; "*" (default) matches the mock's permissive dev behavior. */
   CORS_ORIGINS: z.string().default("*"),
   /**
@@ -63,6 +65,21 @@ if (!parsed.success) {
 
 const env = parsed.data;
 
+let signInDomain = env.AUTH_SIGN_IN_DOMAIN;
+if (signInDomain === undefined && env.CORS_ORIGINS !== "*" && !env.CORS_ORIGINS.includes(",")) {
+  const origin = new URL(env.CORS_ORIGINS.trim());
+  if (origin.protocol !== "http:" && origin.protocol !== "https:") {
+    throw new Error("CORS_ORIGINS must be an HTTP(S) origin to derive the sign-in domain");
+  }
+  signInDomain = origin.host;
+}
+if (signInDomain === undefined) {
+  if (env.NODE_ENV === "production") {
+    throw new Error("AUTH_SIGN_IN_DOMAIN is required in production unless CORS_ORIGINS is one explicit origin");
+  }
+  signInDomain = "localhost:5173";
+}
+
 if (
   env.NODE_ENV === "production" &&
   (env.AUTH_SECRET === "dev-insecure-auth-secret" ||
@@ -83,6 +100,7 @@ export const gatewayConfig = {
   auth: {
     secret: env.AUTH_SECRET,
     requireSignature: env.AUTH_REQUIRE_SIGNATURE === "true",
+    signInDomain,
   },
   eventAccess: {
     codeHash: env.EVENT_ACCESS_CODE_HASH,
