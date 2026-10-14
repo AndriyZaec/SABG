@@ -55,6 +55,44 @@ export function useCs2SeriesCatalog(): [LoadState<Cs2SeriesCatalog>, () => void]
   }, retry];
 }
 
-export function useCs2Series(seriesId: string): [LoadState<Cs2SeriesDetail>, () => void] {
-  return useLoad(async () => (await fetchCs2SeriesDetail(seriesId)).series, seriesId);
+export function useCs2Series(seriesId: string, refreshLive = false): [LoadState<Cs2SeriesDetail>, () => void] {
+  const [attempt, setAttempt] = useState(0);
+  const [result, setResult] = useState<LoadState<Cs2SeriesDetail>>({ state: "loading" });
+
+  useEffect(() => {
+    let active = true;
+    let inFlight = false;
+    let live = false;
+    let interval: ReturnType<typeof setInterval> | undefined;
+    setResult({ state: "loading" });
+
+    const load = async (initial = false) => {
+      if (!active || inFlight || (!initial && (!live || document.visibilityState !== "visible"))) return;
+      inFlight = true;
+      try {
+        const { series } = await fetchCs2SeriesDetail(seriesId);
+        if (!active) return;
+        live = series.lifecycle === "live";
+        setResult({ state: "ready", value: series });
+        if (!live) clearInterval(interval);
+      } catch {
+        if (active && initial) setResult({ state: "error" });
+      } finally {
+        inFlight = false;
+      }
+    };
+    void load(true);
+    const onVisible = () => { void load(); };
+    if (refreshLive) {
+      interval = setInterval(() => { void load(); }, 90_000);
+      document.addEventListener("visibilitychange", onVisible);
+    }
+    return () => {
+      active = false;
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [seriesId, attempt, refreshLive]);
+
+  return [result, () => setAttempt((current) => current + 1)];
 }

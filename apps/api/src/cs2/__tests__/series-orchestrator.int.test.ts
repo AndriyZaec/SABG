@@ -21,7 +21,7 @@ function clockFrom(anchorIso: string): (offsetMinutes: number) => string {
 
 function snapshot(
   teamIds: readonly [string, string],
-  opts: { teams?: [number, number]; hasLiveGame?: boolean; finished?: boolean; mapNames?: string[] },
+  opts: { teams?: [number, number]; hasLiveGame?: boolean; finished?: boolean; mapNames?: string[]; mapScores?: Cs2SeriesSnapshot["mapScores"] },
 ): Cs2SeriesSnapshot {
   const [a, b] = opts.teams ?? [0, 0];
   return {
@@ -29,6 +29,7 @@ function snapshot(
     finished: opts.finished ?? false,
     hasLiveGame: opts.hasLiveGame ?? false,
     mapNames: opts.mapNames ?? [],
+    ...(opts.mapScores !== undefined ? { mapScores: opts.mapScores } : {}),
     teams: [
       { teamId: teamIds[0], name: "Team A", score: a, won: false },
       { teamId: teamIds[1], name: "Team B", score: b, won: false },
@@ -111,6 +112,73 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     teamIds.push(...ids);
     return ids;
   }
+
+  it.each([false, true])("tracks insufficient-player map scores without runtime signals, including final scores and the next map (restart: %s)", async (restart) => {
+    const at = clockFrom(new Date(Date.now()).toISOString());
+    const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
+      format: 3, scheduledStartTime: new Date(at(0)),
+    });
+    seriesIds.push(series.id);
+    const ids = await synchronizeTestTeams(series.id);
+    const writeQueue = new WriteQueue();
+    const options = { writeQueue, entryFeeLamports: 1000 };
+    let orchestrator = await Cs2SeriesOrchestrator.create(series, options);
+    await orchestrator.poll(snapshot(ids, {}), at(-10));
+    const first = (await matchRepository.findBySeriesMatchIndex(series.id, 1))!;
+    matchIds.push(first.id);
+    const firstArena = (await arenaRepository.findByMatchId(first.id))!;
+    arenaIds.push(firstArena.id);
+    await orchestrator.poll(snapshot(ids, { hasLiveGame: true }), at(0));
+    await writeQueue.drain();
+    if (restart) orchestrator = await Cs2SeriesOrchestrator.create(series, options);
+    expect(orchestrator.currentBus()).toBeUndefined();
+
+    const scores = (index: number, finished: boolean, a: number, b: number) => ({
+      matchIndex: index, finished,
+      teams: [{ teamId: ids[1], score: b }, { teamId: ids[0], score: a }] as const,
+    });
+    const scoreWrite = vi.spyOn(matchRepository, "updateCs2TeamScores");
+    const payout = vi.spyOn(payoutService, "settleArena");
+    try {
+      const live = snapshot(ids, { hasLiveGame: true, mapScores: [scores(1, false, 5, 7)] });
+      await orchestrator.poll(live, at(2));
+      await orchestrator.poll(live, at(3));
+      expect(scoreWrite).toHaveBeenCalledTimes(1);
+      expect(await matchRepository.findById(first.id)).toMatchObject({
+        teamScores: [{ teamId: ids[0], score: 5 }, { teamId: ids[1], score: 7 }],
+      });
+      // GRID's live game disappears at map end; the auxiliary scores include the final round.
+      await orchestrator.poll(snapshot(ids, {
+        teams: [0, 1], hasLiveGame: false, mapScores: [scores(1, true, 9, 13)],
+      }), at(20));
+      expect(await matchRepository.findById(first.id)).toMatchObject({ status: "finished" });
+      const second = (await matchRepository.findBySeriesMatchIndex(series.id, 2))!;
+      matchIds.push(second.id);
+      const secondArena = (await arenaRepository.findByMatchId(second.id))!;
+      arenaIds.push(secondArena.id);
+      await orchestrator.poll(snapshot(ids, { teams: [0, 1], hasLiveGame: true }), at(22));
+      await orchestrator.poll(snapshot(ids, {
+        teams: [0, 1], hasLiveGame: true,
+        mapScores: [scores(1, true, 9, 13), scores(2, false, 2, 1)],
+      }), at(24));
+      expect(await matchRepository.findById(first.id)).toMatchObject({
+        teamScores: [{ teamId: ids[0], score: 9 }, { teamId: ids[1], score: 13 }],
+      });
+      expect(await matchRepository.findById(second.id)).toMatchObject({
+        teamScores: [{ teamId: ids[0], score: 2 }, { teamId: ids[1], score: 1 }],
+      });
+      expect(scoreWrite).toHaveBeenCalledTimes(3);
+      expect(await arenaRepository.findById(firstArena.id)).toMatchObject({
+        status: "cancelled", cancelledReason: "insufficient_players",
+      });
+      expect(orchestrator.currentBus()).toBeUndefined();
+      await writeQueue.drain();
+      expect(payout).not.toHaveBeenCalled();
+    } finally {
+      scoreWrite.mockRestore();
+      payout.mockRestore();
+    }
+  });
 
   it("opens Arena #1 in lobby, persists Round 1, flips to live on Match Live Detected, then cancels the reactively-opened Arena #2 on a forfeit — Series ends up decided, not invalid", async () => {
     const at = clockFrom(new Date(Date.now()).toISOString());

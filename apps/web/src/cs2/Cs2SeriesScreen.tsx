@@ -73,7 +73,7 @@ function MapRow({
 
 export function Cs2SeriesScreen() {
   const { seriesId = "" } = useParams();
-  const [result, retry] = useCs2Series(seriesId);
+  const [result, retry] = useCs2Series(seriesId, true);
 
   if (result.state === "loading") {
     return <div className="nb-container"><Loading label="Loading series desk…" /></div>;

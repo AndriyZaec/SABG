@@ -28,7 +28,7 @@ import {
   type Cs2LifecycleAction,
   type Cs2SeriesLifecycleState,
 } from "./series-lifecycle.js";
-import type { Cs2SeriesSnapshot } from "./series-snapshot.js";
+import type { Cs2SeriesMapScore, Cs2SeriesSnapshot } from "./series-snapshot.js";
 
 export interface Cs2SeriesOrchestratorOptions {
   writeQueue: WriteQueue;
@@ -54,6 +54,7 @@ interface OpenedArena {
 export class Cs2SeriesOrchestrator {
   private lifecycleState: Cs2SeriesLifecycleState;
   private readonly arenasByMatchIndex = new Map<number, OpenedArena>();
+  private readonly cancelledScoreMatches = new Map<number, Cs2Match>();
   private reconcilingFinishedMatch = false;
   /** Set by a crash close until the first snapshot confirms map k is still the one being played. */
   private reconcilingCrashClosedMatch = false;
@@ -86,6 +87,11 @@ export class Cs2SeriesOrchestrator {
     }
     const existingMatches = storedMatches.filter((match): match is Cs2Match => match.discipline === "cs2");
     if (existingMatches.length === 0) return;
+    for (const match of existingMatches) {
+      if ((await arenaRepository.findByMatchId(match.id))?.cancelledReason === "insufficient_players") {
+        this.cancelledScoreMatches.set(match.seriesMatchIndex, match);
+      }
+    }
 
     const latestMatch = existingMatches[existingMatches.length - 1]!;
     const matchIndex = latestMatch.seriesMatchIndex;
@@ -271,6 +277,8 @@ export class Cs2SeriesOrchestrator {
   }
 
   async poll(snapshot: Cs2SeriesSnapshot | undefined, now: IsoDateTime): Promise<void> {
+    // Score-only tracking is independent of the detached arena runtime and map-transition guards.
+    if (snapshot?.mapScores !== undefined) await this.updateCancelledMapScores(snapshot.mapScores);
     if (this.reconcilingFinishedMatch && snapshot?.hasLiveGame === true) {
       throw new Error(`Cannot safely restore active CS2 series ${this.series.id}: its next map is already live`);
     }
@@ -452,6 +460,35 @@ export class Cs2SeriesOrchestrator {
     if (matchId !== undefined) await matchRepository.setStatus(matchId, "finished");
   }
 
+  private async updateCancelledMapScores(scores: readonly Cs2SeriesMapScore[]): Promise<void> {
+    for (const score of scores) {
+      const match = this.cancelledScoreMatches.get(score.matchIndex);
+      if (match === undefined) continue;
+      if (!match.teamScores.every((team) => score.teams.some((current) => current.teamId === team.teamId))) {
+        throw new Error(`CS2 map ${score.matchIndex} score team identities changed`);
+      }
+      const changed = match.teamScores.some((team) =>
+        score.teams.find((current) => current.teamId === team.teamId)?.score !== team.score);
+      if (changed) await matchRepository.updateCs2TeamScores(match.id, score.teams);
+      if (score.finished && match.status !== "finished") await matchRepository.setStatus(match.id, "finished");
+      this.cancelledScoreMatches.set(score.matchIndex, {
+        ...match,
+        status: score.finished ? "finished" : match.status,
+        teamScores: match.teamScores.map((team) => ({
+          ...team,
+          score: score.teams.find((current) => current.teamId === team.teamId)!.score,
+        })) as Cs2Match["teamScores"],
+      });
+    }
+  }
+
+  private async trackCancelledMapScores(matchIndex: number): Promise<void> {
+    if (this.cancelledScoreMatches.has(matchIndex)) return;
+    const match = await matchRepository.findBySeriesMatchIndex(this.series.id, matchIndex);
+    if (match?.discipline !== "cs2") throw new Error(`Cannot track scores for missing CS2 map ${matchIndex}`);
+    this.cancelledScoreMatches.set(matchIndex, match);
+  }
+
   private async cancelArena(matchIndex: number, reason: ArenaCancelledReason): Promise<void> {
     // restore() creates no runtime for an already-cancelled arena, so fall back to the DB.
     const opened = this.arenasByMatchIndex.get(matchIndex);
@@ -463,6 +500,7 @@ export class Cs2SeriesOrchestrator {
     if (current?.status === "cancelled") {
       // Kept in the map so openArena never reopens this map.
       if (opened !== undefined) opened.detached = true;
+      if (current.cancelledReason === "insufficient_players") await this.trackCancelledMapScores(matchIndex);
       if (reason === "no_show") await seriesRepository.setStatus(this.series.id, "invalid");
       else if (reason === "series_decided") await seriesRepository.setStatus(this.series.id, "decided");
       this.options.broadcaster?.broadcast(arenaId, { type: "arena.cancelled", reason });
@@ -478,6 +516,7 @@ export class Cs2SeriesOrchestrator {
       throw new Error(`Arena ${arenaId} changed state after its on-chain cancellation`);
     }
     if (opened !== undefined) opened.detached = true;
+    if (reason === "insufficient_players") await this.trackCancelledMapScores(matchIndex);
 
     // Refunds are the scheduled refund job's. If a write below fails, setLiveIfOpen still keeps the arena from going live.
     // A forfeit leaves the series active — it continues to the next map.
