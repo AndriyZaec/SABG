@@ -181,6 +181,7 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
         state: "lobby",
         seriesMatchIndex: 1,
         matchId: firstMap.id,
+        matchStatus: "scheduled",
         teams: [
           { teamId: participants[0]!.teamId, score: 0 },
           { teamId: participants[1]!.teamId, score: 0 },
@@ -195,6 +196,17 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
       { state: "pending", seriesMatchIndex: 2 },
       { state: "pending", seriesMatchIndex: 3 },
     ]);
+    await arenaRepository.cancelIfLobby(firstMapArena.id, "insufficient_players");
+    await matchRepository.setStatus(firstMap.id, "live");
+    const cancelledDetail = await repository.findSupportedDetailById(first.seriesId, { tournamentIds: [gridTournamentId] });
+    expect(cancelledDetail?.maps[0]).toMatchObject({
+      state: "cancelled", cancelledReason: "insufficient_players", matchStatus: "live",
+    });
+    await matchRepository.setStatus(firstMap.id, "finished");
+    const finishedDetail = await repository.findSupportedDetailById(first.seriesId, { tournamentIds: [gridTournamentId] });
+    expect(finishedDetail?.maps[0]).toMatchObject({
+      state: "cancelled", cancelledReason: "insufficient_players", matchStatus: "finished",
+    });
     await expect(repository.findSupportedDetailById(first.seriesId, { tournamentIds: ["other-tournament"] })).resolves.toBeUndefined();
 
     const unsupported = await repository.synchronizeSeries({

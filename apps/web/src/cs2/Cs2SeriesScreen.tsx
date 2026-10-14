@@ -37,6 +37,7 @@ function MapRow({
   const firstId = first.state === "known" ? first.team.id : undefined;
   const secondId = second.state === "known" ? second.team.id : undefined;
   const actionable = arena === "running" && (map.state === "lobby" || map.state === "live");
+  const entryClosed = map.state === "cancelled" && map.cancelledReason === "insufficient_players";
   const pendingLabel = map.mapName === undefined
     ? "Awaiting veto"
     : map.seriesMatchIndex === format
@@ -50,7 +51,9 @@ function MapRow({
         <span className="nb-label">Map {map.seriesMatchIndex}</span>
         <strong>{map.mapName ?? "To be announced"}</strong>
       </div>
-      <div className="cs2-map-row__status"><Badge tone={mapTone(map.state)}>{map.state}</Badge></div>
+      <div className="cs2-map-row__status">
+        <Badge tone={entryClosed ? "neutral" : mapTone(map.state)}>{entryClosed ? "Entry closed" : map.state}</Badge>
+      </div>
       {map.state !== "pending" && (
         <div className="cs2-map-row__score">
           <span>{participantName(first)} {mapScore(map, firstId)}</span>
@@ -64,7 +67,9 @@ function MapRow({
         </Link>
       ) : (
         <span className="cs2-map-row__meta">
-          {arena !== "running" && map.state === "pending" && arenaForecastLabel[arena] !== undefined ? arenaForecastLabel[arena] : map.state === "pending" ? pendingLabel : map.state === "finished" ? "Final" : "Closed"}
+          {entryClosed
+            ? map.matchStatus === "finished" ? "Final" : map.matchStatus === "live" ? "Ongoing" : undefined
+            : arena !== "running" && map.state === "pending" && arenaForecastLabel[arena] !== undefined ? arenaForecastLabel[arena] : map.state === "pending" ? pendingLabel : map.state === "finished" ? "Final" : "Closed"}
         </span>
       )}
     </article>
@@ -96,6 +101,9 @@ export function Cs2SeriesScreen() {
 
   const series = result.value;
   const [first, second] = series.participants;
+  const hasAccessibleArena = series.arena === "running" &&
+    series.maps.some((map) => map.state === "lobby" || map.state === "live");
+  const forecastLabel = series.arena === "running" && !hasAccessibleArena ? undefined : arenaForecastLabel[series.arena];
 
   return (
     <div className="nb-container cs2-series">
@@ -105,7 +113,7 @@ export function Cs2SeriesScreen() {
           <TeamLogo name={series.competition.name} fallback="trophy" {...(series.competition.logoUrl ? { src: series.competition.logoUrl } : {})} />
           <div><span className="nb-label">{series.competition.name}</span><strong>Best of {series.format}</strong></div>
           <Badge tone={series.lifecycle === "live" ? "live" : "neutral"}>{series.lifecycle}</Badge>
-          {arenaForecastLabel[series.arena] !== undefined && <span className="cs2-soon-label cs2-soon-label--detail">{arenaForecastLabel[series.arena]}</span>}
+          {forecastLabel !== undefined && <span className="cs2-soon-label cs2-soon-label--detail">{forecastLabel}</span>}
         </div>
         <div className="cs2-match-hero__versus">
           {[first, second].map((participant, index) => (
