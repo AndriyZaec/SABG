@@ -113,6 +113,53 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     return ids;
   }
 
+  it("restores score tracking on retry when its initial lookup fails after cancellation commits", async () => {
+    const at = clockFrom(new Date(Date.now()).toISOString());
+    const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
+      format: 3, scheduledStartTime: new Date(at(0)),
+    });
+    seriesIds.push(series.id);
+    const ids = await synchronizeTestTeams(series.id);
+    const writeQueue = new WriteQueue();
+    const orchestrator = await Cs2SeriesOrchestrator.create(series, { writeQueue, entryFeeLamports: 1000 });
+    await orchestrator.poll(snapshot(ids, {}), at(-10));
+    await writeQueue.drain();
+    const match = (await matchRepository.findBySeriesMatchIndex(series.id, 1))!;
+    matchIds.push(match.id);
+    const arena = (await arenaRepository.findByMatchId(match.id))!;
+    arenaIds.push(arena.id);
+    const lookup = vi.spyOn(matchRepository, "findBySeriesMatchIndex")
+      .mockRejectedValueOnce(new Error("score lookup unavailable"));
+    const scoreWrite = vi.spyOn(matchRepository, "updateCs2TeamScores");
+    const payout = vi.spyOn(payoutService, "settleArena");
+    try {
+      const live = snapshot(ids, { hasLiveGame: true });
+      await expect(orchestrator.poll(live, at(0))).rejects.toThrow("score lookup unavailable");
+      expect(await arenaRepository.findById(arena.id)).toMatchObject({
+        status: "cancelled", cancelledReason: "insufficient_players",
+      });
+      await orchestrator.poll(live, at(1));
+      expect(lookup).toHaveBeenCalledTimes(2);
+      const scored = snapshot(ids, { hasLiveGame: true, mapScores: [{
+        matchIndex: 1, finished: false,
+        teams: [{ teamId: ids[0], score: 5 }, { teamId: ids[1], score: 7 }],
+      }] });
+      await orchestrator.poll(scored, at(2));
+      await orchestrator.poll(scored, at(3));
+      expect(scoreWrite).toHaveBeenCalledTimes(1);
+      expect(await matchRepository.findById(match.id)).toMatchObject({
+        teamScores: [{ teamId: ids[0], score: 5 }, { teamId: ids[1], score: 7 }],
+      });
+      expect(await arenaRepository.findById(arena.id)).toMatchObject({ status: "cancelled" });
+      expect(orchestrator.currentBus()).toBeUndefined();
+      expect(payout).not.toHaveBeenCalled();
+    } finally {
+      lookup.mockRestore();
+      scoreWrite.mockRestore();
+      payout.mockRestore();
+    }
+  });
+
   it.each([false, true])("tracks insufficient-player map scores without runtime signals, including final scores and the next map (restart: %s)", async (restart) => {
     const at = clockFrom(new Date(Date.now()).toISOString());
     const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {

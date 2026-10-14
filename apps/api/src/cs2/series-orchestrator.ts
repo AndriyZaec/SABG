@@ -432,6 +432,7 @@ export class Cs2SeriesOrchestrator {
     if (arena?.cancelledReason === "insufficient_players") {
       // Cancellation succeeded but a later write failed: retry without starting or paying the arena.
       opened.detached = true;
+      await this.trackCancelledMapScores(matchIndex);
       await matchRepository.setStatus(opened.matchId, "live");
       return;
     }

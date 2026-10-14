@@ -58,6 +58,8 @@ export function useCs2NotifyMe(seriesId: string, initiallyFollowing: boolean): C
   const [status, setStatus] = useState<Status>(initiallyFollowing ? "subscribed" : "idle");
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
+  const hydrationScopeRef = useRef({ walletAddress, seriesId });
+  const localChangeRef = useRef(false);
   const walletRef = useRef(walletAddress);
   walletRef.current = walletAddress;
   const vapidPublicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
@@ -70,27 +72,36 @@ export function useCs2NotifyMe(seriesId: string, initiallyFollowing: boolean): C
     (!ios || standalone));
 
   useEffect(() => {
+    const scopeChanged = hydrationScopeRef.current.walletAddress !== walletAddress ||
+      hydrationScopeRef.current.seriesId !== seriesId;
+    if (scopeChanged) {
+      hydrationScopeRef.current = { walletAddress, seriesId };
+      localChangeRef.current = false;
+    }
+    // Follows hydrate the initial state; a local action owns it until the wallet/series changes.
+    if (!scopeChanged && (busyRef.current || localChangeRef.current)) return;
     setStatus(initiallyFollowing ? "subscribed" : "idle");
     if (!initiallyFollowing || !supported || !vapidPublicKey) return;
     let cancelled = false;
     void navigator.serviceWorker.ready.then(async (registration) => {
       const subscription = await registration.pushManager.getSubscription();
-      if (cancelled || busyRef.current) return;
+      if (cancelled || busyRef.current || localChangeRef.current) return;
       const applicationServerKey = urlBase64ToUint8Array(vapidPublicKey);
       if (!subscription || !usesApplicationServerKey(subscription, applicationServerKey) || Notification.permission !== "granted") {
         setStatus("idle");
       }
     }).catch(() => {
-      if (!cancelled && !busyRef.current) setStatus("error");
+      if (!cancelled && !busyRef.current && !localChangeRef.current) setStatus("error");
     });
     return () => { cancelled = true; };
-  }, [initiallyFollowing, walletAddress, supported, vapidPublicKey]);
+  }, [initiallyFollowing, walletAddress, seriesId, supported, vapidPublicKey]);
 
   const toggle = useCallback(async () => {
     if (busyRef.current || !supported || !vapidPublicKey || !walletAddress) return;
     const disabling = status === "subscribed";
     const isCurrentWallet = () => walletRef.current === walletAddress;
     busyRef.current = true;
+    localChangeRef.current = true;
     setBusy(true);
     try {
       if (!disabling) {
