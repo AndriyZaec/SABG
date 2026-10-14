@@ -100,9 +100,9 @@ assert_no_active_cs2_arenas() {
     || fail "$active_arenas unfinished CS2 arena(s) exist; deploy refused (run autopilot-off and wait for the running series to end)"
 }
 
-# A series between maps has no open arena, but a restart abandons it: count active series of the
-# database-backed active tournament that already ran an arena. Run after inspect_active_cs2_arenas,
-# which starts PostgreSQL.
+# A restart abandons series between maps. Only allow this for series whose arenas are all cancelled
+# for insufficient players and have no paid entries. Run after inspect_active_cs2_arenas, which
+# starts PostgreSQL; unfinished arenas are still rejected independently.
 inspect_running_cs2_series() {
   # shellcheck disable=SC2016
   competition_table=$(printf '%s\n' "SELECT to_regclass('public.cs2_competition');" | compose exec -T postgres sh -ec \
@@ -113,7 +113,7 @@ inspect_running_cs2_series() {
     return 0
   fi
   # shellcheck disable=SC2016
-  printf '%s\n' "SELECT count(DISTINCT s.id) FROM series s JOIN cs2_competition c ON c.id = s.competition_id JOIN \"match\" m ON m.series_id = s.id JOIN arena a ON a.match_id = m.id WHERE s.status = 'active' AND c.grid_tournament_id = coalesce((SELECT value FROM settings WHERE name = 'cs2_active_tournament'), '');" \
+  printf '%s\n' "SELECT count(DISTINCT s.id) FROM series s JOIN cs2_competition c ON c.id = s.competition_id JOIN \"match\" m ON m.series_id = s.id JOIN arena a ON a.match_id = m.id WHERE s.status = 'active' AND c.grid_tournament_id = coalesce((SELECT value FROM settings WHERE name = 'cs2_active_tournament'), '') AND (a.status <> 'cancelled' OR a.cancelled_reason IS DISTINCT FROM 'insufficient_players' OR EXISTS (SELECT 1 FROM entry_pass e WHERE e.arena_id = a.id AND e.status = 'paid'));" \
     | compose exec -T postgres sh -ec \
     'PGPASSWORD="$POSTGRES_PASSWORD" psql -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -v ON_ERROR_STOP=1' \
     || fail "could not verify current series status"
