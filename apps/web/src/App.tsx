@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect } from "react";
 import { BrowserRouter, Route, Routes, useLocation } from "react-router-dom";
 import { trackPageView } from "./analytics/analytics.js";
 import { ConsentBanner } from "./analytics/ConsentBanner.js";
+import { ErrorToastProvider } from "./ui/ErrorToast.js";
 
 const LegalRoute = lazy(() =>
   import("./legal/LegalRoute.js").then((module) => ({ default: module.LegalRoute })),
@@ -15,18 +16,20 @@ const GameApp = lazy(async () => {
 
 export function App() {
   return (
-    <BrowserRouter>
-      <PageViewTracker />
-      <Suspense fallback={<AppLoading />}>
-        <Routes>
-          <Route path="/terms" element={<LegalRoute />} />
-          <Route path="/privacy" element={<LegalRoute />} />
-          <Route path="/cookies" element={<LegalRoute />} />
-          <Route path="/*" element={<GameApp />} />
-        </Routes>
-      </Suspense>
-      <ConsentBanner policyHref="/cookies" />
-    </BrowserRouter>
+    <ErrorToastProvider>
+      <BrowserRouter>
+        <PageViewTracker />
+        <Suspense fallback={<AppLoading />}>
+          <Routes>
+            <Route path="/terms" element={<LegalRoute />} />
+            <Route path="/privacy" element={<LegalRoute />} />
+            <Route path="/cookies" element={<LegalRoute />} />
+            <Route path="/*" element={<GameApp />} />
+          </Routes>
+        </Suspense>
+        <ConsentBanner policyHref="/cookies" />
+      </BrowserRouter>
+    </ErrorToastProvider>
   );
 }
 

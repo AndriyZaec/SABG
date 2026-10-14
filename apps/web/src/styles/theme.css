@@ -53,6 +53,60 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* ---- Error toast ---- */
+.nb-error-toast-region {
+  position: fixed;
+  z-index: 100;
+  left: 50%;
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  width: min(400px, calc(100% - 32px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px)));
+  pointer-events: none;
+}
+.nb-error-toast {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  padding-left: 17px;
+  border: var(--bw) solid var(--ink);
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: var(--shadow-sm);
+  pointer-events: auto;
+}
+.nb-error-toast::before {
+  content: "";
+  position: absolute;
+  left: 9px;
+  top: 10px;
+  bottom: 10px;
+  width: 4px;
+  background: var(--yellow);
+}
+.nb-error-toast__message {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 10px 8px;
+  font: 400 12px/1.6 var(--font-mono);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.nb-error-toast__message::first-line { font-weight: 700; }
+.nb-error-toast__close {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  margin: 5px 5px 0 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: 400 20px/1 var(--font-mono);
+  cursor: pointer;
+}
+.nb-error-toast__close:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
 /* ---- Event access gate ---- */
 .nb-access {
   min-height: 100%;
