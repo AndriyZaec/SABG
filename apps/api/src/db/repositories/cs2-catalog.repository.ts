@@ -1,6 +1,7 @@
 import { and, asc, eq, gte, inArray, lte, notInArray, sql } from "drizzle-orm";
 import type {
   AdminCatalogSeries,
+  ArenaCancelledReason,
   Cs2SeriesDetail,
   Cs2SeriesLifecycle,
   Cs2SeriesMapSummary,
@@ -345,6 +346,7 @@ export const cs2CatalogRepository = {
             id: arenas.id,
             matchId: arenas.matchId,
             status: arenas.status,
+            cancelledReason: arenas.cancelledReason,
             activePlayersCount: arenas.activePlayersCount,
             entryFeeLamports: arenas.entryFeeLamports,
             prizePoolLamports: arenas.prizePoolLamports,
@@ -376,6 +378,8 @@ export const cs2CatalogRepository = {
         seriesMatchIndex: match.seriesMatchIndex,
         mapName: mapNames[match.seriesMatchIndex - 1],
         matchId: match.id,
+        matchStatus: match.status,
+        ...(arena.cancelledReason !== null ? { cancelledReason: arena.cancelledReason as ArenaCancelledReason } : {}),
         teams: [
           { teamId: firstTeamScore.teamId, score: firstTeamScore.score },
           { teamId: secondTeamScore.teamId, score: secondTeamScore.score },

@@ -50,7 +50,8 @@ const mockCs2CatalogStore: Cs2CatalogReadStore = {
     return {
       ...series,
       maps: series.maps.map((map) =>
-        map.state !== "pending" && map.arena.id === mockCs2LobbyArena.id ? { ...map, state: "live" as const } : map,
+        map.state !== "pending" && map.arena.id === mockCs2LobbyArena.id
+          ? { ...map, state: "live" as const, matchStatus: "live" as const } : map,
       ),
     };
   },

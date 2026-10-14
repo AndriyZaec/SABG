@@ -1,7 +1,7 @@
 // S2 — REST request/response DTOs (build plan §S2, P0.4).
 // The mock server and the real API both implement these shapes.
 
-import type { Answer, ArenaStatus, Cs2SeriesArenaForecast, Cs2SeriesLifecycle } from "./enums.js";
+import type { Answer, ArenaCancelledReason, ArenaStatus, Cs2SeriesArenaForecast, Cs2SeriesLifecycle } from "./enums.js";
 import type {
   Arena,
   ArenaPlayer,
@@ -123,6 +123,8 @@ export type Cs2SeriesMapSummary =
       seriesMatchIndex: number;
       mapName?: string;
       matchId: Uuid;
+      matchStatus: Match["status"];
+      cancelledReason?: ArenaCancelledReason;
       teams: [Cs2TeamScore, Cs2TeamScore];
       arena: Cs2ArenaSummary;
     };

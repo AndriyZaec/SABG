@@ -28,6 +28,38 @@ function seriesNode(overrides: Record<string, unknown> = {}) {
 }
 
 describe("GridCentralDataClient", () => {
+  it.each([
+    { logo: "https://img/stage", parent: { logoUrl: "https://img/parent" }, expected: "https://img/stage" },
+    { logo: "https://cdn.grid.gg/assets/tournament-logos/generic", parent: { logoUrl: "https://img/parent" }, expected: "https://img/parent" },
+    { logo: "", parent: { logoUrl: "https://img/parent" }, expected: "https://img/parent" },
+    { logo: "https://cdn.grid.gg/assets/tournament-logos/generic", parent: { logoUrl: "https://cdn.grid.gg/assets/tournament-logos/generic" }, expected: undefined },
+    { logo: "https://cdn.grid.gg/assets/tournament-logos/generic", parent: null, expected: undefined },
+  ])("resolves tournament logos consistently without changing the stage identity: %j", async ({ logo, parent, expected }) => {
+    const node = seriesNode({ tournament: {
+      id: "stage-1", name: "Finals (Group Stage)", nameShortened: "Group Stage", logoUrl: logo, parent,
+    } });
+    const request = vi.fn()
+      .mockResolvedValueOnce(response({ data: { series: node } }))
+      .mockResolvedValueOnce(response({ data: { titles: [
+        { id: "title-cs2", name: "Counter-Strike 2", nameShortened: "CS2" },
+      ] } }))
+      .mockResolvedValueOnce(response({ data: { allSeries: {
+        edges: [{ node }], pageInfo: { hasNextPage: false },
+      } } }));
+    const client = new GridCentralDataClient({ request } as GridGraphqlRequester);
+    const single = await client.fetchSeriesById("series-1");
+    const [listed] = await client.fetchSeries({ from: new Date("2026-09-01"), to: new Date("2026-09-02") }, ["stage-1"]);
+    for (const series of [single, listed]) {
+      expect(series?.competition).toEqual({
+        gridTournamentId: "stage-1", name: "Finals (Group Stage)", shortName: "Group Stage",
+        ...(expected !== undefined ? { logoUrl: expected } : {}),
+      });
+    }
+    expect(request).toHaveBeenCalledTimes(3);
+    expect(request.mock.calls[0]?.[0]).toContain("parent { logoUrl }");
+    expect(request.mock.calls[2]?.[0]).toContain("parent { logoUrl }");
+  });
+
   it("resolves CS2 by title metadata and follows allSeries cursors", async () => {
     const request = vi.fn()
       .mockResolvedValueOnce(response({ data: { titles: [

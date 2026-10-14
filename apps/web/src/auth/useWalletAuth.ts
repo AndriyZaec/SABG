@@ -13,7 +13,7 @@ export interface WalletAuth {
   token: string | null;
   status: Status;
   error?: string;
-  signIn: () => Promise<void>;
+  signIn: () => Promise<boolean>;
   signOut: () => void;
   /** Adopt a session issued elsewhere (the join flow returns a token on seat — one signature). */
   setSession: (token: string, user: User) => void;
@@ -64,7 +64,7 @@ export function useWalletAuth(): WalletAuth {
   const sessionAddress = useRef<string | null>(loadSession()?.address ?? null);
 
   const signIn = useCallback(async () => {
-    if (!publicKey || !signMessage) return;
+    if (!publicKey || !signMessage) return false;
     const address = publicKey.toBase58();
     setStatus("signing");
     setError(undefined);
@@ -80,9 +80,11 @@ export function useWalletAuth(): WalletAuth {
       sessionAddress.current = address;
       saveSession({ token: res.token, user: res.user, address });
       setStatus("idle");
+      return true;
     } catch (e) {
       setStatus("error");
       setError(e instanceof Error ? e.message : "Sign-in failed");
+      return false;
     }
   }, [publicKey, signMessage]);
 

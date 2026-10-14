@@ -80,6 +80,7 @@ export const mockCs2SeriesDetail: Cs2SeriesDetail = {
       seriesMatchIndex: 1,
       mapName: "Mirage",
       matchId: MOCK_CS2_MATCH_ID,
+      matchStatus: "finished",
       teams: [
         { teamId: MOCK_CS2_TEAM_A_ID, score: 13 },
         { teamId: MOCK_CS2_TEAM_B_ID, score: 9 },
@@ -96,6 +97,7 @@ export const mockCs2SeriesDetail: Cs2SeriesDetail = {
       seriesMatchIndex: 2,
       mapName: "Nuke",
       matchId: MOCK_CS2_LOBBY_MATCH_ID,
+      matchStatus: "scheduled",
       teams: [
         { teamId: MOCK_CS2_TEAM_A_ID, score: 0 },
         { teamId: MOCK_CS2_TEAM_B_ID, score: 0 },

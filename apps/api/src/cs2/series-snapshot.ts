@@ -10,6 +10,16 @@ const SeriesTeamSchema = z.object({
   won: z.boolean(),
 });
 
+const MapScoresSchema = z.array(z.object({
+  sequenceNumber: z.union([z.string().regex(/^\d+$/), z.number().int()])
+    .transform(Number).pipe(z.number().int().positive()),
+  finished: z.boolean(),
+  teams: z.tuple([
+    z.object({ id: z.string().min(1), score: z.number().int().nonnegative() }),
+    z.object({ id: z.string().min(1), score: z.number().int().nonnegative() }),
+  ]),
+}));
+
 const DraftActionSchema = z.object({
   type: z.string(),
   sequenceNumber: z.string(),
@@ -69,6 +79,36 @@ export interface Cs2SeriesSnapshot {
   hasLiveGame: boolean;
   teams: readonly [Cs2SeriesTeam, Cs2SeriesTeam];
   mapNames: string[];
+  mapScores?: readonly Cs2SeriesMapScore[];
+}
+
+export interface Cs2SeriesMapScore {
+  matchIndex: number;
+  finished: boolean;
+  teams: readonly [{ teamId: string; score: number }, { teamId: string; score: number }];
+}
+
+function parseMapScores(raw: unknown, identities: Cs2TeamIdentityMap): Cs2SeriesMapScore[] | undefined {
+  const envelope = RawResponseSchema.safeParse(raw);
+  const parsed = MapScoresSchema.safeParse(envelope.success ? envelope.data.data?.seriesState?.["mapScores"] : undefined);
+  if (!parsed.success) return undefined;
+  const scores: Cs2SeriesMapScore[] = [];
+  const indices = new Set<number>();
+  for (const map of parsed.data) {
+    const first = identities.get(map.teams[0].id);
+    const second = identities.get(map.teams[1].id);
+    if (!first || !second || first.teamId === second.teamId || indices.has(map.sequenceNumber)) return undefined;
+    indices.add(map.sequenceNumber);
+    scores.push({
+      matchIndex: map.sequenceNumber,
+      finished: map.finished,
+      teams: [
+        { teamId: first.teamId, score: map.teams[0].score },
+        { teamId: second.teamId, score: map.teams[1].score },
+      ],
+    });
+  }
+  return scores;
 }
 
 /** Picked map names in play order (map 1 first); bans and side picks are ignored. */
@@ -125,5 +165,6 @@ export function parseSeriesSnapshot(
   const [first, second] = teams;
   if (first === undefined || second === undefined || first.teamId === second.teamId) return undefined;
 
-  return { ...snapshot, teams: [first, second] };
+  const mapScores = parseMapScores(raw, identities);
+  return { ...snapshot, teams: [first, second], ...(mapScores !== undefined ? { mapScores } : {}) };
 }

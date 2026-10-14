@@ -23,6 +23,7 @@ function rawSeries(opts: {
   teams?: unknown[];
   games?: unknown[];
   draftActions?: unknown[];
+  mapScores?: unknown;
 }) {
   return {
     data: {
@@ -35,6 +36,7 @@ function rawSeries(opts: {
         ],
         ...(opts.games !== undefined ? { games: opts.games } : {}),
         ...(opts.draftActions !== undefined ? { draftActions: opts.draftActions } : {}),
+        ...(opts.mapScores !== undefined ? { mapScores: opts.mapScores } : {}),
       },
     },
   };
@@ -56,6 +58,31 @@ function draftAction(opts: {
 }
 
 describe("parseSeriesSnapshot", () => {
+  it("normalizes final and live map scores without changing the live-game signal", () => {
+    const raw = rawSeries({
+      games: [],
+      mapScores: [{ sequenceNumber: "1", finished: true, teams: [
+        { id: "team-b", score: 9 }, { id: "team-a", score: 13 },
+      ] }],
+    });
+    expect(parseSeriesSnapshot(raw)).toMatchObject({
+      hasLiveGame: false,
+      mapScores: [{ matchIndex: 1, finished: true, teams: [
+        { teamId: TEAM_B_ID, score: 9 }, { teamId: TEAM_A_ID, score: 13 },
+      ] }],
+    });
+  });
+
+  it.each([
+    [{ sequenceNumber: "0", finished: false, teams: [{ id: "team-a", score: 0 }, { id: "team-b", score: 0 }] }],
+    [{ sequenceNumber: "1", finished: false, teams: [{ id: "team-a", score: -1 }, { id: "team-b", score: 0 }] }],
+    [{ sequenceNumber: "1", finished: false, teams: [{ id: "team-a", score: 0 }, { id: "unknown", score: 0 }] }],
+    [{ sequenceNumber: "1", finished: false, teams: [{ id: "team-a", score: 0 }, { id: "team-a", score: 0 }] }],
+  ])("ignores invalid auxiliary map scores without dropping the series snapshot: %j", (map) => {
+    const parsed = parseSeriesSnapshot(rawSeries({ games: [], mapScores: [map] }));
+    expect(parsed).toBeDefined();
+    expect(parsed).not.toHaveProperty("mapScores");
+  });
   it("parses a well-formed series-level response", () => {
     const raw = rawSeries({
       format: "best-of-3",

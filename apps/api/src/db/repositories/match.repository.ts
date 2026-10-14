@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, ne } from "drizzle-orm";
 import type { Cs2Match, Cs2TeamIdentity, Match, MatchPeriod, Score, SoccerMatch, Uuid } from "@arena/contracts";
 import { db } from "../client.js";
 import { cs2MatchTeamScores, cs2SeriesParticipants, cs2Teams, matches } from "../schema.js";
@@ -203,7 +203,11 @@ export const matchRepository = {
         await tx
           .update(cs2MatchTeamScores)
           .set({ score: team.score })
-          .where(and(eq(cs2MatchTeamScores.matchId, id), eq(cs2MatchTeamScores.teamId, team.teamId)));
+          .where(and(
+            eq(cs2MatchTeamScores.matchId, id),
+            eq(cs2MatchTeamScores.teamId, team.teamId),
+            ne(cs2MatchTeamScores.score, team.score),
+          ));
       }
     });
   },

@@ -32,7 +32,7 @@ const SERIES_QUERY = `
           teams {
             baseInfo { id logoUrl name nameShortened }
           }
-          tournament { id logoUrl name nameShortened }
+          tournament { id logoUrl name nameShortened parent { logoUrl } }
         }
       }
       pageInfo { endCursor hasNextPage }
@@ -51,7 +51,7 @@ const SERIES_BY_ID_QUERY = `
       teams {
         baseInfo { id logoUrl name nameShortened }
       }
-      tournament { id logoUrl name nameShortened }
+      tournament { id logoUrl name nameShortened parent { logoUrl } }
     }
   }
 `;
@@ -85,6 +85,7 @@ const SeriesNodeSchema = z.object({
     logoUrl: z.string(),
     name: z.string().min(1),
     nameShortened: z.string(),
+    parent: z.object({ logoUrl: z.string() }).nullable().optional(),
   }),
 });
 const SeriesPageResponseSchema = z.object({
@@ -170,6 +171,11 @@ function teamLogoUrl(value: string): string | undefined {
   return url?.endsWith("/team-logos/generic") ? undefined : url;
 }
 
+function tournamentLogoUrl(value: string | undefined): string | undefined {
+  const url = optionalText(value);
+  return url?.endsWith("/tournament-logos/generic") ? undefined : url;
+}
+
 function isGridPlaceholderTeam(name: string): boolean {
   return /^tbd\d*$/u.test(normalizedName(name));
 }
@@ -207,7 +213,8 @@ function normalizeSeries(node: z.infer<typeof SeriesNodeSchema>): GridCatalogSer
   const knownTeamIds = participants.flatMap((slot) => slot.state === "known" ? [slot.team.gridTeamId] : []);
   if (new Set(knownTeamIds).size !== knownTeamIds.length) return undefined;
   const competitionShortName = optionalText(node.tournament.nameShortened);
-  const competitionLogoUrl = optionalText(node.tournament.logoUrl);
+  const competitionLogoUrl = tournamentLogoUrl(node.tournament.logoUrl) ??
+    tournamentLogoUrl(node.tournament.parent?.logoUrl);
 
   return {
     gridSeriesId: node.id,

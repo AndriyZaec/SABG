@@ -25,6 +25,14 @@ query GetLiveCsSeriesState {
         name
       }
     }
+    mapScores: games(filter: { started: true }) {
+      sequenceNumber
+      finished
+      teams {
+        id
+        score
+      }
+    }
     games(filter: { started: true, finished: false }) {
       sequenceNumber
       map {
