@@ -1,4 +1,5 @@
 import type {
+  ApiError,
   ArenaDetailResponse,
   ArenaRoundsResponse,
   Cs2SeriesDetailResponse,
@@ -87,8 +88,24 @@ export async function submitCs2Entry(arenaId: string, prepareId: string, signedT
   return post<SubmitEntryRequest, SubmitEntryResponse>(`/arenas/${arenaId}/entry/submit`, { prepareId, signedTx });
 }
 
+export class PushEndpointConflictError extends Error {}
+
 export async function subscribeToPush(subscription: PushSubscribeRequest): Promise<PushSubscribeResponse> {
-  return post<PushSubscribeRequest, PushSubscribeResponse>("/push/subscribe", subscription, true);
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  const token = getAuthToken();
+  if (token) headers["authorization"] = `Bearer ${token}`;
+  const res = await fetch("/cs2-api/push/subscribe", {
+    method: "POST",
+    headers,
+    body: JSON.stringify(subscription),
+  });
+  await reportEventAccessFailure(res);
+  if (res.status === 409) {
+    const body = (await res.json()) as ApiError;
+    if (body.error === "push_subscription_conflict") throw new PushEndpointConflictError(body.message);
+  }
+  if (!res.ok) throw new Error(`/push/subscribe failed (${res.status})`);
+  return (await res.json()) as PushSubscribeResponse;
 }
 
 export async function followCs2Series(seriesId: string): Promise<Cs2SeriesFollowResponse> {

@@ -60,7 +60,8 @@ const { arenaPlayerRepository } = await import("../../db/repositories/arena-play
 const { predictionRoundRepository } = await import("../../db/repositories/prediction-round.repository.js");
 const { predictionRepository } = await import("../../db/repositories/prediction.repository.js");
 const { entryPassRepository } = await import("../../db/repositories/entry-pass.repository.js");
-const { pushSubscriptionRepository } = await import("../../db/repositories/push-subscription.repository.js");
+const { pushSubscriptionRepository, PushSubscriptionConflictError, PushSubscriptionLimitError } =
+  await import("../../db/repositories/push-subscription.repository.js");
 const { cs2SeriesFollowRepository } = await import("../../db/repositories/cs2-series-follow.repository.js");
 const { seriesRepository } = await import("../../db/repositories/series.repository.js");
 const { buildEntryTx, isOnchainArenaProvisioningEnabled, isValidSolanaWalletAddress, verifyPreparedEntryTransaction } = await import("../../onchain/index.js");
@@ -729,6 +730,20 @@ describe("REST gateway routes", () => {
   });
 
   describe("POST /push/subscribe", () => {
+    it.each([
+      [new PushSubscriptionConflictError("Push endpoint belongs to another user"), "push_subscription_conflict"],
+      [new PushSubscriptionLimitError("Push subscription limit reached"), "push_subscription_limit"],
+    ])("distinguishes endpoint ownership from the subscription limit: %s", async (error, code) => {
+      vi.mocked(pushSubscriptionRepository.upsert).mockRejectedValue(error);
+      const res = await fetch(`${baseUrl}/push/subscribe`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${issueToken("u1")}` },
+        body: JSON.stringify({ endpoint: "https://fcm.googleapis.com/fcm/send/1", p256dh: PUSH_P256DH, auth: PUSH_AUTH }),
+      });
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({ error: code, message: error.message });
+    });
+
     it("saves a push subscription for the authenticated user", async () => {
       vi.mocked(pushSubscriptionRepository.upsert).mockResolvedValue(undefined);
       const res = await fetch(`${baseUrl}/push/subscribe`, {

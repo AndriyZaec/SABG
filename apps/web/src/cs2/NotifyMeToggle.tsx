@@ -1,10 +1,10 @@
 import type { MouseEvent } from "react";
 import { useCs2NotifyMe } from "./useCs2NotifyMe.js";
 
-/** Icon-only bell for the upcoming-series queue. Hidden until a wallet is connected. */
+/** Icon-only bell, shown for connected wallets in browsers that support push. */
 export function NotifyMeToggle({ seriesId, initiallyFollowing }: { seriesId: string; initiallyFollowing: boolean }) {
-  const { status, walletConnected, toggle } = useCs2NotifyMe(seriesId, initiallyFollowing);
-  if (!walletConnected) return null;
+  const { status, busy, supported, walletConnected, toggle } = useCs2NotifyMe(seriesId, initiallyFollowing);
+  if (!walletConnected || !supported) return null;
 
   const onClick = (e: MouseEvent) => {
     e.preventDefault();
@@ -18,6 +18,7 @@ export function NotifyMeToggle({ seriesId, initiallyFollowing }: { seriesId: str
         type="button"
         className="cs2-notify-bell cs2-notify-bell--on"
         title="Notifications on — click to turn off"
+        disabled={busy}
         onClick={onClick}
       >
         🔔
@@ -28,11 +29,11 @@ export function NotifyMeToggle({ seriesId, initiallyFollowing }: { seriesId: str
     <button
       type="button"
       className="cs2-notify-bell"
-      disabled={status === "working"}
+      disabled={busy}
       title={status === "denied" ? "Notifications blocked" : "Notify me"}
       onClick={onClick}
     >
-      {status === "working" ? "…" : "🔕"}
+      🔕
     </button>
   );
 }

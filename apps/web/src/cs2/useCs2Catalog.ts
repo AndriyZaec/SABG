@@ -8,13 +8,13 @@ type LoadState<T> =
   | { state: "ready"; value: T }
   | { state: "error" };
 
-function useLoad<T>(load: () => Promise<T>, dependency: string): [LoadState<T>, () => void] {
+function useLoad<T>(load: () => Promise<T>, dependency: string, preserveValue = false): [LoadState<T>, () => void] {
   const [attempt, setAttempt] = useState(0);
   const [result, setResult] = useState<LoadState<T>>({ state: "loading" });
 
   useEffect(() => {
     let active = true;
-    setResult({ state: "loading" });
+    setResult((current) => preserveValue && current.state === "ready" ? current : { state: "loading" });
     void load()
       .then((value) => {
         if (active) setResult({ state: "ready", value });
@@ -25,7 +25,7 @@ function useLoad<T>(load: () => Promise<T>, dependency: string): [LoadState<T>, 
     return () => {
       active = false;
     };
-  }, [attempt, dependency]);
+  }, [attempt, dependency, preserveValue]);
 
   return [result, () => setAttempt((current) => current + 1)];
 }
@@ -37,13 +37,22 @@ export interface Cs2SeriesCatalog {
 
 export function useCs2SeriesCatalog(): [LoadState<Cs2SeriesCatalog>, () => void] {
   const { token } = useAuth();
-  return useLoad(async () => {
+  // Wallet sign-in must not unmount an in-progress notification toggle.
+  const [result, retry] = useLoad(async () => {
     const { series } = await fetchCs2Series();
-    if (!token || series.length === 0) return { series, followedIds: [] };
+    if (!token || series.length === 0) return { series, followedIds: [], token };
     const { followedIds } = await fetchCs2SeriesFollows(series.map((item) => item.id))
       .catch(() => ({ followedIds: [] }));
-    return { series, followedIds };
-  }, `catalog:${token ?? ""}`);
+    return { series, followedIds, token };
+  }, `catalog:${token ?? ""}`, true);
+  if (result.state !== "ready") return [result, retry];
+  return [{
+    state: "ready",
+    value: {
+      series: result.value.series,
+      followedIds: result.value.token === token ? result.value.followedIds : [],
+    },
+  }, retry];
 }
 
 export function useCs2Series(seriesId: string): [LoadState<Cs2SeriesDetail>, () => void] {

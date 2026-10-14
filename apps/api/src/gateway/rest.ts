@@ -454,8 +454,12 @@ export function createRestRouter(runtimeLookup: ArenaRuntimeLookup): RouterType 
           auth,
         });
       } catch (error) {
-        if (error instanceof PushSubscriptionConflictError || error instanceof PushSubscriptionLimitError) {
+        if (error instanceof PushSubscriptionConflictError) {
           res.status(409).json({ error: "push_subscription_conflict", message: error.message });
+          return;
+        }
+        if (error instanceof PushSubscriptionLimitError) {
+          res.status(409).json({ error: "push_subscription_limit", message: error.message });
           return;
         }
         throw error;
