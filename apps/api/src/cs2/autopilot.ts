@@ -41,7 +41,7 @@ export interface Cs2AutopilotDeps {
   }): Promise<Cs2AutopilotStartResult>;
   isEnabled(): Promise<boolean>;
   listCandidates(): Promise<Cs2SeriesCandidate[]>;
-  listActiveRunSeries(): Promise<{ seriesId: Uuid; gridSeriesId: string; scheduledStartTime: IsoDateTime; hasOpenArena: boolean }[]>;
+  listActiveRunSeries(): Promise<{ seriesId: Uuid; gridSeriesId: string; scheduledStartTime: IsoDateTime; hasOpenArena: boolean; hasOnlyEmptyCancelledArenas: boolean }[]>;
   findSeries(seriesId: Uuid): Promise<Series | undefined>;
   setSeriesSkipped(seriesId: Uuid): Promise<void>;
   /** Drops a finished series' arena from process memory (gateway runtime and cache, entry gate). */
@@ -118,18 +118,18 @@ export class Cs2Autopilot {
       : { kind: "completed" as const, value: await task() });
   }
 
-  /** On process start: rebuild the series that has an open arena; abandon one that died between maps. */
+  /** Resume open arenas and empty insufficient-player cancellations; abandon other between-map series. */
   resume(): Promise<void> {
     return this.enqueue(async () => {
       const ran = await this.deps.listActiveRunSeries();
-      for (const series of ran.filter((s) => !s.hasOpenArena)) {
+      for (const series of ran.filter((s) => !s.hasOpenArena && !s.hasOnlyEmptyCancelledArenas)) {
         // No arena holds money between maps, and restore() can't tell which map is live by now.
         await this.deps.setSeriesSkipped(series.seriesId);
         logger.warn({ gridSeriesId: series.gridSeriesId }, "autopilot: series died between maps; skipped");
       }
       // A tick that ran first may have resumed it already.
       if (this.runner !== undefined || this.abortController.signal.aborted) return;
-      await this.resumeOpenSeries(ran);
+      await this.resumeStartedSeries(ran);
     });
   }
 
@@ -141,7 +141,7 @@ export class Cs2Autopilot {
         return;
       }
       // A series with an open arena holds players' money: it comes first, e.g. after a failed resume.
-      if (await this.resumeOpenSeries(await this.deps.listActiveRunSeries())) return;
+      if (await this.resumeStartedSeries(await this.deps.listActiveRunSeries())) return;
       if (!(await this.deps.isEnabled())) return;
       const decision = selectNextSeries(await this.deps.listCandidates(), this.deps.now().toISOString(), this.deps.random);
       if (decision.kind !== "launch") return;
@@ -170,18 +170,19 @@ export class Cs2Autopilot {
     if ((await runner.skip()) === "skipped") await this.endRunner(runner.gridSeriesId, "skipped");
   }
 
-  /** Returns whether a series with an open arena exists; if so it was (re)launched or will be retried next tick. */
-  private async resumeOpenSeries(
+  /** Open arenas take precedence; failed recovery is retried next tick before launching another series. */
+  private async resumeStartedSeries(
     ran: Awaited<ReturnType<Cs2AutopilotDeps["listActiveRunSeries"]>>,
   ): Promise<boolean> {
     const open = ran.filter((s) => s.hasOpenArena);
     if (open.length > 1) {
       logger.error({ gridSeriesIds: open.map((s) => s.gridSeriesId) }, "autopilot: several series have open arenas; resuming the earliest");
     }
-    const series = open[0];
+    const series = open[0] ?? ran.find((s) => s.hasOnlyEmptyCancelledArenas);
     if (series === undefined) return false;
-    // No priming deadline: its open arena holds players' money, so keep waiting for GRID.
-    await this.launch(series.gridSeriesId, series.scheduledStartTime, undefined, "autopilot: resumed");
+    // Open arenas hold money and wait indefinitely; empty series get a fresh recovery window.
+    const deadline = series.hasOpenArena ? undefined : new Date(this.deps.now().getTime() + LATE_START_WINDOW_MS).toISOString();
+    await this.launch(series.gridSeriesId, series.scheduledStartTime, deadline, "autopilot: resumed");
     return true;
   }
 
@@ -222,7 +223,7 @@ export class Cs2Autopilot {
       if (outcome === "overtaken") {
         // The crash-closed arena is already paid; nothing open is left to protect.
         await this.deps.setSeriesSkipped(runner.seriesId);
-        logger.warn({ gridSeriesId }, "autopilot: next map was already live after a crash close; series skipped");
+        logger.warn({ gridSeriesId }, "autopilot: next map was already live on recovery; series skipped");
       } else {
         logger.info({ gridSeriesId }, outcome === "skipped" ? "autopilot: series skipped by the operator" : "autopilot: series complete");
       }

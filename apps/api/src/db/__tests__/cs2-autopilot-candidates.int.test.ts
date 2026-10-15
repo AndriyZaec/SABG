@@ -36,6 +36,8 @@ describe.skipIf(!RUN)("cs2CatalogRepository.listAutopilotCandidates (integration
   afterAll(async () => {
     if (db === undefined) return;
     if (matchIds.length > 0) {
+      await db.delete(schema.entryPasses).where(inArray(schema.entryPasses.arenaId,
+        db.select({ id: schema.arenas.id }).from(schema.arenas).where(inArray(schema.arenas.matchId, matchIds))));
       await db.delete(schema.arenas).where(inArray(schema.arenas.matchId, matchIds));
       await db.delete(schema.matches).where(inArray(schema.matches.id, matchIds));
     }
@@ -117,6 +119,49 @@ describe.skipIf(!RUN)("cs2CatalogRepository.listAutopilotCandidates (integration
 
   it("returns nothing for no configured tournaments", async () => {
     expect(await repository.listAutopilotCandidates([])).toEqual([]);
+  });
+
+  it("resumes only active series whose every arena is insufficient-player cancelled without paid entries", async () => {
+    const seriesId = await seed("resume", { isSupported: true, secondSlotKnown: true });
+    const participants = await db.select({ teamId: schema.cs2SeriesParticipants.teamId })
+      .from(schema.cs2SeriesParticipants).where(eq(schema.cs2SeriesParticipants.seriesId, seriesId))
+      .orderBy(schema.cs2SeriesParticipants.displayOrder);
+    const teams = [
+      { teamId: participants[0]!.teamId, name: "resume A" },
+      { teamId: participants[1]!.teamId, name: "resume B" },
+    ] as const;
+    const state = async () => (await repository.listActiveRunSeries([gridTournamentId])).find((s) => s.seriesId === seriesId);
+    expect(await state()).toBeUndefined();
+    const first = await matchRepository.upsertForSeriesMap(seriesId, 1, { teams, startTime: new Date() });
+    matchIds.push(first.id);
+    const firstArena = await arenaRepository.upsertForMatch(first.id, { entryFeeLamports: 1000, prizePoolLamports: 0 });
+    expect(await state()).toMatchObject({ hasOpenArena: true, hasOnlyEmptyCancelledArenas: false });
+    await arenaRepository.cancelIfLobby(firstArena.id, "insufficient_players");
+    expect(await state()).toMatchObject({ hasOpenArena: false, hasOnlyEmptyCancelledArenas: true });
+    const second = await matchRepository.upsertForSeriesMap(seriesId, 2, { teams, startTime: new Date() });
+    matchIds.push(second.id);
+    const secondArena = await arenaRepository.upsertForMatch(second.id, { entryFeeLamports: 1000, prizePoolLamports: 0 });
+    expect(await state()).toMatchObject({ hasOnlyEmptyCancelledArenas: false });
+    await arenaRepository.cancelIfLobby(secondArena.id, "insufficient_players");
+    expect(await state()).toMatchObject({ hasOnlyEmptyCancelledArenas: true });
+    const user = await userRepository.upsertByWallet(`resume-wallet-${runId}`, "resume-player");
+    userIds.push(user.id);
+    const [pass] = await db.insert(schema.entryPasses).values({
+      arenaId: secondArena.id, userId: user.id, walletAddress: user.walletAddress,
+      amountLamports: 1000, txSignature: `resume-entry-${runId}`, status: "paid", purchasedAt: new Date(),
+    }).returning();
+    expect(await state()).toMatchObject({ hasOnlyEmptyCancelledArenas: false });
+    await db.update(schema.entryPasses).set({ status: "refunded" }).where(eq(schema.entryPasses.id, pass!.id));
+    expect(await state()).toMatchObject({ hasOnlyEmptyCancelledArenas: true });
+    for (const cancelledReason of ["operator_skip", null]) {
+      await db.update(schema.arenas).set({ cancelledReason }).where(eq(schema.arenas.id, firstArena.id));
+      expect(await state()).toMatchObject({ hasOnlyEmptyCancelledArenas: false });
+    }
+    await db.update(schema.arenas).set({ status: "finished", cancelledReason: null }).where(eq(schema.arenas.id, firstArena.id));
+    expect(await state()).toMatchObject({ hasOnlyEmptyCancelledArenas: false });
+    await db.update(schema.series).set({ status: "decided" }).where(eq(schema.series.id, seriesId));
+    expect(await state()).toBeUndefined();
+    expect(await repository.listActiveRunSeries([])).toEqual([]);
   });
 
   it("withdraws only not-yet-run active series inside the window that GRID no longer publishes", async () => {

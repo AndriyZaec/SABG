@@ -56,7 +56,7 @@ export class Cs2SeriesOrchestrator {
   private readonly arenasByMatchIndex = new Map<number, OpenedArena>();
   private readonly cancelledScoreMatches = new Map<number, Cs2Match>();
   private reconcilingFinishedMatch = false;
-  /** Set by a crash close until the first snapshot confirms map k is still the one being played. */
+  /** Set on restore until the first snapshot confirms map k is still the one being played. */
   private reconcilingCrashClosedMatch = false;
 
   constructor(
@@ -127,10 +127,8 @@ export class Cs2SeriesOrchestrator {
         // The real map started even though the player arena didn't. Follow its end, not its signals.
         if (latestMatch.status !== "finished") {
           await matchRepository.setStatus(latestMatch.id, "live");
-          this.reconcilingCrashClosedMatch = true;
-        } else {
-          this.reconcilingFinishedMatch = true;
         }
+        this.reconcilingCrashClosedMatch = true;
       }
       if (arena.cancelledReason === "no_show") {
         await seriesRepository.setStatus(this.series.id, "invalid");

@@ -227,6 +227,63 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     }
   });
 
+  it.each(["between_maps", "overtaken", "complete"] as const)("restores a finished insufficient-player cancelled map (%s)", async (outcome) => {
+    const at = clockFrom(new Date(Date.now()).toISOString());
+    const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
+      format: 3, scheduledStartTime: new Date(at(0)),
+    });
+    seriesIds.push(series.id);
+    const ids = await synchronizeTestTeams(series.id);
+    const writeQueue = new WriteQueue();
+    const options = { writeQueue, entryFeeLamports: 1000 };
+    const original = await Cs2SeriesOrchestrator.create(series, options);
+    await original.poll(snapshot(ids, {}), at(-10));
+    await original.poll(snapshot(ids, { hasLiveGame: true }), at(0));
+    await writeQueue.drain();
+    const match = (await matchRepository.findBySeriesMatchIndex(series.id, 1))!;
+    matchIds.push(match.id);
+    const arena = (await arenaRepository.findByMatchId(match.id))!;
+    arenaIds.push(arena.id);
+    // Map end persisted before the restart, but the following arena was not opened yet.
+    await matchRepository.setStatus(match.id, "finished");
+    const restored = await Cs2SeriesOrchestrator.create(series, options);
+    expect(restored.currentBus()).toBeUndefined();
+    const feed = snapshot(ids, {
+      teams: outcome === "complete" ? [2, 0] : [1, 0],
+      hasLiveGame: outcome === "overtaken", finished: outcome === "complete",
+      mapScores: [{ matchIndex: 1, finished: true, teams: [{ teamId: ids[0], score: 13 }, { teamId: ids[1], score: 9 }] }],
+    });
+    const payout = vi.spyOn(payoutService, "settleArena");
+    try {
+      if (outcome === "overtaken") {
+        const { Cs2SeriesOvertakenError } = await import("../series-orchestrator.js");
+        await expect(restored.poll(feed, at(20))).rejects.toBeInstanceOf(Cs2SeriesOvertakenError);
+        expect(await matchRepository.listBySeriesId(series.id)).toHaveLength(1);
+      } else {
+        await restored.poll(feed, at(20));
+        if (outcome === "between_maps") {
+          const next = (await matchRepository.findBySeriesMatchIndex(series.id, 2))!;
+          matchIds.push(next.id);
+          const nextArena = (await arenaRepository.findByMatchId(next.id))!;
+          arenaIds.push(nextArena.id);
+          expect(nextArena.status).toBe("lobby");
+        } else {
+          expect(await restored.isComplete()).toBe(true);
+          expect(await seriesRepository.findById(series.id)).toMatchObject({ status: "decided" });
+          expect(await matchRepository.listBySeriesId(series.id)).toHaveLength(1);
+        }
+      }
+      await writeQueue.drain();
+      expect(await arenaRepository.findById(arena.id)).toMatchObject({ status: "cancelled", cancelledReason: "insufficient_players" });
+      expect(await matchRepository.findById(match.id)).toMatchObject({
+        teamScores: [{ teamId: ids[0], score: 13 }, { teamId: ids[1], score: 9 }],
+      });
+      expect(payout).not.toHaveBeenCalled();
+    } finally {
+      payout.mockRestore();
+    }
+  });
+
   it("opens Arena #1 in lobby, persists Round 1, flips to live on Match Live Detected, then cancels the reactively-opened Arena #2 on a forfeit — Series ends up decided, not invalid", async () => {
     const at = clockFrom(new Date(Date.now()).toISOString());
     const gridSeriesId = `int-test-${randomUUID()}`;

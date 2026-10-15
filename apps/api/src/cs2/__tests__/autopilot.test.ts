@@ -179,7 +179,7 @@ describe("Cs2Autopilot.tick", () => {
   it("resumes a series with an open arena before picking a new one, even with the switch off", async () => {
     const { autopilot, deps, starts } = setup({ enabled: false, series: [series("s1", -20), series("s2", 5)] });
     deps.listActiveRunSeries = async () => [
-      { seriesId: "s1", gridSeriesId: "grid-s1", scheduledStartTime: series("s1", -20).scheduledStartTime, hasOpenArena: true },
+      { seriesId: "s1", gridSeriesId: "grid-s1", scheduledStartTime: series("s1", -20).scheduledStartTime, hasOpenArena: true, hasOnlyEmptyCancelledArenas: false },
     ];
     await autopilot.tick();
     expect(starts.map((start) => start.gridSeriesId)).toEqual(["grid-s1"]);
@@ -206,10 +206,53 @@ describe("Cs2Autopilot.tick", () => {
 });
 
 describe("Cs2Autopilot.resume", () => {
+  it("resumes an empty cancelled series with a fresh priming window and no duplicate runner", async () => {
+    const s = series("s1", -90);
+    const { autopilot, deps, starts, skipped } = setup({ enabled: false, series: [s] });
+    deps.listActiveRunSeries = async () => [{
+      seriesId: s.id, gridSeriesId: s.gridSeriesId, scheduledStartTime: s.scheduledStartTime,
+      hasOpenArena: false, hasOnlyEmptyCancelledArenas: true,
+    }];
+    await autopilot.resume();
+    await autopilot.tick();
+    expect(skipped).toEqual([]);
+    expect(starts).toHaveLength(1);
+    expect(starts[0]).toMatchObject({ gridSeriesId: s.gridSeriesId, primingDeadline: series("s1", 30).scheduledStartTime });
+  });
+
+  it("recovers an open arena before an older empty cancelled series", async () => {
+    const empty = series("s1", -90);
+    const open = series("s2", -20);
+    const { autopilot, deps, starts, skipped } = setup({ series: [empty, open] });
+    deps.listActiveRunSeries = async () => [
+      { seriesId: empty.id, gridSeriesId: empty.gridSeriesId, scheduledStartTime: empty.scheduledStartTime, hasOpenArena: false, hasOnlyEmptyCancelledArenas: true },
+      { seriesId: open.id, gridSeriesId: open.gridSeriesId, scheduledStartTime: open.scheduledStartTime, hasOpenArena: true, hasOnlyEmptyCancelledArenas: false },
+    ];
+    await autopilot.resume();
+    expect(skipped).toEqual([]);
+    expect(starts.map((start) => start.gridSeriesId)).toEqual([open.gridSeriesId]);
+    expect(starts[0]!.primingDeadline).toBeUndefined();
+  });
+
+  it("retries failed empty-series recovery before launching a new series", async () => {
+    const s = series("s1", -90);
+    const { autopilot, deps, starts, skipped } = setup({ series: [s, series("s2", 5)] });
+    deps.listActiveRunSeries = async () => [{
+      seriesId: s.id, gridSeriesId: s.gridSeriesId, scheduledStartTime: s.scheduledStartTime,
+      hasOpenArena: false, hasOnlyEmptyCancelledArenas: true,
+    }];
+    vi.mocked(deps.startRunner).mockRejectedValueOnce(new Error("lock taken"));
+    await autopilot.resume();
+    await autopilot.tick();
+    expect(deps.startRunner).toHaveBeenCalledTimes(2);
+    expect(starts.map((start) => start.gridSeriesId)).toEqual([s.gridSeriesId]);
+    expect(skipped).toEqual([]);
+  });
+
   it("restarts the series with an open arena, without a priming deadline", async () => {
     const { autopilot, deps, starts } = setup();
     deps.listActiveRunSeries = async () => [
-      { seriesId: "s1", gridSeriesId: "grid-s1", scheduledStartTime: series("s1", -20).scheduledStartTime, hasOpenArena: true },
+      { seriesId: "s1", gridSeriesId: "grid-s1", scheduledStartTime: series("s1", -20).scheduledStartTime, hasOpenArena: true, hasOnlyEmptyCancelledArenas: false },
     ];
     await autopilot.resume();
     expect(starts).toHaveLength(1);
@@ -223,7 +266,7 @@ describe("Cs2Autopilot.resume", () => {
   it("doesn't launch a second runner when a tick already resumed the series", async () => {
     const { autopilot, deps, starts } = setup({ series: [series("s1", -20)] });
     deps.listActiveRunSeries = async () => [
-      { seriesId: "s1", gridSeriesId: "grid-s1", scheduledStartTime: series("s1", -20).scheduledStartTime, hasOpenArena: true },
+      { seriesId: "s1", gridSeriesId: "grid-s1", scheduledStartTime: series("s1", -20).scheduledStartTime, hasOpenArena: true, hasOnlyEmptyCancelledArenas: false },
     ];
     await autopilot.tick();
     await autopilot.resume();
@@ -239,7 +282,7 @@ describe("Cs2Autopilot.resume", () => {
   it("skips a series that died between maps and starts no runner for it", async () => {
     const { autopilot, deps, starts, skipped } = setup({ enabled: false });
     deps.listActiveRunSeries = async () => [
-      { seriesId: "s1", gridSeriesId: "grid-s1", scheduledStartTime: series("s1", -90).scheduledStartTime, hasOpenArena: false },
+      { seriesId: "s1", gridSeriesId: "grid-s1", scheduledStartTime: series("s1", -90).scheduledStartTime, hasOpenArena: false, hasOnlyEmptyCancelledArenas: false },
     ];
     await autopilot.resume();
     expect(skipped).toEqual(["s1"]);
