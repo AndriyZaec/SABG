@@ -99,10 +99,83 @@ function buildRuntime(playerIds: Uuid[], questionProvider?: Cs2QuestionProvider)
     ...(questionProvider !== undefined ? { questionProvider } : {}),
   });
 
-  return { runtime, bus, broadcasts, personal, upserts, finished, arenaPlayerStore };
+  return { runtime, bus, broadcasts, personal, upserts, finished, arenaPlayerStore, predictionStore };
 }
 
 describe("Cs2ArenaRuntime — elimination wiring", () => {
+  it.each([false, true])("keeps incorrect answerers active across no-correct rounds, without forgiving AFK (AFK: %s)", (afk) => {
+    const players = Array.from({ length: 5 }, (_, i) => `00000000-0000-0000-0000-00000000000${i + 1}`);
+    const answerers = afk ? players.slice(0, 4) : players;
+    const { runtime, bus, broadcasts, personal, upserts, finished, arenaPlayerStore, predictionStore } = buildRuntime(players, fakeProvider());
+    runtime.openRoundOne("t0");
+    for (const roundNumber of [1, 2]) {
+      const round = runtime.currentRound!;
+      expect(round.roundNumber).toBe(roundNumber);
+      for (const userId of answerers) expect(runtime.submitAnswer(userId, round.id, "no").ok).toBe(true);
+      bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(roundNumber - 1, 0), timestamp: "t1" });
+      bus.publish({ kind: "cs2_round_lock", roundNumber, timestamp: "t1" });
+      bus.publish({ kind: "cs2_round_end", roundNumber, snapshot: snapshot(roundNumber, 0), timestamp: "t2" });
+      expect(arenaPlayerStore.getActivePlayerIds(ARENA_ID)).toEqual(answerers);
+      for (const userId of answerers) expect(predictionStore.getResult(round.id, userId)).toBe("incorrect");
+      expect(runtime.leaderboardSnapshot().filter((p) => p.status === "active").map((p) => p.userId).sort()).toEqual([...answerers].sort());
+      expect(runtime.leaderboardSnapshot().every((p) => p.score === 0)).toBe(true);
+      expect(broadcasts.find((m) => m.type === "round.settle" && m.roundId === round.id)).toMatchObject({
+        correctAnswer: "yes", survivorsCount: answerers.length, survivalRuleApplied: "no_correct_answers",
+      });
+      expect([...upserts].reverse().find((r) => r.id === round.id)).toMatchObject({ status: "settled", survivalRuleApplied: "no_correct_answers" });
+      expect(finished).toEqual([]);
+      expect(runtime.finalWinners()).toBeUndefined();
+    }
+    expect(personal.filter((p) => answerers.includes(p.userId) && p.message.type === "player.status").every((p) => p.message.type === "player.status" && p.message.status === "active")).toBe(true);
+    if (afk) {
+      expect(arenaPlayerStore.getStatus(players[4]!)).toBe("eliminated");
+      expect(runtime.leaderboardSnapshot().find((p) => p.userId === players[4])).toMatchObject({ status: "eliminated", missedCount: 1 });
+    }
+    bus.publish({ kind: "cs2_match_end", timestamp: "t3" });
+    expect(finished).toEqual([answerers]);
+    expect(runtime.finalWinners()).toEqual(answerers);
+  });
+
+  it("ignores a previously eliminated player's correct answer when rescuing the remaining survivors", () => {
+    const { runtime, bus, broadcasts, arenaPlayerStore } = buildRuntime([PLAYER_YES, PLAYER_NO, PLAYER_SILENT], fakeProvider());
+    runtime.openRoundOne("t0");
+    const first = runtime.currentRound!;
+    runtime.submitAnswer(PLAYER_YES, first.id, "no");
+    runtime.submitAnswer(PLAYER_NO, first.id, "yes");
+    runtime.submitAnswer(PLAYER_SILENT, first.id, "yes");
+    bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(0, 0), timestamp: "t1" });
+    bus.publish({ kind: "cs2_round_lock", roundNumber: 1, timestamp: "t1" });
+    const second = broadcasts.find((m) => m.type === "round.open" && m.round.roundNumber === 2);
+    if (second?.type !== "round.open") throw new Error("Round 2 did not open");
+    // Answers overlap while round 1 is locked; this player is eliminated before round 2 settles.
+    runtime.submitAnswer(PLAYER_YES, second.round.id, "yes");
+    runtime.submitAnswer(PLAYER_NO, second.round.id, "no");
+    runtime.submitAnswer(PLAYER_SILENT, second.round.id, "no");
+    bus.publish({ kind: "cs2_round_end", roundNumber: 1, snapshot: snapshot(1, 0), timestamp: "t2" });
+    bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(1, 0), timestamp: "t3" });
+    bus.publish({ kind: "cs2_round_lock", roundNumber: 2, timestamp: "t3" });
+    bus.publish({ kind: "cs2_round_end", roundNumber: 2, snapshot: snapshot(2, 0), timestamp: "t4" });
+    expect(arenaPlayerStore.getStatus(PLAYER_YES)).toBe("eliminated");
+    expect(arenaPlayerStore.getActivePlayerIds(ARENA_ID)).toEqual([PLAYER_NO, PLAYER_SILENT]);
+    expect(runtime.finalWinners()).toBeUndefined();
+    expect(broadcasts.find((m) => m.type === "round.settle" && m.roundId === second.round.id)).toMatchObject({ survivalRuleApplied: "no_correct_answers" });
+  });
+
+  it.each([true, false])("keeps existing last-survivor/all-AFK finalization (one wrong answer: %s)", (answered) => {
+    const { runtime, bus, broadcasts, finished, personal } = buildRuntime([PLAYER_YES, PLAYER_SILENT], fakeProvider());
+    runtime.openRoundOne("t0");
+    const round = runtime.currentRound!;
+    if (answered) runtime.submitAnswer(PLAYER_YES, round.id, "no");
+    bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(0, 0), timestamp: "t1" });
+    bus.publish({ kind: "cs2_round_lock", roundNumber: 1, timestamp: "t1" });
+    bus.publish({ kind: "cs2_round_end", roundNumber: 1, snapshot: snapshot(1, 0), timestamp: "t2" });
+    expect(finished).toEqual([answered ? [PLAYER_YES] : [PLAYER_YES, PLAYER_SILENT]]);
+    const message = broadcasts.find((m) => m.type === "round.settle");
+    if (answered) expect(message).toMatchObject({ survivalRuleApplied: "no_correct_answers", survivorsCount: 1 });
+    else expect(message).not.toHaveProperty("survivalRuleApplied");
+    expect(personal).toContainEqual({ userId: PLAYER_SILENT, message: { type: "player.status", status: "eliminated", roundId: round.id } });
+  });
+
   it("eliminates an incorrect answerer and a non-answerer, keeps a correct answerer active", () => {
     const { runtime, bus, arenaPlayerStore, broadcasts } = buildRuntime([PLAYER_YES, PLAYER_NO, PLAYER_SILENT], fakeProvider());
 
@@ -126,6 +199,7 @@ describe("Cs2ArenaRuntime — elimination wiring", () => {
 
     const settleMsg = broadcasts.find((m) => m.type === "round.settle");
     expect(settleMsg).toMatchObject({ type: "round.settle", correctAnswer: "yes", settledBy: "round_end", survivorsCount: 1 });
+    expect(settleMsg).not.toHaveProperty("survivalRuleApplied");
   });
 
   it("broadcasts round.open with the round but no lockAt", () => {
@@ -222,7 +296,7 @@ describe("Cs2ArenaRuntime — elimination wiring", () => {
 
     const round2Voided = upserts.find((r) => r.roundNumber === 2 && r.status === "voided");
     expect(round2Voided).toBeDefined();
-    expect(broadcasts.find((m) => m.type === "round.void")).toEqual({ type: "round.void", roundId: round2Voided!.id });
+    expect(broadcasts.find((m) => m.type === "round.void")).toEqual({ type: "round.void", roundId: round2Voided!.id, roundNumber: 2 });
 
     const settlesBefore = broadcasts.filter((m) => m.type === "round.settle").length;
 
@@ -295,8 +369,8 @@ describe("Cs2ArenaRuntime — elimination wiring", () => {
     expect(settleMsgs).toHaveLength(0);
 
     expect(broadcasts.filter((m) => m.type === "round.void")).toEqual([
-      { type: "round.void", roundId: round1Voided!.id },
-      { type: "round.void", roundId: round2!.id },
+      { type: "round.void", roundId: round1Voided!.id, roundNumber: 1 },
+      { type: "round.void", roundId: round2!.id, roundNumber: 2 },
     ]);
   });
 

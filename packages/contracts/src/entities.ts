@@ -111,6 +111,8 @@ export interface ArenaPlayer {
   eliminatedRoundId?: Uuid;
 }
 
+export type RoundSurvivalRule = "no_correct_answers";
+
 export interface PredictionRound {
   id: Uuid;
   arenaId: Uuid;
@@ -132,6 +134,8 @@ export interface PredictionRound {
   lockedAt?: IsoDateTime;
   settledAt?: IsoDateTime;
   settledBy?: SettledBy;
+  /** CS2 only: incorrect answerers stayed active despite an incorrect prediction result. */
+  survivalRuleApplied?: RoundSurvivalRule;
 }
 
 export interface Prediction {

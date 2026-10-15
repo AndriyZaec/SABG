@@ -28,6 +28,7 @@ export const predictionRoundRepository = {
       lockedAt: toDate(round.lockedAt) ?? null,
       settledAt: toDate(round.settledAt) ?? null,
       settledBy: round.settledBy ?? null,
+      survivalRuleApplied: round.survivalRuleApplied ?? null,
     };
 
     const [row] = await db

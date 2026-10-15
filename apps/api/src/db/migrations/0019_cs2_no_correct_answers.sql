@@ -1,0 +1,2 @@
+ALTER TABLE "prediction_round" ADD COLUMN "survival_rule_applied" text;--> statement-breakpoint
+ALTER TABLE "prediction_round" ADD CONSTRAINT "prediction_round_survival_rule_check" CHECK ("prediction_round"."survival_rule_applied" is null or ("prediction_round"."discipline" = 'cs2' and "prediction_round"."status" = 'settled' and "prediction_round"."survival_rule_applied" = 'no_correct_answers'));

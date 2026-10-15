@@ -206,15 +206,17 @@ export class Cs2ArenaRuntime implements ArenaRuntimeLike {
   private handleSettle(roundId: Uuid, roundNumber: number, correctAnswer: Answer): void {
     const round = this.roundEngine.roundsByNumber.get(roundNumber);
     if (round === undefined) return;
-    this.persistence?.upsertRound(round);
 
-    applyRoundOutcome(
+    const survivalRuleApplied = applyRoundOutcome(
       roundId,
       this.arenaId,
       correctAnswer,
       { predictionStore: this.predictionStore, arenaPlayerStore: this.arenaPlayerStore },
       (result) => this.onPlayerResult(result),
+      { noCorrectAnswers: "continue" },
     );
+    if (survivalRuleApplied !== undefined) round.survivalRuleApplied = survivalRuleApplied;
+    this.persistence?.upsertRound(round);
 
     const survivorsCount = this.arenaPlayerStore.getActivePlayerIds(this.arenaId).length;
     this.broadcaster?.broadcast(this.arenaId, {
@@ -224,6 +226,7 @@ export class Cs2ArenaRuntime implements ArenaRuntimeLike {
       correctAnswer,
       settledBy: "round_end",
       survivorsCount,
+      ...(survivalRuleApplied !== undefined ? { survivalRuleApplied } : {}),
     });
 
     this.leaderboardService.onRoundSettled({ roundId });
@@ -237,7 +240,7 @@ export class Cs2ArenaRuntime implements ArenaRuntimeLike {
     const round = this.roundEngine.roundsByNumber.get(roundNumber);
     if (round === undefined) return;
     this.persistence?.upsertRound(round);
-    this.broadcaster?.broadcast(this.arenaId, { type: "round.void", roundId: round.id });
+    this.broadcaster?.broadcast(this.arenaId, { type: "round.void", roundId: round.id, roundNumber });
   }
 
   private onPlayerResult(event: PlayerResultEvent): void {

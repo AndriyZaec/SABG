@@ -113,6 +113,33 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     return ids;
   }
 
+  it("persists the CS2 no-correct-answer outcome for round history and rejects markers on unsettled rounds", async () => {
+    const at = clockFrom(new Date(Date.now()).toISOString());
+    const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
+      format: 3, scheduledStartTime: new Date(at(0)),
+    });
+    seriesIds.push(series.id);
+    const ids = await synchronizeTestTeams(series.id);
+    const writeQueue = new WriteQueue();
+    const orchestrator = await Cs2SeriesOrchestrator.create(series, { writeQueue, entryFeeLamports: 1000 });
+    await orchestrator.poll(snapshot(ids, {}), at(-10));
+    await writeQueue.drain();
+    const match = (await matchRepository.findBySeriesMatchIndex(series.id, 1))!;
+    matchIds.push(match.id);
+    const arena = (await arenaRepository.findByMatchId(match.id))!;
+    arenaIds.push(arena.id);
+    const round = (await predictionRoundRepository.listByArenaId(arena.id))[0]!;
+    expect(round).not.toHaveProperty("survivalRuleApplied");
+    const saved = await predictionRoundRepository.upsert({
+      ...round, status: "settled", correctAnswer: "yes", settledBy: "round_end",
+      settledAt: at(0), survivalRuleApplied: "no_correct_answers",
+    });
+    expect(await predictionRoundRepository.findById(round.id)).toEqual(saved);
+    expect((await predictionRoundRepository.listByArenaId(arena.id))[0]).toMatchObject({ survivalRuleApplied: "no_correct_answers" });
+    await expect(predictionRoundRepository.upsert({ ...saved, status: "locked" })).rejects.toThrow();
+    expect(await predictionRoundRepository.findById(round.id)).toMatchObject({ status: "settled", survivalRuleApplied: "no_correct_answers" });
+  });
+
   it("restores score tracking on retry when its initial lookup fails after cancellation commits", async () => {
     const at = clockFrom(new Date(Date.now()).toISOString());
     const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {

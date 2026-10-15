@@ -68,7 +68,7 @@ export class LeaderboardService {
     for (const result of pending) {
       const row = this.rows.get(result.userId);
       if (row === undefined) continue;
-      this.applyResult(row, result.result);
+      this.applyResult(row, result.result, result.status);
     }
 
     this.options.onSnapshot?.(this.snapshot());
@@ -90,13 +90,13 @@ export class LeaderboardService {
     return rankLeaderboard([...this.rows.values()]);
   }
 
-  private applyResult(row: LeaderboardAccumulator, result: PredictionResult): void {
+  private applyResult(row: LeaderboardAccumulator, result: PredictionResult, status: PlayerResultEvent["status"]): void {
     if (result === "correct") {
       row.score += 1;
       return;
     }
     if (result === "missed") row.missedCount += 1;
-    row.status = "eliminated";
+    row.status = status;
   }
 
   private activeRows(): LeaderboardAccumulator[] {

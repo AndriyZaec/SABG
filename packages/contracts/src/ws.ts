@@ -5,6 +5,7 @@ import type {
   LeaderboardEntry,
   MatchState,
   PredictionRound,
+  RoundSurvivalRule,
   Uuid,
 } from "./entities.js";
 
@@ -29,6 +30,7 @@ export interface RoundSettleMessage {
   correctAnswer: Answer;
   settledBy: SettledBy;
   survivorsCount: number;
+  survivalRuleApplied?: RoundSurvivalRule;
 }
 
 export interface MatchStateMessage {
@@ -55,6 +57,8 @@ export interface ArenaCancelledMessage {
 export interface RoundVoidMessage {
   type: "round.void";
   roundId: Uuid;
+  /** CS2 question number; omitted by legacy soccer. */
+  roundNumber?: number;
 }
 
 /** Personal state; send only to the addressed connection. */
