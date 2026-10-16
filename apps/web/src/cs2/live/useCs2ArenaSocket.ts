@@ -7,12 +7,14 @@ import {
   ELIMINATED_TEXT,
   feedFromRounds,
   formatSettleText,
+  formatCs2VoidText,
+  NO_CORRECT_ANSWERS_TEXT,
   mergeFeedFromRounds,
   prependFeedItem,
   settleFeedId,
   SURVIVED_TEXT,
+  survivalFeedId,
   voidFeedId,
-  VOID_FEED_TEXT,
 } from "../../arena/feedFromRounds.js";
 import type { Cs2AnswerSubmission, Cs2ArenaView, LeaderRow } from "../cs2View.js";
 import type { Cs2NewRoundSignal } from "./useCs2RoundAlerts.js";
@@ -75,24 +77,30 @@ function reduce(view: Cs2ArenaView, msg: ServerMessage, myUserId?: string): Cs2A
       };
     case "round.lock":
       return view.round ? { ...view, round: { ...view.round, status: "locked" } } : view;
-    case "round.settle":
+    case "round.settle": {
+      let feed = prependFeedItem(view.feed, {
+        id: settleFeedId(msg.roundId), kind: "info", text: formatSettleText(msg.question, msg.correctAnswer),
+      });
+      if (msg.survivalRuleApplied === "no_correct_answers") {
+        feed = prependFeedItem(feed, { id: survivalFeedId(msg.roundId), kind: "info", text: NO_CORRECT_ANSWERS_TEXT });
+      }
       return {
         ...view,
         survivors: msg.survivorsCount,
         ...(view.round && view.round.roundId === msg.roundId
-          ? { round: { ...view.round, status: "settled" as const, correctAnswer: msg.correctAnswer } }
+          ? { round: { ...view.round, status: "settled" as const, correctAnswer: msg.correctAnswer, survivalRuleApplied: msg.survivalRuleApplied } }
           : {}),
-        feed: prependFeedItem(view.feed, {
-          id: settleFeedId(msg.roundId),
-          kind: "info",
-          text: formatSettleText(msg.question, msg.correctAnswer),
-        }),
+        feed,
       };
+    }
     case "round.void":
       return {
         ...view,
         ...(view.round && view.round.roundId === msg.roundId ? { round: undefined } : {}),
-        feed: prependFeedItem(view.feed, { id: voidFeedId(msg.roundId), kind: "info", text: VOID_FEED_TEXT }),
+        feed: prependFeedItem(view.feed, {
+          id: voidFeedId(msg.roundId), kind: "info",
+          text: formatCs2VoidText(msg.roundNumber ?? (view.round?.roundId === msg.roundId ? view.round.roundNumber : undefined)),
+        }),
       };
     case "player.pending":
       // Replace with the authoritative personal snapshot.

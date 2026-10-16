@@ -13,7 +13,7 @@ import { forecastArenas } from "../../cs2/arena-forecast.js";
 import { catalogLifecycleOnRead } from "../../cs2/catalog-lifecycle.js";
 import type { Cs2SeriesCandidate } from "../../cs2/next-series.js";
 import { db } from "../client.js";
-import { arenas, cs2Competitions, cs2SeriesFollows, cs2SeriesParticipants, cs2Teams, matches, series } from "../schema.js";
+import { arenas, cs2Competitions, cs2SeriesFollows, cs2SeriesParticipants, cs2Teams, entryPasses, matches, series } from "../schema.js";
 import { matchRepository } from "./match.repository.js";
 import { CS2_AUTOPILOT_SETTING, settingsRepository } from "./settings.repository.js";
 import { reconcileSeriesParticipants } from "./cs2-participant-lifecycle.repository.js";
@@ -216,7 +216,7 @@ export const cs2CatalogRepository = {
   /** `active` series of the configured tournaments that already ran an arena, for the autopilot's resume. */
   async listActiveRunSeries(
     requestedTournamentIds?: readonly string[],
-  ): Promise<{ seriesId: Uuid; gridSeriesId: string; scheduledStartTime: string; hasOpenArena: boolean }[]> {
+  ): Promise<{ seriesId: Uuid; gridSeriesId: string; scheduledStartTime: string; hasOpenArena: boolean; hasOnlyEmptyCancelledArenas: boolean }[]> {
     const tournamentIds = await resolveTournamentIds(requestedTournamentIds);
     if (tournamentIds.length === 0) return [];
     const arenaOfSeries = (open: boolean) =>
@@ -227,6 +227,14 @@ export const cs2CatalogRepository = {
         gridSeriesId: series.gridSeriesId,
         scheduledStartTime: series.scheduledStartTime,
         hasOpenArena: arenaOfSeries(true),
+        hasOnlyEmptyCancelledArenas: sql<boolean>`not exists (
+          select 1 from ${arenas} inner join ${matches} on ${matches.id} = ${arenas.matchId}
+          where ${matches.seriesId} = ${series.id} and (
+            ${arenas.status} <> 'cancelled'
+            or ${arenas.cancelledReason} is distinct from 'insufficient_players'
+            or exists (select 1 from ${entryPasses} where ${entryPasses.arenaId} = ${arenas.id} and ${entryPasses.status} = 'paid')
+          )
+        )`,
       })
       .from(series)
       .innerJoin(cs2Competitions, eq(series.competitionId, cs2Competitions.id))

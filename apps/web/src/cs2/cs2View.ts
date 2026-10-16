@@ -5,6 +5,7 @@ import type {
   ArenaPlayerStatus,
   PendingPrediction,
   RoundStatus,
+  RoundSurvivalRule,
 } from "@arena/contracts";
 import type { FeedItem, LeaderRow } from "../arena/arenaView.js";
 
@@ -17,6 +18,7 @@ export interface Cs2RoundView {
   status: RoundStatus;
   myAnswer?: Answer;
   correctAnswer?: Answer;
+  survivalRuleApplied?: RoundSurvivalRule;
 }
 
 export type Cs2AnswerSubmission =

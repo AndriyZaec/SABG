@@ -165,6 +165,7 @@ export function predictionRoundRowToEntity(row: PredictionRoundRow): PredictionR
     ...(row.lockedAt !== null ? { lockedAt: row.lockedAt.toISOString() } : {}),
     ...(row.settledAt !== null ? { settledAt: row.settledAt.toISOString() } : {}),
     ...(row.settledBy !== null ? { settledBy: row.settledBy } : {}),
+    ...(row.survivalRuleApplied !== null ? { survivalRuleApplied: row.survivalRuleApplied } : {}),
   };
 }
 

@@ -15,7 +15,7 @@ import {
   TARGET_EVENT_TYPES,
   TEAM_SIDES,
 } from "@arena/contracts";
-import type { AdminMutationCommand, OperatorAuditDetails, OperatorAuditResult } from "@arena/contracts";
+import type { AdminMutationCommand, OperatorAuditDetails, OperatorAuditResult, RoundSurvivalRule } from "@arena/contracts";
 import {
   bigint,
   boolean,
@@ -258,9 +258,11 @@ export const predictionRounds = pgTable("prediction_round", {
   lockedAt: timestamp("locked_at", { withTimezone: true }),
   settledAt: timestamp("settled_at", { withTimezone: true }),
   settledBy: settledByEnum("settled_by"),
+  survivalRuleApplied: text("survival_rule_applied").$type<RoundSurvivalRule>(),
   ...timestamps,
 }, (t) => [
   index("prediction_round_arena_id_idx").on(t.arenaId),
+  check("prediction_round_survival_rule_check", sql`${t.survivalRuleApplied} is null or (${t.discipline} = 'cs2' and ${t.status} = 'settled' and ${t.survivalRuleApplied} = 'no_correct_answers')`),
 ]);
 
 export const arenaPlayers = pgTable("arena_player", {

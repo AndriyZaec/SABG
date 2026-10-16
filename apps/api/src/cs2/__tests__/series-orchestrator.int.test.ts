@@ -113,6 +113,33 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     return ids;
   }
 
+  it("persists the CS2 no-correct-answer outcome for round history and rejects markers on unsettled rounds", async () => {
+    const at = clockFrom(new Date(Date.now()).toISOString());
+    const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
+      format: 3, scheduledStartTime: new Date(at(0)),
+    });
+    seriesIds.push(series.id);
+    const ids = await synchronizeTestTeams(series.id);
+    const writeQueue = new WriteQueue();
+    const orchestrator = await Cs2SeriesOrchestrator.create(series, { writeQueue, entryFeeLamports: 1000 });
+    await orchestrator.poll(snapshot(ids, {}), at(-10));
+    await writeQueue.drain();
+    const match = (await matchRepository.findBySeriesMatchIndex(series.id, 1))!;
+    matchIds.push(match.id);
+    const arena = (await arenaRepository.findByMatchId(match.id))!;
+    arenaIds.push(arena.id);
+    const round = (await predictionRoundRepository.listByArenaId(arena.id))[0]!;
+    expect(round).not.toHaveProperty("survivalRuleApplied");
+    const saved = await predictionRoundRepository.upsert({
+      ...round, status: "settled", correctAnswer: "yes", settledBy: "round_end",
+      settledAt: at(0), survivalRuleApplied: "no_correct_answers",
+    });
+    expect(await predictionRoundRepository.findById(round.id)).toEqual(saved);
+    expect((await predictionRoundRepository.listByArenaId(arena.id))[0]).toMatchObject({ survivalRuleApplied: "no_correct_answers" });
+    await expect(predictionRoundRepository.upsert({ ...saved, status: "locked" })).rejects.toThrow();
+    expect(await predictionRoundRepository.findById(round.id)).toMatchObject({ status: "settled", survivalRuleApplied: "no_correct_answers" });
+  });
+
   it("restores score tracking on retry when its initial lookup fails after cancellation commits", async () => {
     const at = clockFrom(new Date(Date.now()).toISOString());
     const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
@@ -223,6 +250,63 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
       expect(payout).not.toHaveBeenCalled();
     } finally {
       scoreWrite.mockRestore();
+      payout.mockRestore();
+    }
+  });
+
+  it.each(["between_maps", "overtaken", "complete"] as const)("restores a finished insufficient-player cancelled map (%s)", async (outcome) => {
+    const at = clockFrom(new Date(Date.now()).toISOString());
+    const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
+      format: 3, scheduledStartTime: new Date(at(0)),
+    });
+    seriesIds.push(series.id);
+    const ids = await synchronizeTestTeams(series.id);
+    const writeQueue = new WriteQueue();
+    const options = { writeQueue, entryFeeLamports: 1000 };
+    const original = await Cs2SeriesOrchestrator.create(series, options);
+    await original.poll(snapshot(ids, {}), at(-10));
+    await original.poll(snapshot(ids, { hasLiveGame: true }), at(0));
+    await writeQueue.drain();
+    const match = (await matchRepository.findBySeriesMatchIndex(series.id, 1))!;
+    matchIds.push(match.id);
+    const arena = (await arenaRepository.findByMatchId(match.id))!;
+    arenaIds.push(arena.id);
+    // Map end persisted before the restart, but the following arena was not opened yet.
+    await matchRepository.setStatus(match.id, "finished");
+    const restored = await Cs2SeriesOrchestrator.create(series, options);
+    expect(restored.currentBus()).toBeUndefined();
+    const feed = snapshot(ids, {
+      teams: outcome === "complete" ? [2, 0] : [1, 0],
+      hasLiveGame: outcome === "overtaken", finished: outcome === "complete",
+      mapScores: [{ matchIndex: 1, finished: true, teams: [{ teamId: ids[0], score: 13 }, { teamId: ids[1], score: 9 }] }],
+    });
+    const payout = vi.spyOn(payoutService, "settleArena");
+    try {
+      if (outcome === "overtaken") {
+        const { Cs2SeriesOvertakenError } = await import("../series-orchestrator.js");
+        await expect(restored.poll(feed, at(20))).rejects.toBeInstanceOf(Cs2SeriesOvertakenError);
+        expect(await matchRepository.listBySeriesId(series.id)).toHaveLength(1);
+      } else {
+        await restored.poll(feed, at(20));
+        if (outcome === "between_maps") {
+          const next = (await matchRepository.findBySeriesMatchIndex(series.id, 2))!;
+          matchIds.push(next.id);
+          const nextArena = (await arenaRepository.findByMatchId(next.id))!;
+          arenaIds.push(nextArena.id);
+          expect(nextArena.status).toBe("lobby");
+        } else {
+          expect(await restored.isComplete()).toBe(true);
+          expect(await seriesRepository.findById(series.id)).toMatchObject({ status: "decided" });
+          expect(await matchRepository.listBySeriesId(series.id)).toHaveLength(1);
+        }
+      }
+      await writeQueue.drain();
+      expect(await arenaRepository.findById(arena.id)).toMatchObject({ status: "cancelled", cancelledReason: "insufficient_players" });
+      expect(await matchRepository.findById(match.id)).toMatchObject({
+        teamScores: [{ teamId: ids[0], score: 13 }, { teamId: ids[1], score: 9 }],
+      });
+      expect(payout).not.toHaveBeenCalled();
+    } finally {
       payout.mockRestore();
     }
   });

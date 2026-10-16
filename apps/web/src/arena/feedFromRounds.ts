@@ -8,6 +8,15 @@ export function truncate(text: string, max = 64): string {
 export const VOID_FEED_TEXT = "Round voided — match ended first";
 export const SURVIVED_TEXT = "You survived";
 export const ELIMINATED_TEXT = "You were eliminated";
+export const NO_CORRECT_ANSWERS_TEXT = "No correct answers — all survivors stay in.";
+
+export function formatCs2VoidText(roundNumber: number | undefined): string {
+  return roundNumber === undefined ? "Question voided" : `Question ${roundNumber} voided`;
+}
+
+export function survivalFeedId(roundId: string): string {
+  return `survival-${roundId}`;
+}
 
 export function settleFeedId(roundId: string): string {
   return `settle-${roundId}`;
@@ -22,8 +31,8 @@ export function formatSettleText(question: string | undefined, correctAnswer: An
   return question ? `Round settled · ${truncate(question)} · answer ${answer}` : `Round settled · answer ${answer}`;
 }
 
-function personalResultItem(id: string, result: PredictionResult): FeedItem {
-  const survived = result === "correct";
+function personalResultItem(id: string, result: PredictionResult, incorrectSurvived = false): FeedItem {
+  const survived = result === "correct" || (result === "incorrect" && incorrectSurvived);
   return { id, kind: survived ? "survived" : "eliminated", text: survived ? SURVIVED_TEXT : ELIMINATED_TEXT };
 }
 
@@ -36,16 +45,18 @@ export function feedFromRounds(rounds: RoundWithPredictions[], myUserId?: string
 
   for (const { round, predictions } of rounds) {
     if (round.status === "settled" && round.correctAnswer !== undefined) {
+      const incorrectSurvived = round.discipline === "cs2" && round.survivalRuleApplied === "no_correct_answers";
       items.push({
         id: settleFeedId(round.id),
         kind: "info",
         text: formatSettleText(round.question, round.correctAnswer),
       });
+      if (incorrectSurvived) items.push({ id: survivalFeedId(round.id), kind: "info", text: NO_CORRECT_ANSWERS_TEXT });
 
       const mine = myUserId !== undefined ? predictions.find((p) => p.userId === myUserId) : undefined;
-      if (mine?.result !== undefined) items.push(personalResultItem(`me-${round.id}`, mine.result));
+      if (mine?.result !== undefined) items.push(personalResultItem(`me-${round.id}`, mine.result, incorrectSurvived));
     } else if (round.status === "voided") {
-      items.push({ id: voidFeedId(round.id), kind: "info", text: VOID_FEED_TEXT });
+      items.push({ id: voidFeedId(round.id), kind: "info", text: round.discipline === "cs2" ? formatCs2VoidText(round.roundNumber) : VOID_FEED_TEXT });
     }
   }
 
@@ -54,7 +65,7 @@ export function feedFromRounds(rounds: RoundWithPredictions[], myUserId?: string
 
 function isRoundDerivedFeedId(id: string): boolean {
   if (id === "me-winner") return false;
-  return id.startsWith("settle-") || id.startsWith("void-") || id.startsWith("me-");
+  return id.startsWith("settle-") || id.startsWith("void-") || id.startsWith("me-") || id.startsWith("survival-");
 }
 
 export function mergeFeedFromRounds(

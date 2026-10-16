@@ -26,6 +26,8 @@ export function Cs2RoundCard({
   const isOpen = round.status === "open";
   const currentSubmission = "roundId" in submission && submission.roundId === round.roundId ? submission : undefined;
   const picked = currentSubmission?.status === "submitting" ? currentSubmission.answer : round.myAnswer;
+  const survived = !eliminated && picked !== undefined &&
+    (picked === round.correctAnswer || round.survivalRuleApplied === "no_correct_answers");
   const submitting = currentSubmission?.status === "submitting";
   const pressed = { transform: "translate(4px, 4px)", boxShadow: "0 0 0 var(--ink)" } as const;
 
@@ -119,8 +121,8 @@ export function Cs2RoundCard({
 
       {round.status === "settled" && round.correctAnswer && participant && (
         <div style={{ marginTop: 14 }}>
-          <Badge tone={!eliminated && picked === round.correctAnswer ? "survive" : "eliminated"}>
-            {!eliminated && picked === round.correctAnswer ? "Survived" : "Eliminated"} · answer
+          <Badge tone={survived ? "survive" : "eliminated"}>
+            {survived ? "Survived" : "Eliminated"} · answer
             was {round.correctAnswer.toUpperCase()}
           </Badge>
         </div>

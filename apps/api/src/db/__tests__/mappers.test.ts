@@ -217,6 +217,7 @@ describe("predictionRoundRowToEntity", () => {
       lockedAt: null,
       settledAt: null,
       settledBy: null,
+      survivalRuleApplied: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -271,6 +272,7 @@ describe("predictionRoundRowToEntity", () => {
       lockedAt,
       settledAt,
       settledBy: "early",
+      survivalRuleApplied: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     });
