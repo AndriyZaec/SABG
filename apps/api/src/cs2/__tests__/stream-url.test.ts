@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 describe("normalizeCs2StreamUrl", () => {
   it.each([
     ["HTTPS://WWW.TWITCH.TV/ESLCS", { provider: "twitch", url: "https://twitch.tv/eslcs" }],
-    ["kick.com/user_name", { provider: "kick", url: "https://kick.com/user-name" }],
+    ["kick.com/user_name", { provider: "kick", url: "https://kick.com/user_name" }],
     ["https://youtu.be/dQw4w9WgXcQ?t=10", { provider: "youtube", url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" }],
     ["https://youtube.com/live/dQw4w9WgXcQ", { provider: "youtube", url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" }],
     ["https://www.youtube.com/watch?feature=share&v=dQw4w9WgXcQ", { provider: "youtube", url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" }],

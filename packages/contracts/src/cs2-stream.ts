@@ -32,7 +32,7 @@ export function normalizeCs2StreamUrl(input: string): Cs2StreamLink {
     if (!KICK_CHANNEL.test(channel)) {
       throw new Error("Kick channel must be 1-50 letters, digits, underscores, or hyphens");
     }
-    return { provider: "kick", url: `https://kick.com/${channel.replaceAll("_", "-")}` };
+    return { provider: "kick", url: `https://kick.com/${channel}` };
   }
 
   const watch = YOUTUBE_WATCH_URL.exec(value);
