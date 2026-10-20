@@ -132,7 +132,7 @@ describe("stream URL", () => {
     ["https://m.twitch.tv/eslcs?x=1", "https://twitch.tv/eslcs"],
     [" http://twitch.tv/esl_csgo#chat ", "https://twitch.tv/esl_csgo"],
     ["kick.com/SomeChannel", "https://kick.com/SomeChannel"],
-    ["https://kick.com/user_name", "https://kick.com/user-name"],
+    ["https://kick.com/user_name", "https://kick.com/user_name"],
     ["https://www.kick.com/some-channel/", "https://kick.com/some-channel"],
     ["https://youtu.be/dQw4w9WgXcQ", "https://www.youtube.com/watch?v=dQw4w9WgXcQ"],
   ])("normalizes %s to %s", (input, expected) => {
