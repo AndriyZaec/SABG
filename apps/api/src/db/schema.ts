@@ -1,5 +1,6 @@
 import {
   ANSWERS,
+  ARENA_MODES,
   ARENA_PLAYER_STATUSES,
   ARENA_STATUSES,
   CS2_SERIES_LIFECYCLES,
@@ -37,6 +38,7 @@ import { sql } from "drizzle-orm";
 export const matchStatusEnum = pgEnum("match_status", MATCH_STATUSES);
 export const matchPeriodEnum = pgEnum("match_period", MATCH_PERIODS);
 export const arenaStatusEnum = pgEnum("arena_status", ARENA_STATUSES);
+export const arenaModeEnum = pgEnum("arena_mode", ARENA_MODES);
 export const arenaPlayerStatusEnum = pgEnum("arena_player_status", ARENA_PLAYER_STATUSES);
 export const entryPassStatusEnum = pgEnum("entry_pass_status", ENTRY_PASS_STATUSES);
 export const roundStatusEnum = pgEnum("round_status", ROUND_STATUSES);
@@ -206,6 +208,7 @@ export const arenas = pgTable("arena", {
     .notNull()
     .references(() => matches.id),
   status: arenaStatusEnum("status").notNull(),
+  mode: arenaModeEnum("mode").notNull(),
   activePlayersCount: integer("active_players_count").notNull(),
   entryFeeLamports: bigint("entry_fee_lamports", { mode: "number" }).notNull(),
   prizePoolLamports: bigint("prize_pool_lamports", { mode: "number" }).notNull(),

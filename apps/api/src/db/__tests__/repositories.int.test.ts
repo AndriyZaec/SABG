@@ -94,11 +94,11 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
   });
 
   it("arena.repository: upsertForMatch is idempotent, and bumpActivePlayers/bumpPrizePool increment atomically", async () => {
-    const first = await arenaRepository.upsertForMatch(matchId, { entryFeeLamports: 1000, prizePoolLamports: 0 });
+    const first = await arenaRepository.upsertForMatch(matchId, { mode: "hardcore", entryFeeLamports: 1000, prizePoolLamports: 0 });
     arenaId = first.id;
     expect(first.status).toBe("lobby");
 
-    const second = await arenaRepository.upsertForMatch(matchId, { entryFeeLamports: 1000, prizePoolLamports: 0 });
+    const second = await arenaRepository.upsertForMatch(matchId, { mode: "hardcore", entryFeeLamports: 1000, prizePoolLamports: 0 });
     expect(second.id).toBe(first.id);
 
     await arenaRepository.bumpActivePlayers(arenaId, 1);
@@ -298,6 +298,7 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
 
     const recreatedMatch = await matchRepository.upsertByTxoddsFixtureId(fixtureId, { homeTeam, awayTeam, startTime });
     const recreatedArena = await arenaRepository.upsertForMatch(recreatedMatch.id, {
+      mode: "hardcore",
       entryFeeLamports: 1000,
       prizePoolLamports: 0,
     });

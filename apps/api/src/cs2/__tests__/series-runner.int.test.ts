@@ -170,7 +170,7 @@ describe.skipIf(!RUN)("Cs2SeriesRunner (integration, requires DATABASE_URL)", ()
       { gridTeamId: gridIds[1], name: "Team B", score: 0 },
     ]);
     const match = await matchRepository.upsertForSeriesMap(series.id, 1, { teams, startTime: new Date() });
-    const arena = await arenaRepository.upsertForMatch(match.id, { entryFeeLamports: 1000, prizePoolLamports: 0 });
+    const arena = await arenaRepository.upsertForMatch(match.id, { mode: "hardcore", entryFeeLamports: 1000, prizePoolLamports: 0 });
     expect(await arenaRepository.setLiveIfOpen(arena.id)).toBeDefined();
 
     const settleSpy = vi.spyOn(payoutService, "settleArena").mockResolvedValue(undefined);
@@ -212,7 +212,7 @@ describe.skipIf(!RUN)("Cs2SeriesRunner (integration, requires DATABASE_URL)", ()
       { gridTeamId: gridIds[1], name: "Team B", score: 0 },
     ]);
     const match = await matchRepository.upsertForSeriesMap(series.id, 1, { teams, startTime: new Date() });
-    const arena = await arenaRepository.upsertForMatch(match.id, { entryFeeLamports: 1000, prizePoolLamports: 0 });
+    const arena = await arenaRepository.upsertForMatch(match.id, { mode: "hardcore", entryFeeLamports: 1000, prizePoolLamports: 0 });
     expect(await arenaRepository.setLiveIfOpen(arena.id)).toBeDefined();
 
     const settleSpy = vi.spyOn(payoutService, "settleArena").mockResolvedValue(undefined);

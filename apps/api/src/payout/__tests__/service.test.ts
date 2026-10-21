@@ -6,6 +6,7 @@ const arena = (overrides: Partial<Arena> = {}): Arena => ({
   id: "arena-1",
   matchId: "match-1",
   status: "finished",
+  mode: "hardcore",
   activePlayersCount: 0,
   entryFeeLamports: 100,
   prizePoolLamports: 300,

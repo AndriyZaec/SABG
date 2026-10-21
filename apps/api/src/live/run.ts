@@ -57,6 +57,7 @@ const match = await matchRepository.upsertByTxoddsFixtureId(fixtureId, {
   startTime: new Date(selectedFixture.startTime),
 });
 const arena = await arenaRepository.upsertForMatch(match.id, {
+  mode: "hardcore",
   entryFeeLamports: LIVE_ENTRY_FEE_LAMPORTS,
   prizePoolLamports: 0,
 });

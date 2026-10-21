@@ -1,6 +1,7 @@
 import type {
   Answer,
   ArenaCancelledReason,
+  ArenaMode,
   ArenaPlayerStatus,
   ArenaStatus,
   Discipline,
@@ -80,6 +81,7 @@ export interface Arena {
   id: Uuid;
   matchId: Uuid;
   status: ArenaStatus;
+  mode: ArenaMode;
   activePlayersCount: number;
   entryFeeLamports: number;
   prizePoolLamports: number;

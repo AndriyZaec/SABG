@@ -128,6 +128,7 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     matchIds.push(match.id);
     const arena = (await arenaRepository.findByMatchId(match.id))!;
     arenaIds.push(arena.id);
+    expect(arena.mode).toBe("hardcore");
     const round = (await predictionRoundRepository.listByArenaId(arena.id))[0]!;
     expect(round).not.toHaveProperty("survivalRuleApplied");
     const saved = await predictionRoundRepository.upsert({

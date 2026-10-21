@@ -1,5 +1,5 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
-import type { Arena, ArenaCancelledReason, Uuid, WalletAddress } from "@arena/contracts";
+import type { Arena, ArenaCancelledReason, ArenaMode, Uuid, WalletAddress } from "@arena/contracts";
 import { db } from "../client.js";
 import { arenas, entryPasses } from "../schema.js";
 import { arenaRowToEntity } from "../mappers.js";
@@ -25,7 +25,7 @@ export const arenaRepository = {
 
   async upsertForMatch(
     matchId: Uuid,
-    defaults: { entryFeeLamports: number; prizePoolLamports: number },
+    defaults: { mode: ArenaMode; entryFeeLamports: number; prizePoolLamports: number },
   ): Promise<Arena> {
     const existing = await this.findByMatchId(matchId);
     if (existing) return existing;
@@ -35,6 +35,7 @@ export const arenaRepository = {
       .values({
         matchId,
         status: "lobby",
+        mode: defaults.mode,
         activePlayersCount: 0,
         entryFeeLamports: defaults.entryFeeLamports,
         prizePoolLamports: defaults.prizePoolLamports,
