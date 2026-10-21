@@ -31,6 +31,10 @@ export type MatchStatus = (typeof MATCH_STATUSES)[number];
 export const ARENA_STATUSES = ["lobby", "live", "finished", "cancelled"] as const;
 export type ArenaStatus = (typeof ARENA_STATUSES)[number];
 
+/** `classic`: points and a rising zone; `hardcore`: one wrong or missed answer eliminates. */
+export const ARENA_MODES = ["classic", "hardcore"] as const;
+export type ArenaMode = (typeof ARENA_MODES)[number];
+
 export const ARENA_CANCELLED_REASONS = ["no_show", "series_decided", "forfeit", "operator_skip", "insufficient_players"] as const;
 export type ArenaCancelledReason = (typeof ARENA_CANCELLED_REASONS)[number];
 
