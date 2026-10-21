@@ -7,6 +7,8 @@ export interface PlayerResultEvent {
   userId: Uuid;
   answer: Answer | undefined;
   result: PredictionResult;
+  /** What this result adds to the player's score. */
+  points: number;
   status: ArenaPlayerStatus;
 }
 
@@ -33,7 +35,7 @@ export function applyRoundOutcome(
 
     stores.predictionStore.recordResult(roundId, userId, result);
     stores.arenaPlayerStore.setStatus(userId, status);
-    onPlayerResult?.({ roundId, userId, answer, result, status });
+    onPlayerResult?.({ roundId, userId, answer, result, points: result === "correct" ? 1 : 0, status });
   }
   return survivalRuleApplied;
 }

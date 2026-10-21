@@ -23,14 +23,16 @@ function setup(userIds: Uuid[]) {
   return { service, snapshots, finishedCalls };
 }
 
-/** Drives one settled round: buffers each player's result, then fires onRoundSettled. */
+/** Drives one settled round: buffers each player's result, then fires onRoundSettled. Points default to hardcore's 1/0. */
 function settleRound(
   service: LeaderboardService,
   roundId: Uuid,
-  results: Array<Omit<PlayerResultEvent, "roundId">>,
+  results: Array<Omit<PlayerResultEvent, "roundId" | "points"> & { points?: number }>,
   overrides: Partial<Omit<SettlementEvent, "roundId">> = {},
 ): void {
-  for (const result of results) service.onPlayerResult({ roundId, ...result });
+  for (const result of results) {
+    service.onPlayerResult({ roundId, points: result.result === "correct" ? 1 : 0, ...result });
+  }
   service.onRoundSettled({
     type: "settle",
     roundId,
@@ -110,6 +112,22 @@ describe("LeaderboardService", () => {
     expect(finishedCalls).toEqual([["a", "b"]]);
     expect(service.snapshot().find((e) => e.userId === "a")?.status).toBe("winner");
     expect(service.snapshot().find((e) => e.userId === "b")?.status).toBe("winner");
+  });
+
+  it("adds each result's points to the score, so a double-round answer counts 2", () => {
+    const { service } = setup(["a", "b"]);
+
+    settleRound(service, "r1", [
+      { userId: "a", answer: "yes", result: "correct", points: 2, status: "active" },
+      { userId: "b", answer: "no", result: "incorrect", points: 0, status: "active" },
+    ]);
+    settleRound(service, "r2", [
+      { userId: "a", answer: "yes", result: "correct", points: 1, status: "active" },
+      { userId: "b", answer: "yes", result: "correct", points: 1, status: "active" },
+    ]);
+
+    expect(service.snapshot().find((e) => e.userId === "a")?.score).toBe(3);
+    expect(service.snapshot().find((e) => e.userId === "b")?.score).toBe(1);
   });
 
   it("full tie -> shared: equal scores at finalize still make everyone a winner (no tie-break selection)", () => {

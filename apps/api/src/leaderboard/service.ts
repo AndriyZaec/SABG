@@ -1,4 +1,4 @@
-import type { IsoDateTime, PredictionResult, Uuid, LeaderboardEntry } from "@arena/contracts";
+import type { IsoDateTime, Uuid, LeaderboardEntry } from "@arena/contracts";
 import type { PlayerResultEvent } from "../settlement/engine.js";
 import { rankLeaderboard, resolveWinners, type LeaderboardAccumulator } from "./rank.js";
 
@@ -68,7 +68,7 @@ export class LeaderboardService {
     for (const result of pending) {
       const row = this.rows.get(result.userId);
       if (row === undefined) continue;
-      this.applyResult(row, result.result, result.status);
+      this.applyResult(row, result);
     }
 
     this.options.onSnapshot?.(this.snapshot());
@@ -90,13 +90,10 @@ export class LeaderboardService {
     return rankLeaderboard([...this.rows.values()]);
   }
 
-  private applyResult(row: LeaderboardAccumulator, result: PredictionResult, status: PlayerResultEvent["status"]): void {
-    if (result === "correct") {
-      row.score += 1;
-      return;
-    }
-    if (result === "missed") row.missedCount += 1;
-    row.status = status;
+  private applyResult(row: LeaderboardAccumulator, event: PlayerResultEvent): void {
+    row.score += event.points;
+    if (event.result === "missed") row.missedCount += 1;
+    row.status = event.status;
   }
 
   private activeRows(): LeaderboardAccumulator[] {
