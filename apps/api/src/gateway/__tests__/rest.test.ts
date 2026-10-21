@@ -397,7 +397,7 @@ describe("REST gateway routes", () => {
       runtimeLookup.getRuntime.mockReturnValue(undefined);
 
       const res = await fetch(`${baseUrl}/arenas/${ARENA_ID}`);
-      const body = await res.json();
+      const body = (await res.json()) as { arena: Arena };
       expect(body.arena.mode).toBe("hardcore");
       expect(body).not.toHaveProperty("matchState");
       expect(body).not.toHaveProperty("currentRound");
