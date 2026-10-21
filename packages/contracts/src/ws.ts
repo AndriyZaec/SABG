@@ -1,6 +1,7 @@
 // Never expose personal answers to spectators before settlement.
 
 import type { Answer, ArenaCancelledReason, SettledBy } from "./enums.js";
+import type { ArenaStage } from "./cs2-classic.js";
 import type {
   LeaderboardEntry,
   MatchState,
@@ -46,6 +47,12 @@ export interface LeaderboardMessage {
 export interface ArenaFinishedMessage {
   type: "arena.finished";
   winners: Uuid[];
+}
+
+/** Classic arenas only: the stage changed (Final Circle started). */
+export interface ArenaStageMessage {
+  type: "arena.stage";
+  stage: ArenaStage;
 }
 
 /** Terminal cancellation of an arena that will not go live. */
@@ -122,6 +129,7 @@ export type ServerMessage =
   | LeaderboardMessage
   | ArenaFinishedMessage
   | ArenaCancelledMessage
+  | ArenaStageMessage
   | PlayerStatusMessage
   | PlayerPendingMessage
   | AnswerAcceptedMessage

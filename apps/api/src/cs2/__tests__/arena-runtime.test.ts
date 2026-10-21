@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Cs2GameSnapshot, PredictionRound, ServerMessage, Uuid } from "@arena/contracts";
+import type { ArenaMode, Cs2GameSnapshot, PredictionRound, ServerMessage, Uuid } from "@arena/contracts";
 import { MatchSignalBus } from "../../ingestion/event-bus.js";
 import { createInMemoryRuntimeStores } from "../../gateway/stores/in-memory-stores.js";
 import type { GatewayBroadcaster } from "../../gateway/arena-runtime.js";
@@ -80,7 +80,7 @@ function createRecordingPersistence(): { persistence: Cs2ArenaPersistence; upser
   };
 }
 
-function buildRuntime(playerIds: Uuid[], questionProvider?: Cs2QuestionProvider) {
+function buildRuntime(playerIds: Uuid[], questionProvider?: Cs2QuestionProvider, mode: ArenaMode = "hardcore") {
   const bus = new MatchSignalBus();
   const { predictionStore, arenaPlayerStore } = createInMemoryRuntimeStores(ARENA_ID, playerIds);
   const { broadcaster, broadcasts, personal } = createRecordingBroadcaster();
@@ -89,6 +89,7 @@ function buildRuntime(playerIds: Uuid[], questionProvider?: Cs2QuestionProvider)
   const runtime = new Cs2ArenaRuntime({
     matchId: MATCH_ID,
     arenaId: ARENA_ID,
+    mode,
     bus,
     predictionStore,
     arenaPlayerStore,
@@ -452,5 +453,82 @@ describe("Cs2ArenaRuntime — full recorded fixture (real question provider, gen
     }
 
     expect(personal.some((p) => p.userId === PLAYER_SILENT && p.message.type === "player.status" && p.message.status === "eliminated")).toBe(true);
+  });
+});
+
+describe("Cs2ArenaRuntime — classic mode", () => {
+  const A: Uuid = "00000000-0000-0000-0000-00000000000a";
+  const B: Uuid = "00000000-0000-0000-0000-00000000000b";
+  const C: Uuid = "00000000-0000-0000-0000-00000000000c";
+
+  /** Team A wins every round, so "yes" is always correct. Each entry maps a player to its answer (absent = missed). */
+  function playClassic(players: Uuid[], rounds: Array<Partial<Record<Uuid, "yes" | "no">>>) {
+    const ctx = buildRuntime(players, fakeProvider(), "classic");
+    ctx.runtime.openRoundOne("t0");
+    const roundIds: Uuid[] = [];
+    rounds.forEach((answers, i) => {
+      const roundNumber = i + 1;
+      const round = ctx.runtime.currentRound!;
+      expect(round.roundNumber).toBe(roundNumber);
+      roundIds.push(round.id);
+      for (const [userId, answer] of Object.entries(answers)) ctx.runtime.submitAnswer(userId, round.id, answer!);
+      ctx.bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(roundNumber - 1, 0), timestamp: "t1" });
+      ctx.bus.publish({ kind: "cs2_round_lock", roundNumber, timestamp: "t1" });
+      ctx.bus.publish({ kind: "cs2_round_end", roundNumber, snapshot: snapshot(roundNumber, 0), timestamp: "t2" });
+    });
+    return { ...ctx, roundIds };
+  }
+
+  const score = (runtime: Cs2ArenaRuntime, userId: Uuid) => runtime.leaderboardSnapshot().find((e) => e.userId === userId)?.score;
+
+  it("keeps a wrong answerer active through the warm-up, counts the double round 1, and lets them answer the next round", () => {
+    const { runtime, arenaPlayerStore } = playClassic([A, B], [{ [A]: "yes", [B]: "no" }, { [A]: "yes", [B]: "no" }]);
+    expect(arenaPlayerStore.getStatus(B)).toBe("active");
+    expect(score(runtime, A)).toBe(3);
+    expect(score(runtime, B)).toBe(0);
+    expect(runtime.submitAnswer(B, runtime.currentRound!.id, "yes").ok).toBe(true);
+  });
+
+  it("eliminates a player who falls below the zone at R8 and tells them", () => {
+    const rounds = Array.from({ length: 8 }, (_, i) => ({ [A]: "yes" as const, [B]: "yes" as const, [C]: i === 0 ? "yes" as const : "no" as const }));
+    const { runtime, arenaPlayerStore, personal, roundIds } = playClassic([A, B, C], rounds);
+    // C: 2 points after R1, then nothing; zone after R7 = 2, after R8 = 4.
+    expect(score(runtime, C)).toBe(2);
+    expect(arenaPlayerStore.getStatus(C)).toBe("eliminated");
+    expect(personal).toContainEqual({ userId: C, message: { type: "player.status", status: "eliminated", roundId: roundIds[7] } });
+    expect(personal.some((p) => p.userId === C && p.message.type === "player.status" && p.message.status === "eliminated" && p.message.roundId !== roundIds[7])).toBe(false);
+    expect(runtime.finalWinners()).toBeUndefined();
+  });
+
+  it("starts Final Circle once when the zone would empty the field with tied leaders, then a wrong answer eliminates", () => {
+    // Nobody scores, so zone 1 after R6 would eliminate everyone; A and B tie at 0 and survive.
+    const warmup = Array.from({ length: 6 }, () => ({ [A]: "no" as const, [B]: "no" as const }));
+    const { broadcasts, finished, runtime } = playClassic([A, B], [...warmup, { [A]: "yes", [B]: "no" }]);
+    const stages = broadcasts.filter((m) => m.type === "arena.stage");
+    expect(stages).toEqual([{ type: "arena.stage", stage: "final_circle" }]);
+    const stageAt = broadcasts.findIndex((m) => m.type === "arena.stage");
+    const settles = broadcasts.flatMap((m, i) => (m.type === "round.settle" ? [i] : []));
+    expect(settles[5]).toBeGreaterThan(stageAt);
+    expect(settles[4]).toBeLessThan(stageAt);
+    expect(finished).toEqual([[A]]);
+    expect(runtime.finalWinners()).toEqual([A]);
+  });
+
+  it("lets a single leader win outright when the zone would empty the field, without Final Circle", () => {
+    // After R7: A has 3, B has 2. Zone after R8 = 4 puts both below; A alone survives.
+    const rounds = [
+      { [A]: "yes" as const, [B]: "yes" as const },
+      { [A]: "yes" as const, [B]: "no" as const },
+      ...Array.from({ length: 6 }, () => ({ [A]: "no" as const, [B]: "no" as const })),
+    ];
+    const { broadcasts, finished } = playClassic([A, B], rounds);
+    expect(broadcasts.some((m) => m.type === "arena.stage")).toBe(false);
+    expect(finished).toEqual([[A]]);
+  });
+
+  it("makes every remaining player a winner at match end", () => {
+    const { bus, finished } = playClassic([A, B, C], [{ [A]: "yes", [B]: "no" }, { [A]: "yes", [B]: "yes" }]);
+    bus.publish({ kind: "cs2_match_end", timestamp: "t3" });
+    expect(finished).toEqual([[A, B, C]]);
   });
 });

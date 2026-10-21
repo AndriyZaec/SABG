@@ -1,10 +1,13 @@
 import type {
   Answer,
+  ArenaMode,
   ArenaPlayerStatus,
+  ArenaStage,
   Cs2TeamIdentity,
   IsoDateTime,
   PendingPrediction,
   PredictionRound,
+  RoundSurvivalRule,
   Uuid,
 } from "@arena/contracts";
 import type { MatchSignalBus } from "../ingestion/event-bus.js";
@@ -17,6 +20,7 @@ import type {
 } from "../gateway/arena-runtime.js";
 import { LeaderboardService, type LeaderboardRosterEntry } from "../leaderboard/service.js";
 import { applyRoundOutcome, type PlayerResultEvent } from "../settlement/apply-outcome.js";
+import { resolveClassicRound } from "../settlement/classic-outcome.js";
 import { Cs2RoundEngine, type Cs2RoundLifecycleEvent } from "./round-engine.js";
 import type { Cs2QuestionProvider } from "./question-provider.js";
 
@@ -28,6 +32,7 @@ export interface Cs2ArenaPersistence {
 export interface Cs2ArenaRuntimeOptions {
   matchId: Uuid;
   arenaId: Uuid;
+  mode: ArenaMode;
   bus: MatchSignalBus;
   predictionStore: RuntimePredictionStore;
   arenaPlayerStore: RuntimeArenaPlayerStore;
@@ -42,6 +47,9 @@ export interface Cs2ArenaRuntimeOptions {
 export class Cs2ArenaRuntime implements ArenaRuntimeLike {
   private readonly matchId: Uuid;
   private readonly arenaId: Uuid;
+  readonly mode: ArenaMode;
+  /** Classic only; hardcore never leaves `zone`. */
+  private stage: ArenaStage = "zone";
   private readonly predictionStore: RuntimePredictionStore;
   private readonly arenaPlayerStore: RuntimeArenaPlayerStore;
   private readonly broadcaster: GatewayBroadcaster | undefined;
@@ -58,6 +66,7 @@ export class Cs2ArenaRuntime implements ArenaRuntimeLike {
   constructor(options: Cs2ArenaRuntimeOptions) {
     this.matchId = options.matchId;
     this.arenaId = options.arenaId;
+    this.mode = options.mode;
     this.predictionStore = options.predictionStore;
     this.arenaPlayerStore = options.arenaPlayerStore;
     this.broadcaster = options.broadcaster;
@@ -207,14 +216,16 @@ export class Cs2ArenaRuntime implements ArenaRuntimeLike {
     const round = this.roundEngine.roundsByNumber.get(roundNumber);
     if (round === undefined) return;
 
-    const survivalRuleApplied = applyRoundOutcome(
-      roundId,
-      this.arenaId,
-      correctAnswer,
-      { predictionStore: this.predictionStore, arenaPlayerStore: this.arenaPlayerStore },
-      (result) => this.onPlayerResult(result),
-      { noCorrectAnswers: "continue" },
-    );
+    const survivalRuleApplied = this.mode === "classic"
+      ? this.settleClassic(roundId, roundNumber, correctAnswer)
+      : applyRoundOutcome(
+        roundId,
+        this.arenaId,
+        correctAnswer,
+        { predictionStore: this.predictionStore, arenaPlayerStore: this.arenaPlayerStore },
+        (result) => this.onPlayerResult(result),
+        { noCorrectAnswers: "continue" },
+      );
     if (survivalRuleApplied !== undefined) round.survivalRuleApplied = survivalRuleApplied;
     this.persistence?.upsertRound(round);
 
@@ -234,6 +245,29 @@ export class Cs2ArenaRuntime implements ArenaRuntimeLike {
     this.flushPendingPlayerStatus(roundId);
     this.flushFinishIfPending();
     this.pushPendingForAnswerers(roundId);
+  }
+
+  /** Same side effects as `applyRoundOutcome`; scores before this round come from the leaderboard. */
+  private settleClassic(roundId: Uuid, roundNumber: number, correctAnswer: Answer): RoundSurvivalRule | undefined {
+    const scores = new Map(this.leaderboardService.snapshot().map((entry) => [entry.userId, entry.score]));
+    const outcome = resolveClassicRound({
+      roundNumber,
+      stage: this.stage,
+      players: this.arenaPlayerStore.getActivePlayerIds(this.arenaId).map((userId) => ({ userId, score: scores.get(userId) ?? 0 })),
+      answers: this.predictionStore.getAnswers(roundId),
+      correctAnswer,
+    });
+
+    for (const { userId, answer, result, points, status } of outcome.results) {
+      this.predictionStore.recordResult(roundId, userId, result);
+      this.arenaPlayerStore.setStatus(userId, status);
+      this.onPlayerResult({ roundId, userId, answer, result, points, status });
+    }
+    if (outcome.stage !== this.stage) {
+      this.stage = outcome.stage;
+      this.broadcaster?.broadcast(this.arenaId, { type: "arena.stage", stage: outcome.stage });
+    }
+    return outcome.survivalRuleApplied;
   }
 
   private handleVoid(roundNumber: number): void {

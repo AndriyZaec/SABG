@@ -104,6 +104,22 @@ describe("GatewayWebSocketServer", () => {
     socket.close();
   });
 
+  it("replays the cached arena.stage to a subscriber who joins after Final Circle started", async () => {
+    const token = issueToken("user-1");
+    const socket = connect(token);
+    await waitForOpen(socket);
+    const messages = collectMessages(socket);
+
+    gateway.broadcast(ARENA_ID, { type: "arena.stage", stage: "final_circle" });
+    send(socket, { type: "subscribe", arenaId: ARENA_ID });
+
+    await vi.waitFor(() => {
+      expect(messages).toContainEqual({ type: "arena.stage", stage: "final_circle" });
+    });
+
+    socket.close();
+  });
+
   it("pushes the subscriber's personal player.pending snapshot from the live runtime on subscribe", async () => {
     const token = issueToken("user-1");
     const socket = connect(token);

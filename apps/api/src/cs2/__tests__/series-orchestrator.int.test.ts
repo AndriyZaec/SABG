@@ -113,6 +113,36 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     return ids;
   }
 
+  it("opens new arenas as classic and restores a lobby arena with its stored mode", async () => {
+    const at = clockFrom(new Date(Date.now()).toISOString());
+    const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
+      format: 3, scheduledStartTime: new Date(at(0)),
+    });
+    seriesIds.push(series.id);
+    const ids = await synchronizeTestTeams(series.id);
+    const writeQueue = new WriteQueue();
+    const opened: Cs2ArenaRuntime[] = [];
+    const orchestrator = await Cs2SeriesOrchestrator.create(series, {
+      writeQueue, entryFeeLamports: 1000, onArenaOpened: (_id, runtime) => opened.push(runtime),
+    });
+    await orchestrator.poll(snapshot(ids, {}), at(-10));
+    await writeQueue.drain();
+    const match = (await matchRepository.findBySeriesMatchIndex(series.id, 1))!;
+    matchIds.push(match.id);
+    const arena = (await arenaRepository.findByMatchId(match.id))!;
+    arenaIds.push(arena.id);
+    expect(arena.mode).toBe("classic");
+    expect(opened.map((runtime) => runtime.mode)).toEqual(["classic"]);
+
+    await db.update(schema.arenas).set({ mode: "hardcore" }).where(eq(schema.arenas.id, arena.id));
+    await Cs2SeriesOrchestrator.create(series, {
+      writeQueue, entryFeeLamports: 1000, onArenaOpened: (_id, runtime) => opened.push(runtime),
+    });
+    expect(opened.map((runtime) => runtime.mode)).toEqual(["classic", "hardcore"]);
+    expect((await arenaRepository.findById(arena.id))?.mode).toBe("hardcore");
+    await writeQueue.drain();
+  });
+
   it("persists the CS2 no-correct-answer outcome for round history and rejects markers on unsettled rounds", async () => {
     const at = clockFrom(new Date(Date.now()).toISOString());
     const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
@@ -128,7 +158,7 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     matchIds.push(match.id);
     const arena = (await arenaRepository.findByMatchId(match.id))!;
     arenaIds.push(arena.id);
-    expect(arena.mode).toBe("hardcore");
+    expect(arena.mode).toBe("classic");
     const round = (await predictionRoundRepository.listByArenaId(arena.id))[0]!;
     expect(round).not.toHaveProperty("survivalRuleApplied");
     const saved = await predictionRoundRepository.upsert({
