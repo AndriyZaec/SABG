@@ -214,7 +214,7 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
           status: e.status,
           you: myUserId.current != null && e.userId === myUserId.current,
         }));
-        const feed = rounds ? feedFromRounds(rounds.rounds, myUserId.current) : [];
+        const feed = rounds ? feedFromRounds(rounds.rounds, myUserId.current, detail.arena.mode) : [];
         setView((v) => {
           if (!v) return reconcileArenaStatus({ ...initialView(detail), leaderboard: rows, feed }, detail);
           return reconcileArenaStatus(v, detail);
@@ -265,7 +265,7 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
           void fetchCs2ArenaRounds(arenaId)
             .then((rounds) => {
               if (disposed) return;
-              setView((v) => (v ? { ...v, feed: mergeFeedFromRounds(v.feed, rounds.rounds, myUserId.current) } : v));
+              setView((v) => (v ? { ...v, feed: mergeFeedFromRounds(v.feed, rounds.rounds, myUserId.current, v.mode) } : v));
             })
             .catch(() => undefined);
         }

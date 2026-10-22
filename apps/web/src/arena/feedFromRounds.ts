@@ -1,4 +1,4 @@
-import type { Answer, PredictionResult, RoundWithPredictions } from "@arena/contracts";
+import type { Answer, ArenaMode, PredictionResult, RoundWithPredictions } from "@arena/contracts";
 import type { FeedItem } from "./arenaView.js";
 
 export function truncate(text: string, max = 64): string {
@@ -9,6 +9,8 @@ export const VOID_FEED_TEXT = "Round voided — match ended first";
 export const SURVIVED_TEXT = "You survived";
 export const ELIMINATED_TEXT = "You were eliminated";
 export const NO_CORRECT_ANSWERS_TEXT = "No correct answers — all survivors stay in.";
+export const CLASSIC_CORRECT_TEXT = "Correct — points scored";
+export const CLASSIC_NO_POINTS_TEXT = "No points this round";
 
 export function formatCs2VoidText(roundNumber: number | undefined): string {
   return roundNumber === undefined ? "Question voided" : `Question ${roundNumber} voided`;
@@ -36,11 +38,18 @@ function personalResultItem(id: string, result: PredictionResult, incorrectSurvi
   return { id, kind: survived ? "survived" : "eliminated", text: survived ? SURVIVED_TEXT : ELIMINATED_TEXT };
 }
 
+// A classic miss only costs points; the zone, not the answer, decides elimination.
+function classicResultItem(id: string, result: PredictionResult): FeedItem {
+  return result === "correct"
+    ? { id, kind: "survived", text: CLASSIC_CORRECT_TEXT }
+    : { id, kind: "info", text: CLASSIC_NO_POINTS_TEXT };
+}
+
 export function prependFeedItem(feed: FeedItem[], item: FeedItem): FeedItem[] {
   return [item, ...feed.filter((f) => f.id !== item.id)].slice(0, 20);
 }
 
-export function feedFromRounds(rounds: RoundWithPredictions[], myUserId?: string): FeedItem[] {
+export function feedFromRounds(rounds: RoundWithPredictions[], myUserId?: string, mode: ArenaMode = "hardcore"): FeedItem[] {
   const items: FeedItem[] = [];
 
   for (const { round, predictions } of rounds) {
@@ -54,7 +63,10 @@ export function feedFromRounds(rounds: RoundWithPredictions[], myUserId?: string
       if (incorrectSurvived) items.push({ id: survivalFeedId(round.id), kind: "info", text: NO_CORRECT_ANSWERS_TEXT });
 
       const mine = myUserId !== undefined ? predictions.find((p) => p.userId === myUserId) : undefined;
-      if (mine?.result !== undefined) items.push(personalResultItem(`me-${round.id}`, mine.result, incorrectSurvived));
+      if (mine?.result !== undefined) {
+        const id = `me-${round.id}`;
+        items.push(mode === "classic" ? classicResultItem(id, mine.result) : personalResultItem(id, mine.result, incorrectSurvived));
+      }
     } else if (round.status === "voided") {
       items.push({ id: voidFeedId(round.id), kind: "info", text: round.discipline === "cs2" ? formatCs2VoidText(round.roundNumber) : VOID_FEED_TEXT });
     }
@@ -72,8 +84,9 @@ export function mergeFeedFromRounds(
   feed: FeedItem[],
   rounds: RoundWithPredictions[],
   myUserId?: string,
+  mode: ArenaMode = "hardcore",
 ): FeedItem[] {
-  const base = feedFromRounds(rounds, myUserId);
+  const base = feedFromRounds(rounds, myUserId, mode);
   const extras = feed.filter((item) => !isRoundDerivedFeedId(item.id));
   return [...extras, ...base].slice(0, 20);
 }
