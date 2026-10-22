@@ -42,6 +42,8 @@ function initialView(d: ArenaDetailResponse): Cs2ArenaView {
   const round = d.currentRound;
   return reconcileArenaStatus(
     {
+      mode: d.arena.mode,
+      stage: "zone",
       teams: [d.match.teamScores[0].name, d.match.teamScores[1].name],
       survivors: d.arena.activePlayersCount,
       totalPlayers: d.arena.activePlayersCount,
@@ -115,6 +117,8 @@ function reduce(view: Cs2ArenaView, msg: ServerMessage, myUserId?: string): Cs2A
       const { myAnswer: _myAnswer, ...round } = view.round;
       return { ...view, round };
     }
+    case "arena.stage":
+      return { ...view, stage: msg.stage };
     case "arena.cancelled":
       return {
         ...view,

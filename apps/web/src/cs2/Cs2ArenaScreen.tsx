@@ -12,6 +12,8 @@ import { useCs2ArenaEntry } from "./useCs2ArenaEntry.js";
 import { useCs2RoundAlerts, type Cs2NewRoundSignal } from "./live/useCs2RoundAlerts.js";
 import { useCs2VictoryAlert } from "./live/useCs2VictoryAlert.js";
 import type { Cs2AnswerSubmission, Cs2ArenaView } from "./cs2View.js";
+import { classicRoundScoring, classicZoneHud } from "./classicZone.js";
+import { Cs2ZoneHud } from "./live/Cs2ZoneHud.js";
 import { EliminationFeed } from "../arena/live/EliminationFeed.js";
 import { LeaderboardRail } from "../arena/live/LeaderboardRail.js";
 import { PendingPredictionsList } from "../arena/live/PendingPredictionsList.js";
@@ -79,6 +81,7 @@ function Cs2ArenaLobby({
     backendArenaId: arena.id,
   });
   const [muted, toggleMuted] = useCs2RoundAlerts(newRoundSignal, entry.hasEntry);
+  const zoneHud = view?.round ? classicZoneHud(view) : undefined;
 
   if (entry.hasEntry) {
     return (
@@ -86,6 +89,7 @@ function Cs2ArenaLobby({
         <Link className="cs2-back cs2-back--spaced" to={`/cs2/series/${match.seriesId}`}>← Back to series</Link>
         <div className="nb-arena-grid">
           <div style={{ display: "grid", gap: 20 }}>
+            {zoneHud && <Cs2ZoneHud hud={zoneHud} />}
             {view?.round && (
               <Cs2RoundCard
                 key={view.round.roundId}
@@ -97,6 +101,7 @@ function Cs2ArenaLobby({
                 participant
                 muted={muted}
                 onToggleMute={toggleMuted}
+                classic={classicRoundScoring(view, view.round.roundNumber)}
               />
             )}
             <EliminationFeed feed={view?.feed ?? []} />
@@ -231,6 +236,7 @@ function Cs2ArenaLive({
   const pending = (view.pendingPredictions ?? []).filter((prediction) => prediction.roundId !== view.round?.roundId);
   const [muted, toggleMuted] = useCs2RoundAlerts(newRoundSignal, isParticipant);
   useCs2VictoryAlert(victorySignal, muted);
+  const zoneHud = classicZoneHud(view);
 
   return (
     <div className="nb-container">
@@ -255,6 +261,7 @@ function Cs2ArenaLive({
         <div style={{ display: "grid", gap: 20 }}>
           {view.myStatus === "winner" && <WinnerBanner />}
           <SeriesHeader view={view} />
+          {zoneHud && <Cs2ZoneHud hud={zoneHud} />}
           {view.round && (
             <Cs2RoundCard
               key={view.round.roundId}
@@ -266,6 +273,7 @@ function Cs2ArenaLive({
               participant={isParticipant}
               muted={muted}
               onToggleMute={toggleMuted}
+              classic={classicRoundScoring(view, view.round.roundNumber)}
             />
           )}
           {pending.length > 0 && <PendingPredictionsList predictions={pending} />}

@@ -2,7 +2,9 @@ import type {
   Answer,
   AnswerRejectionReason,
   ArenaCancelledReason,
+  ArenaMode,
   ArenaPlayerStatus,
+  ArenaStage,
   PendingPrediction,
   RoundStatus,
   RoundSurvivalRule,
@@ -28,6 +30,9 @@ export type Cs2AnswerSubmission =
   | { status: "rejected"; roundId: string; answer: Answer; reason: AnswerRejectionReason };
 
 export interface Cs2ArenaView {
+  mode: ArenaMode;
+  /** Classic only; switched by `arena.stage`. */
+  stage: ArenaStage;
   teams?: readonly [string, string];
   seriesFormat?: number;
   survivors: number;

@@ -812,6 +812,26 @@ button.nb-footer__link {
   padding: 6px 14px;
 }
 
+/* ---- Live Arena: classic zone ---- */
+.nb-zone-hud {
+  background: var(--white);
+  border: var(--bw) solid var(--ink);
+  box-shadow: var(--shadow-sm);
+  padding: 12px 14px;
+}
+.nb-zone-hud__cells { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.nb-zone-hud__cells > div { display: grid; gap: 4px; }
+.nb-zone-hud__buffer {
+  margin-top: 10px;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+.nb-zone-hud__buffer--danger { display: inline-block; background: var(--eliminate); padding: 2px 6px; }
+.nb-zone-hud--final { background: var(--eliminate); color: var(--ink); }
+.nb-zone-hud__title { font-family: var(--font-display); text-transform: uppercase; font-size: 1.6rem; line-height: 1; }
+.nb-zone-hud__subtitle { font-family: var(--font-mono); font-size: 0.85rem; margin-top: 4px; }
+
 /* ---- Live Arena: countdown + yes/no ---- */
 .nb-timer {
   height: 22px;
