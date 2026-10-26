@@ -13,10 +13,10 @@ import { useCs2RoundAlerts, type Cs2NewRoundSignal } from "./live/useCs2RoundAle
 import { useCs2VictoryAlert } from "./live/useCs2VictoryAlert.js";
 import type { Cs2AnswerSubmission, Cs2ArenaView } from "./cs2View.js";
 import { classicRoundScoring, classicZoneHud } from "./classicZone.js";
-import { Cs2ZoneHud } from "./live/Cs2ZoneHud.js";
+import { Cs2Survivors } from "./live/Cs2Survivors.js";
+import { survivorsBoard } from "./survivorsBoard.js";
 import { Cs2MatchFeed } from "./live/Cs2MatchFeed.js";
 import { cs2FeedForView } from "./live/cs2Feed.js";
-import { LeaderboardRail } from "../arena/live/LeaderboardRail.js";
 import { PendingPredictionsList } from "../arena/live/PendingPredictionsList.js";
 import { WinnerBanner } from "../arena/live/WinnerBanner.js";
 import { Loading } from "../ui/Loading.js";
@@ -107,8 +107,11 @@ function Cs2ArenaLobby({
             <Cs2MatchFeed items={view ? cs2FeedForView(view) : []} />
           </div>
           <aside style={{ display: "grid", gap: 20 }}>
-            {zoneHud && <Cs2ZoneHud hud={zoneHud} />}
-            <LeaderboardRail entries={view?.leaderboard ?? []} />
+            <Cs2Survivors
+              board={survivorsBoard(view?.leaderboard ?? [], zoneHud)}
+              active={view?.survivors ?? 0}
+              total={view?.totalPlayers ?? 0}
+            />
           </aside>
         </div>
       </div>
@@ -280,8 +283,7 @@ function Cs2ArenaLive({
           <Cs2MatchFeed items={cs2FeedForView(view)} />
         </div>
         <aside style={{ display: "grid", gap: 20 }}>
-          {zoneHud && <Cs2ZoneHud hud={zoneHud} />}
-          <LeaderboardRail entries={view.leaderboard} />
+          <Cs2Survivors board={survivorsBoard(view.leaderboard, zoneHud)} active={view.survivors} total={view.totalPlayers} />
         </aside>
       </div>
     </div>
