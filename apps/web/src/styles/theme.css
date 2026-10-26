@@ -884,6 +884,13 @@ button.nb-footer__link {
 }
 .nb-timer--low .nb-timer__bar { background: var(--eliminate); }
 .nb-yesno { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 16px; }
+/* Classic double rounds: the reward sits on the buttons, not a ×2 that reads like a score multiplier. */
+.cs2-answer--double { position: relative; }
+.cs2-answer__points {
+  position: absolute; top: -12px; right: -8px;
+  font-family: var(--font-display); font-size: 1rem; letter-spacing: 0;
+  background: var(--yellow); color: var(--ink); border: 2px solid var(--ink); padding: 0 6px;
+}
 
 /* ---- Inputs ---- */
 .nb-input {

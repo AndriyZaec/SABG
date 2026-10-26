@@ -41,10 +41,7 @@ export function Cs2RoundCard({
 
   const title = (
     <div className="nb-row" style={{ justifyContent: "space-between", gap: 10 }}>
-      <span className="nb-row" style={{ gap: 8 }}>
-        Round {round.roundNumber}
-        {classic?.double && <Badge tone="neutral">×2 points</Badge>}
-      </span>
+      <span>Round {round.roundNumber}</span>
       {onToggleMute && (
         <button
           type="button"
@@ -77,8 +74,10 @@ export function Cs2RoundCard({
             block
             onClick={() => answer("yes")}
             style={picked === "yes" ? pressed : undefined}
+            className={classic?.double ? "cs2-answer--double" : ""}
           >
             Yes
+            {classic?.double && <span className="cs2-answer__points">+2</span>}
           </Button>
           <Button
             disabled={!connected || submitting}
@@ -87,8 +86,10 @@ export function Cs2RoundCard({
             block
             onClick={() => answer("no")}
             style={picked === "no" ? pressed : undefined}
+            className={classic?.double ? "cs2-answer--double" : ""}
           >
             No
+            {classic?.double && <span className="cs2-answer__points">+2</span>}
           </Button>
         </div>
       )}
