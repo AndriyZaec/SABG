@@ -123,6 +123,11 @@ describe("renderCs2Question", () => {
     }
   });
 
+  it("names weapons the way players know them", () => {
+    expect(renderCs2Question("weapon_kill", { weapon: "hegrenade" }, TEAMS)).toBe("Will there be a kill with HE grenade this round?");
+    expect(renderCs2Question("weapon_kill", { weapon: "usp_silencer" }, TEAMS)).toBe("Will there be a kill with USP-S this round?");
+  });
+
   it("rejects an unknown team identity instead of rendering a fallback", () => {
     expect(() => renderCs2Question("round_winner", { targetTeamId: "missing" }, TEAMS)).toThrow(
       'unknown targetTeamId "missing"',

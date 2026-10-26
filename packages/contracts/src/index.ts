@@ -9,6 +9,7 @@ export * from "./ws.js";
 export * from "./signals.js";
 export * from "./cs2-stream.js";
 export * from "./cs2-classic.js";
+export * from "./cs2-questions.js";
 export * from "./admin.js";
 
 /** Fixed 5-minute regular-time windows (spec §3). Halftime window 45–50 skipped by default (§3.2). */
