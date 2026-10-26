@@ -89,7 +89,6 @@ function Cs2ArenaLobby({
         <Link className="cs2-back cs2-back--spaced" to={`/cs2/series/${match.seriesId}`}>← Back to series</Link>
         <div className="nb-arena-grid">
           <div style={{ display: "grid", gap: 20 }}>
-            {zoneHud && <Cs2ZoneHud hud={zoneHud} />}
             {view?.round && (
               <Cs2RoundCard
                 key={view.round.roundId}
@@ -107,6 +106,7 @@ function Cs2ArenaLobby({
             <EliminationFeed feed={view?.feed ?? []} />
           </div>
           <aside style={{ display: "grid", gap: 20 }}>
+            {zoneHud && <Cs2ZoneHud hud={zoneHud} />}
             <LeaderboardRail entries={view?.leaderboard ?? []} />
           </aside>
         </div>
@@ -261,7 +261,6 @@ function Cs2ArenaLive({
         <div style={{ display: "grid", gap: 20 }}>
           {view.myStatus === "winner" && <WinnerBanner />}
           <SeriesHeader view={view} />
-          {zoneHud && <Cs2ZoneHud hud={zoneHud} />}
           {view.round && (
             <Cs2RoundCard
               key={view.round.roundId}
@@ -280,6 +279,7 @@ function Cs2ArenaLive({
           <EliminationFeed feed={view.feed} />
         </div>
         <aside style={{ display: "grid", gap: 20 }}>
+          {zoneHud && <Cs2ZoneHud hud={zoneHud} />}
           <LeaderboardRail entries={view.leaderboard} />
         </aside>
       </div>

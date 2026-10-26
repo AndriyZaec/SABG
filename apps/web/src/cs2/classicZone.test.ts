@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Cs2ArenaView, Cs2RoundView, LeaderRow } from "./cs2View.js";
+import type { Cs2ArenaView, Cs2RoundView } from "./cs2View.js";
 import { classicRoundScoring, classicZoneHud } from "./classicZone.js";
 
 type HudInput = Parameters<typeof classicZoneHud>[0];
@@ -8,12 +8,8 @@ function round(roundNumber: number, status: Cs2RoundView["status"]): Cs2RoundVie
   return { roundId: `r${roundNumber}`, roundNumber, question: "?", status };
 }
 
-function me(score: number, status: LeaderRow["status"] = "active"): LeaderRow {
-  return { rank: 1, name: "me", score, status, you: true };
-}
-
 function view(overrides: Partial<HudInput> = {}): HudInput {
-  return { mode: "classic", stage: "zone", leaderboard: [], ...overrides };
+  return { mode: "classic", stage: "zone", ...overrides };
 }
 
 describe("classicZoneHud", () => {
@@ -31,19 +27,8 @@ describe("classicZoneHud", () => {
     expect(classicZoneHud(view({ round: round(8, "settled") }))).toMatchObject({ zoneNow: 4, nextZone: 5 });
   });
 
-  it("reports the buffer of an active player against the next zone", () => {
-    expect(classicZoneHud(view({ round: round(8, "open"), leaderboard: [me(6)] }))).toMatchObject({ buffer: 2 });
-    expect(classicZoneHud(view({ round: round(8, "open"), leaderboard: [me(3)] }))).toMatchObject({ buffer: -1 });
-  });
-
-  it("leaves the buffer out for spectators and eliminated players", () => {
-    const other: LeaderRow = { rank: 1, name: "other", score: 9, status: "active" };
-    expect(classicZoneHud(view({ round: round(8, "open"), leaderboard: [other] }))).not.toHaveProperty("buffer");
-    expect(classicZoneHud(view({ round: round(8, "open"), leaderboard: [me(1, "eliminated")] }))).not.toHaveProperty("buffer");
-  });
-
   it("hides the zone numbers in Final Circle", () => {
-    expect(classicZoneHud(view({ stage: "final_circle", round: round(20, "open"), leaderboard: [me(9)] })))
+    expect(classicZoneHud(view({ stage: "final_circle", round: round(20, "open") })))
       .toEqual({ stage: "final_circle" });
   });
 
