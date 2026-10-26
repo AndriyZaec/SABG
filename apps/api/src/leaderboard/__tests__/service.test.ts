@@ -149,6 +149,29 @@ describe("LeaderboardService", () => {
     expect(service.snapshot().find((e) => e.userId === "b")?.score).toBe(2);
   });
 
+  it("records the elimination round on eliminated rows only, and clears it for winners", () => {
+    const { service } = setup(["a", "b", "c"]);
+    for (const result of [
+      { userId: "a", answer: "yes" as const, result: "correct" as const, status: "active" as const },
+      { userId: "b", answer: "no" as const, result: "incorrect" as const, status: "eliminated" as const },
+      { userId: "c", answer: "yes" as const, result: "correct" as const, status: "active" as const },
+    ]) service.onPlayerResult({ roundId: "r7", points: 1, ...result });
+    service.onRoundSettled({ roundId: "r7", roundNumber: 7 });
+
+    const byUser = (id: Uuid) => service.snapshot().find((e) => e.userId === id);
+    expect(byUser("b")).toMatchObject({ status: "eliminated", eliminatedRound: 7 });
+    expect(byUser("a")).not.toHaveProperty("eliminatedRound");
+
+    // Everyone left falls together: they become winners, not eliminated in round 8.
+    for (const userId of ["a", "c"]) {
+      service.onPlayerResult({ roundId: "r8", userId, answer: "no", result: "incorrect", points: 0, status: "eliminated" });
+    }
+    service.onRoundSettled({ roundId: "r8", roundNumber: 8 });
+    expect(byUser("a")).toMatchObject({ status: "winner" });
+    expect(byUser("a")).not.toHaveProperty("eliminatedRound");
+    expect(byUser("b")).toMatchObject({ eliminatedRound: 7 });
+  });
+
   it("zero-survivors: a round eliminating every remaining active player makes all pre-round finalists winners", () => {
     const { service, finishedCalls } = setup(["a", "b"]);
 

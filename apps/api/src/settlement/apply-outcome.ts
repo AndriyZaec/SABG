@@ -50,7 +50,7 @@ export function applyRoundOutcome(
     const status = hardcoreStatus(result, survivalRuleApplied);
 
     stores.predictionStore.recordResult(roundId, userId, result);
-    stores.arenaPlayerStore.setStatus(userId, status);
+    stores.arenaPlayerStore.setStatus(userId, status, roundId);
     onPlayerResult?.({ roundId, userId, answer, result, points: result === "correct" ? 1 : 0, status });
   }
   return survivalRuleApplied;

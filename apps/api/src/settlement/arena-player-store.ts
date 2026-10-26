@@ -7,8 +7,8 @@ import type { ArenaPlayerStatus, Uuid } from "@arena/contracts";
 export interface ArenaPlayerStore {
   /** Player ids still eligible to compete in `arenaId` (spec §8: only active players each round). */
   getActivePlayerIds(arenaId: Uuid): Uuid[];
-  /** Updates a player's status after settlement (mirrors ArenaPlayer.status). */
-  setStatus(userId: Uuid, status: ArenaPlayerStatus): void;
+  /** Updates a player's status after settlement (mirrors ArenaPlayer.status); `roundId` is the round just settled. */
+  setStatus(userId: Uuid, status: ArenaPlayerStatus, roundId?: Uuid): void;
 }
 
 /** In-memory dev/test double. Real persistence lands with the arena-join flow / gateway. */

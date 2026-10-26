@@ -19,6 +19,8 @@ export interface LeaderboardAccumulator {
   avgAnswerMs?: number;
   missedCount: number;
   joinedAt: IsoDateTime;
+  /** Round number that eliminated this player; unset while active or as a winner. */
+  eliminatedRound?: number;
 }
 
 /** Ascending compare with `undefined` treated as "no data" — that rung is skipped, not last/first. */
@@ -69,6 +71,7 @@ export function rankLeaderboard(rows: LeaderboardAccumulator[]): LeaderboardEntr
       avgAnswerMs: row.avgAnswerMs,
       missedCount: row.missedCount,
       joinedAt: row.joinedAt,
+      ...(row.eliminatedRound !== undefined ? { eliminatedRound: row.eliminatedRound } : {}),
       rank,
     });
   }

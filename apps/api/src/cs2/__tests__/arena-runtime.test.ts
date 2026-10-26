@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { ArenaMode, Cs2GameSnapshot, PredictionRound, ServerMessage, Uuid } from "@arena/contracts";
 import { MatchSignalBus } from "../../ingestion/event-bus.js";
 import { createInMemoryRuntimeStores } from "../../gateway/stores/in-memory-stores.js";
@@ -95,6 +95,7 @@ function buildRuntime(playerIds: Uuid[], questionProvider?: Cs2QuestionProvider,
   const { predictionStore, arenaPlayerStore } = createInMemoryRuntimeStores(ARENA_ID, playerIds);
   const { broadcaster, broadcasts, personal } = createRecordingBroadcaster();
   const { persistence, upserts, finished, finalCircleFrom } = createRecordingPersistence();
+  const setStatus = vi.spyOn(arenaPlayerStore, "setStatus");
 
   const runtime = new Cs2ArenaRuntime({
     matchId: MATCH_ID,
@@ -110,18 +111,20 @@ function buildRuntime(playerIds: Uuid[], questionProvider?: Cs2QuestionProvider,
     ...(questionProvider !== undefined ? { questionProvider } : {}),
   });
 
-  return { runtime, bus, broadcasts, personal, upserts, finished, finalCircleFrom, arenaPlayerStore, predictionStore };
+  return { runtime, bus, broadcasts, personal, upserts, finished, finalCircleFrom, setStatus, arenaPlayerStore, predictionStore };
 }
 
 describe("Cs2ArenaRuntime — elimination wiring", () => {
   it.each([false, true])("keeps incorrect answerers active across no-correct rounds, without forgiving AFK (AFK: %s)", (afk) => {
     const players = Array.from({ length: 5 }, (_, i) => `00000000-0000-0000-0000-00000000000${i + 1}`);
     const answerers = afk ? players.slice(0, 4) : players;
-    const { runtime, bus, broadcasts, personal, upserts, finished, finalCircleFrom, arenaPlayerStore, predictionStore } = buildRuntime(players, fakeProvider());
+    const { runtime, bus, broadcasts, personal, upserts, finished, finalCircleFrom, setStatus, arenaPlayerStore, predictionStore } = buildRuntime(players, fakeProvider());
+    const roundIds: Uuid[] = [];
     runtime.openRoundOne("t0");
     for (const roundNumber of [1, 2]) {
       const round = runtime.currentRound!;
       expect(round.roundNumber).toBe(roundNumber);
+      roundIds.push(round.id);
       for (const userId of answerers) expect(runtime.submitAnswer(userId, round.id, "no").ok).toBe(true);
       bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(roundNumber - 1, 0), timestamp: "t1" });
       bus.publish({ kind: "cs2_round_lock", roundNumber, timestamp: "t1" });
@@ -140,7 +143,8 @@ describe("Cs2ArenaRuntime — elimination wiring", () => {
     expect(personal.filter((p) => answerers.includes(p.userId) && p.message.type === "player.status").every((p) => p.message.type === "player.status" && p.message.status === "active")).toBe(true);
     if (afk) {
       expect(arenaPlayerStore.getStatus(players[4]!)).toBe("eliminated");
-      expect(runtime.leaderboardSnapshot().find((p) => p.userId === players[4])).toMatchObject({ status: "eliminated", missedCount: 1 });
+      expect(runtime.leaderboardSnapshot().find((p) => p.userId === players[4])).toMatchObject({ status: "eliminated", missedCount: 1, eliminatedRound: 1 });
+      expect(setStatus).toHaveBeenCalledWith(players[4], "eliminated", roundIds[0]);
     }
     bus.publish({ kind: "cs2_match_end", timestamp: "t3" });
     expect(finished).toEqual([answerers]);
@@ -516,10 +520,12 @@ describe("Cs2ArenaRuntime — classic mode", () => {
 
   it("eliminates a player who falls below the zone at R8 and tells them", () => {
     const rounds = Array.from({ length: 8 }, (_, i) => ({ [A]: "yes" as const, [B]: "yes" as const, [C]: i === 0 ? "yes" as const : "no" as const }));
-    const { runtime, arenaPlayerStore, personal, roundIds } = playClassic([A, B, C], rounds);
+    const { runtime, arenaPlayerStore, personal, roundIds, setStatus } = playClassic([A, B, C], rounds);
     // C: 2 points after R1, then nothing; zone after R7 = 2, after R8 = 4.
     expect(score(runtime, C)).toBe(2);
     expect(arenaPlayerStore.getStatus(C)).toBe("eliminated");
+    expect(setStatus).toHaveBeenCalledWith(C, "eliminated", roundIds[7]);
+    expect(runtime.leaderboardSnapshot().find((e) => e.userId === C)?.eliminatedRound).toBe(8);
     expect(personal).toContainEqual({ userId: C, message: { type: "player.status", status: "eliminated", roundId: roundIds[7] } });
     expect(personal.some((p) => p.userId === C && p.message.type === "player.status" && p.message.status === "eliminated" && p.message.roundId !== roundIds[7])).toBe(false);
     expect(runtime.finalWinners()).toBeUndefined();

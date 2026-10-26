@@ -242,7 +242,7 @@ export class Cs2ArenaRuntime implements ArenaRuntimeLike {
       ...(survivalRuleApplied !== undefined ? { survivalRuleApplied } : {}),
     });
 
-    this.leaderboardService.onRoundSettled({ roundId });
+    this.leaderboardService.onRoundSettled({ roundId, roundNumber });
 
     this.flushPendingPlayerStatus(roundId);
     this.flushFinishIfPending();
@@ -262,7 +262,7 @@ export class Cs2ArenaRuntime implements ArenaRuntimeLike {
 
     for (const { userId, answer, result, points, status } of outcome.results) {
       this.predictionStore.recordResult(roundId, userId, result);
-      this.arenaPlayerStore.setStatus(userId, status);
+      this.arenaPlayerStore.setStatus(userId, status, roundId);
       this.onPlayerResult({ roundId, userId, answer, result, points, status });
     }
     if (outcome.stage === "final_circle" && this.finalCircleFromRound === undefined) {

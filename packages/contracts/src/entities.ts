@@ -193,5 +193,7 @@ export interface LeaderboardEntry {
   avgAnswerMs?: number;
   missedCount: number;
   joinedAt: IsoDateTime;
+  /** Round number that eliminated this player; absent while active or as a winner. */
+  eliminatedRound?: number;
   rank?: number;
 }

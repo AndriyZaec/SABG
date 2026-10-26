@@ -54,9 +54,10 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
 
   afterAll(async () => {
     if (db === undefined) return;
+    // arena_player references its elimination round, so it goes first.
+    if (arenaId) await db.delete(schema.arenaPlayers).where(eq(schema.arenaPlayers.arenaId, arenaId));
     if (roundId) await db.delete(schema.predictions).where(eq(schema.predictions.roundId, roundId));
     if (roundId) await db.delete(schema.predictionRounds).where(eq(schema.predictionRounds.id, roundId));
-    if (arenaId) await db.delete(schema.arenaPlayers).where(eq(schema.arenaPlayers.arenaId, arenaId));
     if (arenaId) await db.delete(schema.entryPasses).where(eq(schema.entryPasses.arenaId, arenaId));
     if (arenaId) await db.delete(schema.arenas).where(eq(schema.arenas.id, arenaId));
     if (matchId) await db.delete(schema.matches).where(eq(schema.matches.id, matchId));
@@ -230,13 +231,13 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
     const store = createPgArenaPlayerStore(arenaId, writeQueue);
     store.hydrate([{ userId, status: "active" }]);
 
-    store.setStatus(userId, "eliminated");
+    store.setStatus(userId, "eliminated", roundId);
     expect(store.getStatus(userId)).toBe("eliminated");
     expect(store.getActivePlayerIds(arenaId)).not.toContain(userId);
 
     await writeQueue.enqueue(arenaId, async () => {});
     const roster = await arenaPlayerRepository.list(arenaId);
-    expect(roster.find((p) => p.userId === userId)?.status).toBe("eliminated");
+    expect(roster.find((p) => p.userId === userId)).toMatchObject({ status: "eliminated", eliminatedRoundId: roundId });
   });
 
   it("tryAcquireSeriesRuntimeLock excludes a second acquire for the same gridSeriesId, releases cleanly", async () => {
