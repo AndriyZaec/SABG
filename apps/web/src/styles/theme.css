@@ -938,13 +938,22 @@ button.nb-footer__link {
 .cs2-feed__result--wrong .nb-feed__marker { background: var(--eliminate); }
 .cs2-feed__result--missed .nb-feed__marker { background: var(--paper-2); }
 .cs2-feed__item--round .nb-feed__marker { background: var(--paper-2); }
-.cs2-feed__item--info .nb-feed__marker { background: var(--yellow); }
 .cs2-feed__item--out { background: var(--eliminate-soft); border-color: var(--eliminate); }
 .cs2-feed__item--out .nb-feed__marker,
 .cs2-feed__item--final_circle .nb-feed__marker { background: var(--eliminate); }
 .cs2-feed__item--final_circle { background: var(--eliminate); font-weight: 700; text-transform: uppercase; }
-.cs2-feed__item--won .nb-feed__marker { background: var(--survive); }
-.cs2-feed__item--won { font-weight: 700; }
+/* The newest items stay in view; the panel sizes the list to them and older ones scroll. */
+.cs2-feed { position: relative; overflow-y: auto; overscroll-behavior: contain; }
+.cs2-feed__event--void { border-style: dashed; }
+.cs2-feed__event--void .nb-feed__marker { background: var(--paper-2); }
+.cs2-feed__event--void .cs2-feed__outcome { opacity: 0.55; }
+.cs2-feed__event--neutral { background: var(--paper-2); }
+.cs2-feed__event--neutral .nb-feed__marker { background: var(--yellow); }
+.cs2-feed__event--won { background: var(--survive); }
+.cs2-feed__event--won .nb-feed__marker { background: var(--white); }
+.cs2-feed__event--won .cs2-feed__outcome { font-size: 1.5rem; }
+.cs2-feed__event--lost { background: var(--eliminate-soft); border-color: var(--eliminate); }
+.cs2-feed__event--lost .nb-feed__marker { background: var(--eliminate); }
 
 .nb-board { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .nb-board__row {

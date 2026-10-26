@@ -19,14 +19,14 @@ function round(n: number, mine?: Answer, extra: Partial<Cs2FeedRound> = {}): Cs2
 }
 
 function input(overrides: Partial<Cs2FeedInput>): Cs2FeedInput {
-  return { mode: "classic", teams: TEAMS, rounds: [], liveResults: {}, won: false, finished: false, ...overrides };
+  return { mode: "classic", teams: TEAMS, rounds: [], liveResults: {}, winners: [], won: false, finished: false, ...overrides };
 }
 
 const results = (items: ReturnType<typeof buildCs2Feed>) => items.flatMap((i) => (i.kind === "result" ? [i] : []));
 
 describe("buildCs2Feed", () => {
   it("shows a classic player's result with points, newest first, double round included", () => {
-    const items = buildCs2Feed(input({ rounds: [round(1, "no"), round(2, "yes"), round(3)], me: { score: 2 } }));
+    const items = buildCs2Feed(input({ rounds: [round(1, "no"), round(2, "yes"), round(3)], me: { score: 2, rank: 1 } }));
     expect(items).toEqual([
       { kind: "result", id: "result-r3", outcome: "missed", points: 0, detail: "R3 · Tec-9 kill? · answer NO" },
       { kind: "result", id: "result-r2", outcome: "wrong", points: 0, detail: "R2 · Tec-9 kill? · answer NO, you YES" },
@@ -35,8 +35,8 @@ describe("buildCs2Feed", () => {
   });
 
   it("shows hardcore results without points and an Out line", () => {
-    const items = buildCs2Feed(input({ mode: "hardcore", rounds: [round(1, "no"), round(2, "yes")], me: { score: 1, eliminatedRound: 2 } }));
-    expect(items.map((i) => (i.kind === "result" ? `${i.outcome}:${String(i.points)}` : `${i.kind}:${"text" in i ? i.text : ""}`))).toEqual([
+    const items = buildCs2Feed(input({ mode: "hardcore", rounds: [round(1, "no"), round(2, "yes")], me: { score: 1, rank: 2, eliminatedRound: 2 } }));
+    expect(items.map((i) => (i.kind === "result" ? `${i.outcome}:${String(i.points)}` : `${i.kind}:${"text" in i ? i.text : i.title}`))).toEqual([
       "out:Out", "wrong:undefined", "correct:undefined",
     ]);
   });
@@ -51,7 +51,7 @@ describe("buildCs2Feed", () => {
 
   it("shows the zone elimination and turns later rounds neutral, not MISSED", () => {
     const rounds = Array.from({ length: 9 }, (_, i) => round(i + 1, i === 0 ? "no" : undefined));
-    const items = buildCs2Feed(input({ rounds, me: { score: 2, eliminatedRound: 8 } }));
+    const items = buildCs2Feed(input({ rounds, me: { score: 2, rank: 3, eliminatedRound: 8 } }));
     expect(items[0]).toEqual({ kind: "round", id: "round-r9", text: "R9 · Tec-9 kill? · answer NO" });
     expect(items[1]).toEqual({ kind: "out", id: "out", text: "Out — zone 4, you had 2" });
     expect(items[2]).toMatchObject({ kind: "result", id: "result-r8", outcome: "missed" });
@@ -59,7 +59,7 @@ describe("buildCs2Feed", () => {
 
   it("marks Final Circle where it starts and scores its double rounds as 1", () => {
     const rounds = Array.from({ length: 12 }, (_, i) => round(i + 1, "no"));
-    const items = buildCs2Feed(input({ rounds, me: { score: 9 }, finalCircleFromRound: 7 }));
+    const items = buildCs2Feed(input({ rounds, me: { score: 9, rank: 1 }, finalCircleFromRound: 7 }));
     const fcAt = items.findIndex((i) => i.kind === "final_circle");
     expect(items[fcAt]).toMatchObject({ text: FINAL_CIRCLE_FEED_TEXT });
     expect(items[fcAt - 1]).toMatchObject({ id: "result-r7" });
@@ -69,13 +69,13 @@ describe("buildCs2Feed", () => {
   });
 
   it("shows Final Circle as soon as it starts, before any of its rounds settle", () => {
-    const items = buildCs2Feed(input({ rounds: [round(6, "no")], me: { score: 1 }, finalCircleFromRound: 7 }));
+    const items = buildCs2Feed(input({ rounds: [round(6, "no")], me: { score: 1, rank: 1 }, finalCircleFromRound: 7 }));
     expect(items[0]).toMatchObject({ kind: "final_circle" });
   });
 
   it("keeps every round of the map, not just the last 20", () => {
     const rounds = Array.from({ length: 30 }, (_, i) => round(i + 1, "no"));
-    expect(results(buildCs2Feed(input({ rounds, me: { score: 30 } })))).toHaveLength(30);
+    expect(results(buildCs2Feed(input({ rounds, me: { score: 30, rank: 1 } })))).toHaveLength(30);
   });
 
   it("falls back to neutral lines when the viewer has no leaderboard row", () => {
@@ -93,15 +93,59 @@ describe("buildCs2Feed", () => {
     ]);
   });
 
-  it("keeps the hardcore no-correct-answers line and the end-of-arena lines", () => {
+  it("keeps the hardcore no-correct-answers line and ends with one win line", () => {
     const items = buildCs2Feed(input({
       mode: "hardcore",
       rounds: [round(1, "yes", { survivalRuleApplied: "no_correct_answers" })],
-      me: { score: 0 },
+      me: { score: 0, rank: 1 },
+      winners: ["p1"],
       finished: true,
       won: true,
     }));
-    expect(items.map((i) => i.kind)).toEqual(["won", "info", "info", "result"]);
+    expect(items).toEqual([
+      { kind: "event", id: "won", tone: "won", title: "You won", value: "0", detail: "Arena finished · only winner" },
+      { kind: "event", id: "survival-r1", tone: "neutral", title: "No correct answers", detail: "R1 · all survivors stay in" },
+      expect.objectContaining({ kind: "result", outcome: "wrong" }),
+    ]);
+  });
+
+  it("shows a void with its short question, or just the round when the question is unknown", () => {
+    const known = round(20, undefined, { status: "voided" });
+    const unseen: Cs2FeedRound = { id: "r21", roundNumber: 21, status: "voided", question: "" };
+    expect(buildCs2Feed(input({ rounds: [known, unseen] }))).toEqual([
+      { kind: "event", id: "void-r21", tone: "void", title: "Voided", value: "—", detail: "R21 · not scored" },
+      { kind: "event", id: "void-r20", tone: "void", title: "Voided", value: "—", detail: "R20 · Tec-9 kill? · not scored" },
+    ]);
+  });
+
+  it("shows the winner's score and how many won", () => {
+    const [top] = buildCs2Feed(input({ rounds: [round(1, "no")], me: { score: 14, rank: 1 }, winners: ["p1", "p2"], won: true, finished: true }));
+    expect(top).toEqual({ kind: "event", id: "won", tone: "won", title: "You won", value: "14", detail: "Arena finished · 1 of 2 winners" });
+  });
+
+  it("shows a non-winner their place, elimination round and the winners", () => {
+    const [top] = buildCs2Feed(input({
+      rounds: [round(1, "no")],
+      me: { score: 8, rank: 5, eliminatedRound: 13 },
+      winners: ["a", "b", "c", "d", "e"],
+      finished: true,
+    }));
+    expect(top).toEqual({
+      kind: "event", id: "arena-finished", tone: "lost", title: "Arena finished", value: "5th", detail: "Out in R13 · winners: a, b, c +2",
+    });
+  });
+
+  it("shows a spectator a neutral finish, with or without a leaderboard", () => {
+    expect(buildCs2Feed(input({ winners: ["a"], finished: true }))[0]).toEqual({
+      kind: "event", id: "arena-finished", tone: "neutral", title: "Arena finished", detail: "winners: a",
+    });
+    expect(buildCs2Feed(input({ finished: true }))[0]).toEqual({ kind: "event", id: "arena-finished", tone: "neutral", title: "Arena finished" });
+  });
+
+  it("shows a cancelled arena with a readable reason", () => {
+    expect(buildCs2Feed(input({ cancelledReason: "series_decided" }))).toEqual([
+      { kind: "event", id: "cancelled", tone: "neutral", title: "Arena cancelled", detail: "series decided" },
+    ]);
   });
 
   it("builds the same feed live (player.result) as after a reload (history only)", () => {
@@ -114,7 +158,7 @@ describe("buildCs2Feed", () => {
         : a === "no" ? { answer: a, result: "correct", points: i === 0 ? 2 : 1 }
         : { answer: a, result: "incorrect", points: 0 },
     ]));
-    const me = { score: 6, eliminatedRound: 8 };
+    const me = { score: 6, rank: 2, eliminatedRound: 8 };
     expect(buildCs2Feed(input({ rounds: live, liveResults, me }))).toEqual(buildCs2Feed(input({ rounds: reloaded, me })));
   });
 });
