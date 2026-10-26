@@ -43,7 +43,7 @@ function initialView(d: ArenaDetailResponse): Cs2ArenaView {
   return reconcileArenaStatus(
     {
       mode: d.arena.mode,
-      stage: "zone",
+      zone: { type: "arena.zone", stage: "zone", zone: 0, nextZone: 0 },
       teams: [d.match.teamScores[0].name, d.match.teamScores[1].name],
       survivors: d.arena.activePlayersCount,
       totalPlayers: d.arena.activePlayersCount,
@@ -117,8 +117,8 @@ function reduce(view: Cs2ArenaView, msg: ServerMessage, myUserId?: string): Cs2A
       const { myAnswer: _myAnswer, ...round } = view.round;
       return { ...view, round };
     }
-    case "arena.stage":
-      return { ...view, stage: msg.stage };
+    case "arena.zone":
+      return { ...view, zone: msg };
     case "arena.cancelled":
       return {
         ...view,
@@ -184,6 +184,9 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
   const [newRoundSignal, setNewRoundSignal] = useState<Cs2NewRoundSignal | null>(null);
   const [victorySignal, setVictorySignal] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
+  // WS replays can beat the first REST load; hold them until there is a view to apply them to.
+  const viewReady = useRef(false);
+  const earlyMessages = useRef<ServerMessage[]>([]);
   const myUserId = useRef<string | undefined>(undefined);
   const lastRoundId = useRef<string | undefined>(undefined);
   // Tracks whether we've already counted this player's win, so a duplicate signal for the same
@@ -196,8 +199,16 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
     setDetail(null);
     setLoadError(false);
     setView(null);
+    viewReady.current = false;
+    earlyMessages.current = [];
     lastRoundId.current = undefined;
     wasWinner.current = false;
+    const applyEarlyMessages = (view: Cs2ArenaView): Cs2ArenaView => {
+      const queued = earlyMessages.current;
+      earlyMessages.current = [];
+      viewReady.current = true;
+      return queued.reduce((acc, msg) => reduce(acc, msg, myUserId.current), view);
+    };
     void Promise.all([
       fetchCs2ArenaDetail(arenaId),
       fetchCs2Leaderboard(arenaId).catch(() => null),
@@ -215,10 +226,8 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
           you: myUserId.current != null && e.userId === myUserId.current,
         }));
         const feed = rounds ? feedFromRounds(rounds.rounds, myUserId.current, detail.arena.mode) : [];
-        setView((v) => {
-          if (!v) return reconcileArenaStatus({ ...initialView(detail), leaderboard: rows, feed }, detail);
-          return reconcileArenaStatus(v, detail);
-        });
+        const fresh = applyEarlyMessages(reconcileArenaStatus({ ...initialView(detail), leaderboard: rows, feed }, detail));
+        setView((v) => (v ? reconcileArenaStatus(v, detail) : fresh));
       })
       .catch(() => {
         if (!cancelled) setLoadError(true);
@@ -233,7 +242,8 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
           // round/feed/leaderboard/survivors/totalPlayers are only ever set via WS.
           if (next.match.discipline !== "cs2") return;
           const teams: readonly [string, string] = [next.match.teamScores[0].name, next.match.teamScores[1].name];
-          setView((current) => reconcileArenaStatus(current ? { ...current, teams } : initialView(next), next));
+          const fresh = viewReady.current ? undefined : applyEarlyMessages(reconcileArenaStatus(initialView(next), next));
+          setView((current) => (current ? reconcileArenaStatus({ ...current, teams }, next) : fresh ?? reconcileArenaStatus(initialView(next), next)));
         })
         .catch(() => undefined);
     }, 10_000);
@@ -341,7 +351,8 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
               break;
             }
           }
-          setView((v) => (v ? reduce(v, msg, myUserId.current) : v));
+          if (viewReady.current) setView((v) => (v ? reduce(v, msg, myUserId.current) : v));
+          else earlyMessages.current.push(msg);
         } catch {
           /* Ignore malformed frames. */
         }

@@ -4,7 +4,7 @@ import type {
   ArenaCancelledReason,
   ArenaMode,
   ArenaPlayerStatus,
-  ArenaStage,
+  ArenaZoneMessage,
   PendingPrediction,
   RoundStatus,
   RoundSurvivalRule,
@@ -31,8 +31,8 @@ export type Cs2AnswerSubmission =
 
 export interface Cs2ArenaView {
   mode: ArenaMode;
-  /** Classic only; switched by `arena.stage`. */
-  stage: ArenaStage;
+  /** Classic only: the server's latest zone; zone 0 / next 0 until the first one arrives. */
+  zone: ArenaZoneMessage;
   teams?: readonly [string, string];
   seriesFormat?: number;
   survivors: number;

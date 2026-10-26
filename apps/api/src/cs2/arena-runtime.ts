@@ -1,8 +1,8 @@
+import { cs2ClassicZoneAfter } from "@arena/contracts";
 import type {
   Answer,
   ArenaMode,
   ArenaPlayerStatus,
-  ArenaStage,
   Cs2TeamIdentity,
   IsoDateTime,
   PendingPrediction,
@@ -50,8 +50,8 @@ export class Cs2ArenaRuntime implements ArenaRuntimeLike {
   private readonly matchId: Uuid;
   private readonly arenaId: Uuid;
   readonly mode: ArenaMode;
-  /** Classic only; hardcore never leaves `zone`. */
-  private stage: ArenaStage = "zone";
+  /** Classic only: set once Final Circle starts; hardcore never sets it. */
+  private finalCircleFromRound: number | undefined;
   private readonly predictionStore: RuntimePredictionStore;
   private readonly arenaPlayerStore: RuntimeArenaPlayerStore;
   private readonly broadcaster: GatewayBroadcaster | undefined;
@@ -254,7 +254,7 @@ export class Cs2ArenaRuntime implements ArenaRuntimeLike {
     const scores = new Map(this.leaderboardService.snapshot().map((entry) => [entry.userId, entry.score]));
     const outcome = resolveClassicRound({
       roundNumber,
-      stage: this.stage,
+      stage: this.finalCircleFromRound === undefined ? "zone" : "final_circle",
       players: this.arenaPlayerStore.getActivePlayerIds(this.arenaId).map((userId) => ({ userId, score: scores.get(userId) ?? 0 })),
       answers: this.predictionStore.getAnswers(roundId),
       correctAnswer,
@@ -265,11 +265,13 @@ export class Cs2ArenaRuntime implements ArenaRuntimeLike {
       this.arenaPlayerStore.setStatus(userId, status);
       this.onPlayerResult({ roundId, userId, answer, result, points, status });
     }
-    if (outcome.stage !== this.stage) {
-      this.stage = outcome.stage;
-      this.persistence?.startFinalCircle(this.arenaId, roundNumber + 1);
-      this.broadcaster?.broadcast(this.arenaId, { type: "arena.stage", stage: outcome.stage });
+    if (outcome.stage === "final_circle" && this.finalCircleFromRound === undefined) {
+      this.finalCircleFromRound = roundNumber + 1;
+      this.persistence?.startFinalCircle(this.arenaId, this.finalCircleFromRound);
     }
+    this.broadcaster?.broadcast(this.arenaId, this.finalCircleFromRound !== undefined
+      ? { type: "arena.zone", stage: "final_circle", fromRound: this.finalCircleFromRound }
+      : { type: "arena.zone", stage: "zone", zone: cs2ClassicZoneAfter(roundNumber), nextZone: cs2ClassicZoneAfter(roundNumber + 1) });
     return outcome.survivalRuleApplied;
   }
 

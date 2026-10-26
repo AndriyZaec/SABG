@@ -6,7 +6,7 @@ import type {
   Answer,
   ArenaCancelledMessage,
   ArenaFinishedMessage,
-  ArenaStageMessage,
+  ArenaZoneMessage,
   LeaderboardMessage,
   MatchStateMessage,
   RoundLockMessage,
@@ -36,7 +36,7 @@ interface ArenaCache {
   leaderboard?: LeaderboardMessage;
   finished?: ArenaFinishedMessage;
   cancelled?: ArenaCancelledMessage;
-  stage?: ArenaStageMessage;
+  zone?: ArenaZoneMessage;
 }
 
 export class GatewayWebSocketServer implements GatewayBroadcaster, ArenaRuntimeLookup {
@@ -185,7 +185,7 @@ export class GatewayWebSocketServer implements GatewayBroadcaster, ArenaRuntimeL
       if (cache.matchState !== undefined) this.send(conn, cache.matchState);
       if (cache.round !== undefined) this.send(conn, cache.round);
       if (cache.leaderboard !== undefined) this.send(conn, cache.leaderboard);
-      if (cache.stage !== undefined) this.send(conn, cache.stage);
+      if (cache.zone !== undefined) this.send(conn, cache.zone);
       if (cache.finished !== undefined) this.send(conn, cache.finished);
       if (cache.cancelled !== undefined) this.send(conn, cache.cancelled);
     }
@@ -260,8 +260,8 @@ export class GatewayWebSocketServer implements GatewayBroadcaster, ArenaRuntimeL
       case "arena.cancelled":
         cache.cancelled = message;
         break;
-      case "arena.stage":
-        cache.stage = message;
+      case "arena.zone":
+        cache.zone = message;
         break;
       case "player.status":
       case "player.pending":

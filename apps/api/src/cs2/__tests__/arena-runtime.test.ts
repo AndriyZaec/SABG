@@ -145,8 +145,9 @@ describe("Cs2ArenaRuntime — elimination wiring", () => {
     bus.publish({ kind: "cs2_match_end", timestamp: "t3" });
     expect(finished).toEqual([answerers]);
     expect(runtime.finalWinners()).toEqual(answerers);
-    // Hardcore has no Final Circle.
+    // Hardcore has no zone and no Final Circle.
     expect(finalCircleFrom).toEqual([]);
+    expect(broadcasts.some((m) => m.type === "arena.zone")).toBe(false);
   });
 
   it("ignores a previously eliminated player's correct answer when rescuing the remaining survivors", () => {
@@ -493,6 +494,18 @@ describe("Cs2ArenaRuntime — classic mode", () => {
 
   const score = (runtime: Cs2ArenaRuntime, userId: Uuid) => runtime.leaderboardSnapshot().find((e) => e.userId === userId)?.score;
 
+  it("sends the server's zone after each settle, never the zone of a round that is open but unsettled", () => {
+    const rounds = Array.from({ length: 9 }, () => ({ [A]: "yes" as const, [B]: "yes" as const }));
+    const { broadcasts, runtime } = playClassic([A, B], rounds);
+    const zones = broadcasts.filter((m) => m.type === "arena.zone");
+    expect(zones).toHaveLength(9);
+    expect(zones[4]).toEqual({ type: "arena.zone", stage: "zone", zone: 0, nextZone: 1 });
+    expect(zones[7]).toEqual({ type: "arena.zone", stage: "zone", zone: 4, nextZone: 5 });
+    expect(zones[8]).toEqual({ type: "arena.zone", stage: "zone", zone: 5, nextZone: 6 });
+    // R10 is open now; the last zone still describes R9.
+    expect(runtime.currentRound?.roundNumber).toBe(10);
+  });
+
   it("keeps a wrong answerer active through the warm-up, counts the double round 1, and lets them answer the next round", () => {
     const { runtime, arenaPlayerStore } = playClassic([A, B], [{ [A]: "yes", [B]: "no" }, { [A]: "yes", [B]: "no" }]);
     expect(arenaPlayerStore.getStatus(B)).toBe("active");
@@ -516,11 +529,14 @@ describe("Cs2ArenaRuntime — classic mode", () => {
     // Nobody scores, so zone 1 after R6 would eliminate everyone; A and B tie at 0 and survive.
     const warmup = Array.from({ length: 6 }, () => ({ [A]: "no" as const, [B]: "no" as const }));
     const { broadcasts, finished, finalCircleFrom, runtime } = playClassic([A, B], [...warmup, { [A]: "yes", [B]: "no" }]);
-    const stages = broadcasts.filter((m) => m.type === "arena.stage");
-    expect(stages).toEqual([{ type: "arena.stage", stage: "final_circle" }]);
-    // R6 started Final Circle, so R7 is its first round.
+    const zones = broadcasts.filter((m) => m.type === "arena.zone");
+    // R6 started Final Circle, so R7 is its first round; every later settle repeats it.
+    expect(zones.slice(5)).toEqual([
+      { type: "arena.zone", stage: "final_circle", fromRound: 7 },
+      { type: "arena.zone", stage: "final_circle", fromRound: 7 },
+    ]);
     expect(finalCircleFrom).toEqual([7]);
-    const stageAt = broadcasts.findIndex((m) => m.type === "arena.stage");
+    const stageAt = broadcasts.findIndex((m) => m.type === "arena.zone" && m.stage === "final_circle");
     const settles = broadcasts.flatMap((m, i) => (m.type === "round.settle" ? [i] : []));
     expect(settles[5]).toBeGreaterThan(stageAt);
     expect(settles[4]).toBeLessThan(stageAt);
@@ -536,7 +552,7 @@ describe("Cs2ArenaRuntime — classic mode", () => {
       ...Array.from({ length: 6 }, () => ({ [A]: "no" as const, [B]: "no" as const })),
     ];
     const { broadcasts, finished, finalCircleFrom } = playClassic([A, B], rounds);
-    expect(broadcasts.some((m) => m.type === "arena.stage")).toBe(false);
+    expect(broadcasts.some((m) => m.type === "arena.zone" && m.stage === "final_circle")).toBe(false);
     expect(finalCircleFrom).toEqual([]);
     expect(finished).toEqual([[A]]);
   });

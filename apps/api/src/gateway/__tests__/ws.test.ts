@@ -104,18 +104,20 @@ describe("GatewayWebSocketServer", () => {
     socket.close();
   });
 
-  it("replays the cached arena.stage to a subscriber who joins after Final Circle started", async () => {
+  it("replays only the latest arena.zone to a late subscriber", async () => {
     const token = issueToken("user-1");
     const socket = connect(token);
     await waitForOpen(socket);
     const messages = collectMessages(socket);
 
-    gateway.broadcast(ARENA_ID, { type: "arena.stage", stage: "final_circle" });
+    gateway.broadcast(ARENA_ID, { type: "arena.zone", stage: "zone", zone: 4, nextZone: 5 });
+    gateway.broadcast(ARENA_ID, { type: "arena.zone", stage: "final_circle", fromRound: 10 });
     send(socket, { type: "subscribe", arenaId: ARENA_ID });
 
     await vi.waitFor(() => {
-      expect(messages).toContainEqual({ type: "arena.stage", stage: "final_circle" });
+      expect(messages).toContainEqual({ type: "arena.zone", stage: "final_circle", fromRound: 10 });
     });
+    expect(messages.filter((m) => m.type === "arena.zone")).toHaveLength(1);
 
     socket.close();
   });
