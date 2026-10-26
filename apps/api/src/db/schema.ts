@@ -215,6 +215,7 @@ export const arenas = pgTable("arena", {
   escrowAccount: text("escrow_account").notNull(),
   onchainArenaId: bigint("onchain_arena_id", { mode: "number" }),
   cancelledReason: text("cancelled_reason"),
+  finalCircleFromRound: integer("final_circle_from_round"),
   ...timestamps,
 }, (t) => [
   index("arena_match_id_idx").on(t.matchId),

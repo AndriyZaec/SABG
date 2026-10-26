@@ -90,6 +90,8 @@ export interface Arena {
   onchainArenaId?: number;
   /** Present only for terminal cancellation. */
   cancelledReason?: ArenaCancelledReason;
+  /** Classic only: the first round played under Final Circle rules. */
+  finalCircleFromRound?: number;
 }
 
 export interface EntryPass {

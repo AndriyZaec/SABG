@@ -403,6 +403,9 @@ export class Cs2SeriesOrchestrator {
           await payoutService.settleArena(arenaId, winners);
         });
       },
+      startFinalCircle: (arenaId, fromRound) => {
+        void this.options.writeQueue.enqueue(arenaId, () => arenaRepository.setFinalCircleFromRound(arenaId, fromRound));
+      },
     };
 
     const runtime = new Cs2ArenaRuntime({

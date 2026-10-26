@@ -148,6 +148,13 @@
       "when": 1792611310384,
       "tag": "0020_arena_mode",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1793037767956,
+      "tag": "0021_arena_final_circle_round",
+      "breakpoints": true
     }
   ]
 }

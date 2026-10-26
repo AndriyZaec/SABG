@@ -107,6 +107,7 @@ export function arenaRowToEntity(row: ArenaRow): Arena {
     ...(row.onchainArenaId != null ? { onchainArenaId: row.onchainArenaId } : {}),
     // Only the DAL writes this non-enum value.
     ...(row.cancelledReason !== null ? { cancelledReason: row.cancelledReason as ArenaCancelledReason } : {}),
+    ...(row.finalCircleFromRound !== null ? { finalCircleFromRound: row.finalCircleFromRound } : {}),
   };
 }
 

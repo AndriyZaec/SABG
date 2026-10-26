@@ -114,6 +114,13 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
     expect(afterStatus?.status).toBe("live");
   });
 
+  it("arena.repository: setFinalCircleFromRound writes once and keeps the first value", async () => {
+    expect((await arenaRepository.findById(arenaId))?.finalCircleFromRound).toBeUndefined();
+    await arenaRepository.setFinalCircleFromRound(arenaId, 18);
+    await arenaRepository.setFinalCircleFromRound(arenaId, 20);
+    expect((await arenaRepository.findById(arenaId))?.finalCircleFromRound).toBe(18);
+  });
+
   it("entry-pass.repository: create persists a paid entry pass", async () => {
     const entryPass = await entryPassRepository.create({
       arenaId,

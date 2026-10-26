@@ -147,6 +147,7 @@ describe("arenaRowToEntity", () => {
       escrowAccount: "Escrow111",
       onchainArenaId: 42,
       cancelledReason: null,
+      finalCircleFromRound: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -161,6 +162,25 @@ describe("arenaRowToEntity", () => {
       escrowAccount: "Escrow111",
       onchainArenaId: 42,
     });
+  });
+
+  it("includes finalCircleFromRound only when set", () => {
+    const row = {
+      id: "a1",
+      matchId: "m1",
+      status: "live" as const,
+      mode: "classic" as const,
+      activePlayersCount: 2,
+      entryFeeLamports: 1000,
+      prizePoolLamports: 2000,
+      escrowAccount: "Escrow111",
+      onchainArenaId: null,
+      cancelledReason: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    expect(arenaRowToEntity({ ...row, finalCircleFromRound: null })).not.toHaveProperty("finalCircleFromRound");
+    expect(arenaRowToEntity({ ...row, finalCircleFromRound: 18 }).finalCircleFromRound).toBe(18);
   });
 });
 

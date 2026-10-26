@@ -27,6 +27,8 @@ import type { Cs2QuestionProvider } from "./question-provider.js";
 export interface Cs2ArenaPersistence {
   upsertRound(round: PredictionRound): void;
   finishArena(arenaId: Uuid, winners: Uuid[]): void;
+  /** Classic: the first round played under Final Circle rules. */
+  startFinalCircle(arenaId: Uuid, fromRound: number): void;
 }
 
 export interface Cs2ArenaRuntimeOptions {
@@ -265,6 +267,7 @@ export class Cs2ArenaRuntime implements ArenaRuntimeLike {
     }
     if (outcome.stage !== this.stage) {
       this.stage = outcome.stage;
+      this.persistence?.startFinalCircle(this.arenaId, roundNumber + 1);
       this.broadcaster?.broadcast(this.arenaId, { type: "arena.stage", stage: outcome.stage });
     }
     return outcome.survivalRuleApplied;

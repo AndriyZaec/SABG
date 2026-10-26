@@ -63,9 +63,15 @@ function createRecordingBroadcaster(): {
   };
 }
 
-function createRecordingPersistence(): { persistence: Cs2ArenaPersistence; upserts: PredictionRound[]; finished: Uuid[][] } {
+function createRecordingPersistence(): {
+  persistence: Cs2ArenaPersistence;
+  upserts: PredictionRound[];
+  finished: Uuid[][];
+  finalCircleFrom: number[];
+} {
   const upserts: PredictionRound[] = [];
   const finished: Uuid[][] = [];
+  const finalCircleFrom: number[] = [];
   return {
     persistence: {
       upsertRound(round) {
@@ -74,9 +80,13 @@ function createRecordingPersistence(): { persistence: Cs2ArenaPersistence; upser
       finishArena(_arenaId, winners) {
         finished.push(winners);
       },
+      startFinalCircle(_arenaId, fromRound) {
+        finalCircleFrom.push(fromRound);
+      },
     },
     upserts,
     finished,
+    finalCircleFrom,
   };
 }
 
@@ -84,7 +94,7 @@ function buildRuntime(playerIds: Uuid[], questionProvider?: Cs2QuestionProvider,
   const bus = new MatchSignalBus();
   const { predictionStore, arenaPlayerStore } = createInMemoryRuntimeStores(ARENA_ID, playerIds);
   const { broadcaster, broadcasts, personal } = createRecordingBroadcaster();
-  const { persistence, upserts, finished } = createRecordingPersistence();
+  const { persistence, upserts, finished, finalCircleFrom } = createRecordingPersistence();
 
   const runtime = new Cs2ArenaRuntime({
     matchId: MATCH_ID,
@@ -100,14 +110,14 @@ function buildRuntime(playerIds: Uuid[], questionProvider?: Cs2QuestionProvider,
     ...(questionProvider !== undefined ? { questionProvider } : {}),
   });
 
-  return { runtime, bus, broadcasts, personal, upserts, finished, arenaPlayerStore, predictionStore };
+  return { runtime, bus, broadcasts, personal, upserts, finished, finalCircleFrom, arenaPlayerStore, predictionStore };
 }
 
 describe("Cs2ArenaRuntime — elimination wiring", () => {
   it.each([false, true])("keeps incorrect answerers active across no-correct rounds, without forgiving AFK (AFK: %s)", (afk) => {
     const players = Array.from({ length: 5 }, (_, i) => `00000000-0000-0000-0000-00000000000${i + 1}`);
     const answerers = afk ? players.slice(0, 4) : players;
-    const { runtime, bus, broadcasts, personal, upserts, finished, arenaPlayerStore, predictionStore } = buildRuntime(players, fakeProvider());
+    const { runtime, bus, broadcasts, personal, upserts, finished, finalCircleFrom, arenaPlayerStore, predictionStore } = buildRuntime(players, fakeProvider());
     runtime.openRoundOne("t0");
     for (const roundNumber of [1, 2]) {
       const round = runtime.currentRound!;
@@ -135,6 +145,8 @@ describe("Cs2ArenaRuntime — elimination wiring", () => {
     bus.publish({ kind: "cs2_match_end", timestamp: "t3" });
     expect(finished).toEqual([answerers]);
     expect(runtime.finalWinners()).toEqual(answerers);
+    // Hardcore has no Final Circle.
+    expect(finalCircleFrom).toEqual([]);
   });
 
   it("ignores a previously eliminated player's correct answer when rescuing the remaining survivors", () => {
@@ -503,9 +515,11 @@ describe("Cs2ArenaRuntime — classic mode", () => {
   it("starts Final Circle once when the zone would empty the field with tied leaders, then a wrong answer eliminates", () => {
     // Nobody scores, so zone 1 after R6 would eliminate everyone; A and B tie at 0 and survive.
     const warmup = Array.from({ length: 6 }, () => ({ [A]: "no" as const, [B]: "no" as const }));
-    const { broadcasts, finished, runtime } = playClassic([A, B], [...warmup, { [A]: "yes", [B]: "no" }]);
+    const { broadcasts, finished, finalCircleFrom, runtime } = playClassic([A, B], [...warmup, { [A]: "yes", [B]: "no" }]);
     const stages = broadcasts.filter((m) => m.type === "arena.stage");
     expect(stages).toEqual([{ type: "arena.stage", stage: "final_circle" }]);
+    // R6 started Final Circle, so R7 is its first round.
+    expect(finalCircleFrom).toEqual([7]);
     const stageAt = broadcasts.findIndex((m) => m.type === "arena.stage");
     const settles = broadcasts.flatMap((m, i) => (m.type === "round.settle" ? [i] : []));
     expect(settles[5]).toBeGreaterThan(stageAt);
@@ -521,8 +535,9 @@ describe("Cs2ArenaRuntime — classic mode", () => {
       { [A]: "yes" as const, [B]: "no" as const },
       ...Array.from({ length: 6 }, () => ({ [A]: "no" as const, [B]: "no" as const })),
     ];
-    const { broadcasts, finished } = playClassic([A, B], rounds);
+    const { broadcasts, finished, finalCircleFrom } = playClassic([A, B], rounds);
     expect(broadcasts.some((m) => m.type === "arena.stage")).toBe(false);
+    expect(finalCircleFrom).toEqual([]);
     expect(finished).toEqual([[A]]);
   });
 
