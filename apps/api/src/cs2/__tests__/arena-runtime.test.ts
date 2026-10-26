@@ -195,7 +195,7 @@ describe("Cs2ArenaRuntime — elimination wiring", () => {
   });
 
   it("eliminates an incorrect answerer and a non-answerer, keeps a correct answerer active", () => {
-    const { runtime, bus, arenaPlayerStore, broadcasts } = buildRuntime([PLAYER_YES, PLAYER_NO, PLAYER_SILENT], fakeProvider());
+    const { runtime, bus, arenaPlayerStore, broadcasts, personal } = buildRuntime([PLAYER_YES, PLAYER_NO, PLAYER_SILENT], fakeProvider());
 
     runtime.openRoundOne("t0");
     const round1 = runtime.currentRound;
@@ -218,6 +218,13 @@ describe("Cs2ArenaRuntime — elimination wiring", () => {
     const settleMsg = broadcasts.find((m) => m.type === "round.settle");
     expect(settleMsg).toMatchObject({ type: "round.settle", correctAnswer: "yes", settledBy: "round_end", survivorsCount: 1 });
     expect(settleMsg).not.toHaveProperty("survivalRuleApplied");
+
+    const results = personal.filter((p) => p.message.type === "player.result");
+    expect(results).toEqual([
+      { userId: PLAYER_YES, message: { type: "player.result", roundId: round1!.id, roundNumber: 1, answer: "yes", result: "correct", points: 1 } },
+      { userId: PLAYER_NO, message: { type: "player.result", roundId: round1!.id, roundNumber: 1, answer: "no", result: "incorrect", points: 0 } },
+      { userId: PLAYER_SILENT, message: { type: "player.result", roundId: round1!.id, roundNumber: 1, answer: null, result: "missed", points: 0 } },
+    ]);
   });
 
   it("broadcasts round.open with the round but no lockAt", () => {
@@ -464,9 +471,10 @@ describe("Cs2ArenaRuntime — full recorded fixture (real question provider, gen
     expect(locks.length).toBeGreaterThan(0);
     expect(settles.length).toBeGreaterThanOrEqual(locks.length - 1);
 
-    // Messages must not expose an individual answer.
-    for (const message of [...broadcasts, ...personal.map((p) => p.message)]) {
-      expect(message).not.toHaveProperty("answer");
+    // Shared messages never expose an answer; only a player's own settled result carries theirs.
+    for (const message of broadcasts) expect(message).not.toHaveProperty("answer");
+    for (const { message } of personal) {
+      if (message.type !== "player.result") expect(message).not.toHaveProperty("answer");
     }
 
     expect(personal.some((p) => p.userId === PLAYER_SILENT && p.message.type === "player.status" && p.message.status === "eliminated")).toBe(true);
@@ -548,6 +556,32 @@ describe("Cs2ArenaRuntime — classic mode", () => {
     expect(settles[4]).toBeLessThan(stageAt);
     expect(finished).toEqual([[A]]);
     expect(runtime.finalWinners()).toEqual([A]);
+  });
+
+  it("sends each player their own result once per round, with double points, and nothing after elimination", () => {
+    const rounds = Array.from({ length: 9 }, (_, i) => ({ [A]: "yes" as const, [B]: "yes" as const, ...(i === 0 ? { [C]: "yes" as const } : i === 1 ? { [C]: "no" as const } : {}) }));
+    const { personal, roundIds } = playClassic([A, B, C], rounds);
+    const resultsOf = (userId: Uuid) => personal.flatMap((p) => (p.userId === userId && p.message.type === "player.result" ? [p.message] : []));
+
+    expect(resultsOf(A).map((m) => m.points)).toEqual([2, 1, 1, 1, 1, 1, 1, 1, 1]);
+    // C: double round 1, a wrong answer, then misses until the zone takes them at R8.
+    expect(resultsOf(C).slice(0, 3)).toEqual([
+      { type: "player.result", roundId: roundIds[0], roundNumber: 1, answer: "yes", result: "correct", points: 2 },
+      { type: "player.result", roundId: roundIds[1], roundNumber: 2, answer: "no", result: "incorrect", points: 0 },
+      { type: "player.result", roundId: roundIds[2], roundNumber: 3, answer: null, result: "missed", points: 0 },
+    ]);
+    expect(resultsOf(C).map((m) => m.roundNumber)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+  });
+
+  it("scores a double round as 1 in Final Circle", () => {
+    // Nobody scores R1-R6, so Final Circle starts at R7; both keep answering right through R12.
+    const rounds = [
+      ...Array.from({ length: 6 }, () => ({ [A]: "no" as const, [B]: "no" as const })),
+      ...Array.from({ length: 6 }, () => ({ [A]: "yes" as const, [B]: "yes" as const })),
+    ];
+    const { personal } = playClassic([A, B], rounds);
+    const r12 = personal.find((p) => p.userId === A && p.message.type === "player.result" && p.message.roundNumber === 12);
+    expect(r12?.message).toMatchObject({ result: "correct", points: 1 });
   });
 
   it("lets a single leader win outright when the zone would empty the field, without Final Circle", () => {

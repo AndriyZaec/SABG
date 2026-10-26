@@ -327,6 +327,32 @@ describe("GatewayWebSocketServer", () => {
     socketB.close();
   });
 
+  it("never replays a player.result to a later subscriber", async () => {
+    const socketA = connect(issueToken("user-a"));
+    await waitForOpen(socketA);
+    const messagesA = collectMessages(socketA);
+    send(socketA, { type: "subscribe", arenaId: ARENA_ID });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    gateway.sendToUser(ARENA_ID, "user-a", {
+      type: "player.result", roundId: "r1", roundNumber: 1, answer: "yes", result: "correct", points: 2,
+    });
+    await vi.waitFor(() => {
+      expect(messagesA.some((m) => m.type === "player.result")).toBe(true);
+    });
+
+    // The same user reconnects: their result is personal history, not shared state.
+    const socketA2 = connect(issueToken("user-a"));
+    await waitForOpen(socketA2);
+    const messagesA2 = collectMessages(socketA2);
+    send(socketA2, { type: "subscribe", arenaId: ARENA_ID });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(messagesA2.some((m) => m.type === "player.result")).toBe(false);
+
+    socketA.close();
+    socketA2.close();
+  });
+
   it("forwards an 'answer' client message to the subscribed arena's runtime.submitAnswer", async () => {
     const token = issueToken("user-1");
     const socket = connect(token);

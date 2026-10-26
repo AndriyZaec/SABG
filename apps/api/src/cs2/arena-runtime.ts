@@ -244,7 +244,7 @@ export class Cs2ArenaRuntime implements ArenaRuntimeLike {
 
     this.leaderboardService.onRoundSettled({ roundId, roundNumber });
 
-    this.flushPendingPlayerStatus(roundId);
+    this.flushPendingPlayerStatus(roundId, roundNumber);
     this.flushFinishIfPending();
     this.pushPendingForAnswerers(roundId);
   }
@@ -287,7 +287,7 @@ export class Cs2ArenaRuntime implements ArenaRuntimeLike {
     this.leaderboardService.onPlayerResult(event);
   }
 
-  private flushPendingPlayerStatus(roundId: Uuid): void {
+  private flushPendingPlayerStatus(roundId: Uuid, roundNumber: number): void {
     const events = this.pendingPlayerStatus;
     this.pendingPlayerStatus = [];
     for (const event of events) {
@@ -295,6 +295,14 @@ export class Cs2ArenaRuntime implements ArenaRuntimeLike {
         type: "player.status",
         status: event.status,
         roundId,
+      });
+      this.broadcaster?.sendToUser(this.arenaId, event.userId, {
+        type: "player.result",
+        roundId,
+        roundNumber,
+        answer: event.answer ?? null,
+        result: event.result,
+        points: event.points,
       });
     }
   }

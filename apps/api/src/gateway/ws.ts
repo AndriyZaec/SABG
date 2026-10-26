@@ -264,6 +264,7 @@ export class GatewayWebSocketServer implements GatewayBroadcaster, ArenaRuntimeL
         cache.zone = message;
         break;
       case "player.status":
+      case "player.result":
       case "player.pending":
         break; // Personal messages must never enter the shared cache.
     }

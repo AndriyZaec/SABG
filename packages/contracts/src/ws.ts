@@ -1,6 +1,6 @@
 // Never expose personal answers to spectators before settlement.
 
-import type { Answer, ArenaCancelledReason, SettledBy } from "./enums.js";
+import type { Answer, ArenaCancelledReason, PredictionResult, SettledBy } from "./enums.js";
 import type {
   LeaderboardEntry,
   MatchState,
@@ -85,6 +85,18 @@ export interface PlayerStatusMessage {
   roundId?: Uuid;
 }
 
+/** Personal; sent after every settled round to each player who was active when it started. */
+export interface PlayerResultMessage {
+  type: "player.result";
+  roundId: Uuid;
+  roundNumber: number;
+  /** null when the player did not answer. */
+  answer: Answer | null;
+  result: PredictionResult;
+  /** What the round added to the score (classic double rounds give 2, Final Circle 1). */
+  points: number;
+}
+
 /** Personal answer state. Soccer uses minute windows; CS2 uses round numbers. */
 export interface PendingPrediction {
   roundId: Uuid;
@@ -141,6 +153,7 @@ export type ServerMessage =
   | ArenaCancelledMessage
   | ArenaZoneMessage
   | PlayerStatusMessage
+  | PlayerResultMessage
   | PlayerPendingMessage
   | AnswerAcceptedMessage
   | AnswerSnapshotMessage
