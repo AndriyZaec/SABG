@@ -14,7 +14,8 @@ import { useCs2VictoryAlert } from "./live/useCs2VictoryAlert.js";
 import type { Cs2AnswerSubmission, Cs2ArenaView } from "./cs2View.js";
 import { classicRoundScoring, classicZoneHud } from "./classicZone.js";
 import { Cs2ZoneHud } from "./live/Cs2ZoneHud.js";
-import { EliminationFeed } from "../arena/live/EliminationFeed.js";
+import { Cs2MatchFeed } from "./live/Cs2MatchFeed.js";
+import { cs2FeedForView } from "./live/cs2Feed.js";
 import { LeaderboardRail } from "../arena/live/LeaderboardRail.js";
 import { PendingPredictionsList } from "../arena/live/PendingPredictionsList.js";
 import { WinnerBanner } from "../arena/live/WinnerBanner.js";
@@ -103,7 +104,7 @@ function Cs2ArenaLobby({
                 classic={classicRoundScoring(view, view.round.roundNumber)}
               />
             )}
-            <EliminationFeed feed={view?.feed ?? []} />
+            <Cs2MatchFeed items={view ? cs2FeedForView(view) : []} />
           </div>
           <aside style={{ display: "grid", gap: 20 }}>
             {zoneHud && <Cs2ZoneHud hud={zoneHud} />}
@@ -276,7 +277,7 @@ function Cs2ArenaLive({
             />
           )}
           {pending.length > 0 && <PendingPredictionsList predictions={pending} />}
-          <EliminationFeed feed={view.feed} />
+          <Cs2MatchFeed items={cs2FeedForView(view)} />
         </div>
         <aside style={{ display: "grid", gap: 20 }}>
           {zoneHud && <Cs2ZoneHud hud={zoneHud} />}

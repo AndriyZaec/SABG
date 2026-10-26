@@ -9,6 +9,7 @@
   --white: #ffffff;
   --survive: #28e191;
   --eliminate: #ff4d4d;
+  --eliminate-soft: #ffd0d0;
   --yellow: #ffd22e;
   --blue: #2d6bff;
   --pink: #ff57c1;
@@ -877,6 +878,24 @@ button.nb-footer__link {
 .nb-feed__item--survived .nb-feed__marker { background: var(--survive); }
 .nb-feed__item--info .nb-feed__marker { background: var(--yellow); }
 .nb-feed__min { margin-left: auto; font-weight: 700; opacity: 0.55; }
+
+/* CS2 feed: result first, then the round in small print. */
+.cs2-feed__result { display: grid; grid-template-columns: auto 1fr auto; align-items: baseline; gap: 2px 10px; }
+.cs2-feed__result .nb-feed__marker { align-self: center; }
+.cs2-feed__outcome { font-family: var(--font-display); text-transform: uppercase; font-size: 1.1rem; line-height: 1; }
+.cs2-feed__points { grid-column: 3; grid-row: 1; font-family: var(--font-display); font-size: 1.15rem; }
+.cs2-feed__detail { grid-column: 2 / 4; font-size: 0.75rem; opacity: 0.7; }
+.cs2-feed__result--correct .nb-feed__marker { background: var(--survive); }
+.cs2-feed__result--wrong .nb-feed__marker { background: var(--eliminate); }
+.cs2-feed__result--missed .nb-feed__marker { background: var(--paper-2); }
+.cs2-feed__item--round .nb-feed__marker { background: var(--paper-2); }
+.cs2-feed__item--info .nb-feed__marker { background: var(--yellow); }
+.cs2-feed__item--out { background: var(--eliminate-soft); border-color: var(--eliminate); }
+.cs2-feed__item--out .nb-feed__marker,
+.cs2-feed__item--final_circle .nb-feed__marker { background: var(--eliminate); }
+.cs2-feed__item--final_circle { background: var(--eliminate); font-weight: 700; text-transform: uppercase; }
+.cs2-feed__item--won .nb-feed__marker { background: var(--survive); }
+.cs2-feed__item--won { font-weight: 700; }
 
 .nb-board { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .nb-board__row {

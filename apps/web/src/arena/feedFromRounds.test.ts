@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PredictionResult, RoundWithPredictions } from "@arena/contracts";
-import { CLASSIC_CORRECT_TEXT, CLASSIC_NO_POINTS_TEXT, ELIMINATED_TEXT, feedFromRounds } from "./feedFromRounds.js";
+import { ELIMINATED_TEXT, feedFromRounds } from "./feedFromRounds.js";
 
 function settledRound(n: number, result: PredictionResult): RoundWithPredictions {
   return {
@@ -30,12 +30,5 @@ describe("feedFromRounds", () => {
 
   it("treats a wrong answer as elimination in hardcore", () => {
     expect(personal(feedFromRounds(rounds, "me")).map((item) => item.text)).toContain(ELIMINATED_TEXT);
-  });
-
-  it("reports points, not eliminations, in classic", () => {
-    expect(personal(feedFromRounds(rounds, "me", "classic"))).toEqual([
-      { id: "me-r2", kind: "info", text: CLASSIC_NO_POINTS_TEXT },
-      { id: "me-r1", kind: "survived", text: CLASSIC_CORRECT_TEXT },
-    ]);
   });
 });

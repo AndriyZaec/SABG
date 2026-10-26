@@ -1,22 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Answer, ArenaDetailResponse, ServerMessage } from "@arena/contracts";
+import type { Answer, ArenaDetailResponse, LeaderboardEntry, ServerMessage } from "@arena/contracts";
 import { fetchCs2ArenaDetail, fetchCs2Leaderboard, fetchCs2ArenaRounds } from "../api/cs2Client.js";
 import { notifyEventAccessRequired, fetchEventAccessSession } from "../../api/client.js";
 import { useAuth } from "../../auth/AuthContext.js";
-import {
-  ELIMINATED_TEXT,
-  feedFromRounds,
-  formatSettleText,
-  formatCs2VoidText,
-  NO_CORRECT_ANSWERS_TEXT,
-  mergeFeedFromRounds,
-  prependFeedItem,
-  settleFeedId,
-  SURVIVED_TEXT,
-  survivalFeedId,
-  voidFeedId,
-} from "../../arena/feedFromRounds.js";
 import type { Cs2AnswerSubmission, Cs2ArenaView, LeaderRow } from "../cs2View.js";
+import { cs2FeedRoundFromHistory, cs2FeedRoundFromLive, type Cs2FeedRound } from "./cs2Feed.js";
 import type { Cs2NewRoundSignal } from "./useCs2RoundAlerts.js";
 
 function buildCs2WsUrl(token: string | null): string {
@@ -25,16 +13,38 @@ function buildCs2WsUrl(token: string | null): string {
   return `${proto}//${window.location.host}/cs2-ws${query}`;
 }
 
-function markArenaFinished(view: Cs2ArenaView): Cs2ArenaView {
-  return {
-    ...view,
-    finished: true,
-    feed: prependFeedItem(view.feed, { id: "arena-finished", kind: "info", text: "Arena finished" }),
-  };
+function reconcileArenaStatus(view: Cs2ArenaView, detail: ArenaDetailResponse): Cs2ArenaView {
+  return detail.arena.status === "finished" ? { ...view, finished: true } : view;
 }
 
-function reconcileArenaStatus(view: Cs2ArenaView, detail: ArenaDetailResponse): Cs2ArenaView {
-  return detail.arena.status === "finished" ? markArenaFinished(view) : view;
+function leaderRows(entries: LeaderboardEntry[], myUserId: string | undefined): LeaderRow[] {
+  return entries.map((e, i) => ({
+    rank: e.rank ?? i + 1,
+    name: e.username,
+    score: e.score,
+    status: e.status,
+    you: myUserId != null && e.userId === myUserId,
+    ...(e.eliminatedRound !== undefined ? { eliminatedRound: e.eliminatedRound } : {}),
+  }));
+}
+
+function updateRound(rounds: Cs2FeedRound[], roundId: string, patch: Partial<Cs2FeedRound>): Cs2FeedRound[] {
+  return rounds.map((round) => (round.id === roundId ? { ...round, ...patch } : round));
+}
+
+const DONE: ReadonlySet<Cs2FeedRound["status"]> = new Set(["settled", "voided"]);
+
+/** A refetched history can lag the write queue: keep live rounds it lacks and live outcomes it hasn't stored yet. */
+function mergeRounds(history: Cs2FeedRound[], live: Cs2FeedRound[]): Cs2FeedRound[] {
+  const liveById = new Map(live.map((round) => [round.id, round]));
+  const merged = history.map((round) => {
+    const current = liveById.get(round.id);
+    return current !== undefined && DONE.has(current.status) && !DONE.has(round.status)
+      ? { ...current, ...(round.mine !== undefined ? { mine: round.mine } : {}) }
+      : round;
+  });
+  const known = new Set(history.map((round) => round.id));
+  return [...merged, ...live.filter((round) => !known.has(round.id))];
 }
 
 function initialView(d: ArenaDetailResponse): Cs2ArenaView {
@@ -45,6 +55,8 @@ function initialView(d: ArenaDetailResponse): Cs2ArenaView {
       mode: d.arena.mode,
       zone: { type: "arena.zone", stage: "zone", zone: 0, nextZone: 0 },
       teams: [d.match.teamScores[0].name, d.match.teamScores[1].name],
+      teamIdentities: d.match.teamScores.map(({ teamId, name }) => ({ teamId, name })),
+      ...(d.arena.finalCircleFromRound !== undefined ? { finalCircleFromRound: d.arena.finalCircleFromRound } : {}),
       survivors: d.arena.activePlayersCount,
       totalPlayers: d.arena.activePlayersCount,
       // Restore the current round from the authoritative reconnect snapshot.
@@ -58,7 +70,8 @@ function initialView(d: ArenaDetailResponse): Cs2ArenaView {
             },
           }
         : {}),
-      feed: [],
+      rounds: [],
+      liveResults: {},
       leaderboard: [],
     },
     d,
@@ -67,7 +80,8 @@ function initialView(d: ArenaDetailResponse): Cs2ArenaView {
 
 function reduce(view: Cs2ArenaView, msg: ServerMessage, myUserId?: string): Cs2ArenaView {
   switch (msg.type) {
-    case "round.open":
+    case "round.open": {
+      const known = view.rounds.some((round) => round.id === msg.round.id);
       return {
         ...view,
         round: {
@@ -76,33 +90,45 @@ function reduce(view: Cs2ArenaView, msg: ServerMessage, myUserId?: string): Cs2A
           question: msg.round.question,
           status: "open",
         },
+        rounds: known ? view.rounds : [...view.rounds, cs2FeedRoundFromLive(msg.round)],
       };
+    }
     case "round.lock":
-      return view.round ? { ...view, round: { ...view.round, status: "locked" } } : view;
-    case "round.settle": {
-      let feed = prependFeedItem(view.feed, {
-        id: settleFeedId(msg.roundId), kind: "info", text: formatSettleText(msg.question, msg.correctAnswer),
-      });
-      if (msg.survivalRuleApplied === "no_correct_answers") {
-        feed = prependFeedItem(feed, { id: survivalFeedId(msg.roundId), kind: "info", text: NO_CORRECT_ANSWERS_TEXT });
-      }
+      return {
+        ...view,
+        ...(view.round ? { round: { ...view.round, status: "locked" as const } } : {}),
+        rounds: updateRound(view.rounds, msg.roundId, { status: "locked" }),
+      };
+    case "round.settle":
       return {
         ...view,
         survivors: msg.survivorsCount,
         ...(view.round && view.round.roundId === msg.roundId
           ? { round: { ...view.round, status: "settled" as const, correctAnswer: msg.correctAnswer, survivalRuleApplied: msg.survivalRuleApplied } }
           : {}),
-        feed,
+        rounds: updateRound(view.rounds, msg.roundId, {
+          status: "settled",
+          correctAnswer: msg.correctAnswer,
+          ...(msg.survivalRuleApplied !== undefined ? { survivalRuleApplied: msg.survivalRuleApplied } : {}),
+        }),
       };
-    }
-    case "round.void":
+    case "round.void": {
+      const known = view.rounds.some((round) => round.id === msg.roundId);
+      const roundNumber = msg.roundNumber ?? (view.round?.roundId === msg.roundId ? view.round.roundNumber : undefined);
       return {
         ...view,
         ...(view.round && view.round.roundId === msg.roundId ? { round: undefined } : {}),
-        feed: prependFeedItem(view.feed, {
-          id: voidFeedId(msg.roundId), kind: "info",
-          text: formatCs2VoidText(msg.roundNumber ?? (view.round?.roundId === msg.roundId ? view.round.roundNumber : undefined)),
-        }),
+        rounds: known
+          ? updateRound(view.rounds, msg.roundId, { status: "voided" })
+          : roundNumber === undefined
+            ? view.rounds
+            : [...view.rounds, { id: msg.roundId, roundNumber, status: "voided", question: "" }],
+      };
+    }
+    case "player.result":
+      return {
+        ...view,
+        liveResults: { ...view.liveResults, [msg.roundId]: { answer: msg.answer, result: msg.result, points: msg.points } },
       };
     case "player.pending":
       // Replace with the authoritative personal snapshot.
@@ -118,42 +144,26 @@ function reduce(view: Cs2ArenaView, msg: ServerMessage, myUserId?: string): Cs2A
       return { ...view, round };
     }
     case "arena.zone":
-      return { ...view, zone: msg };
-    case "arena.cancelled":
       return {
         ...view,
-        cancelled: { reason: msg.reason },
-        feed: prependFeedItem(view.feed, { id: "cancelled", kind: "info", text: `Arena cancelled (${msg.reason})` }),
+        zone: msg,
+        ...(msg.stage === "final_circle" ? { finalCircleFromRound: msg.fromRound } : {}),
       };
-    case "leaderboard.update": {
-      const leaderboard: LeaderRow[] = msg.entries.map((e, i) => ({
-        rank: e.rank ?? i + 1,
-        name: e.username,
-        score: e.score,
-        status: e.status,
-        you: myUserId != null && e.userId === myUserId,
-      }));
+    case "arena.cancelled":
+      return { ...view, cancelled: { reason: msg.reason } };
+    case "leaderboard.update":
       return {
         ...view,
-        leaderboard,
+        leaderboard: leaderRows(msg.entries, myUserId),
         survivors: msg.entries.filter((e) => e.status !== "eliminated").length,
         totalPlayers: msg.entries.length,
       };
-    }
-    case "player.status": {
+    case "player.status":
       // A stale reconnect snapshot must not downgrade a terminal winner state.
-      const status = view.myStatus === "winner" ? "winner" : msg.status;
-      const next = { ...view, myStatus: status };
-      if (msg.roundId === undefined && msg.status !== "winner") return next;
-      const kind = msg.status === "eliminated" ? "eliminated" : "survived";
-      const text = msg.status === "eliminated" ? ELIMINATED_TEXT : msg.status === "winner" ? "You won!" : SURVIVED_TEXT;
-      const id = msg.status === "winner" ? "me-winner" : `me-${msg.roundId}`;
-      return { ...next, feed: prependFeedItem(view.feed, { id, kind, text }) };
-    }
+      return { ...view, myStatus: view.myStatus === "winner" ? "winner" : msg.status };
     case "arena.finished": {
       const iWon = myUserId != null && msg.winners.includes(myUserId);
-      const finished = markArenaFinished(view);
-      return iWon ? { ...finished, myStatus: "winner" } : finished;
+      return { ...view, finished: true, ...(iWon ? { myStatus: "winner" as const } : {}) };
     }
     default:
       return view;
@@ -218,15 +228,9 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
         if (cancelled) return;
         setDetail(detail);
         lastRoundId.current = detail.currentRound?.id;
-        const rows: LeaderRow[] = (board?.entries ?? []).map((e, i) => ({
-          rank: e.rank ?? i + 1,
-          name: e.username,
-          score: e.score,
-          status: e.status,
-          you: myUserId.current != null && e.userId === myUserId.current,
-        }));
-        const feed = rounds ? feedFromRounds(rounds.rounds, myUserId.current, detail.arena.mode) : [];
-        const fresh = applyEarlyMessages(reconcileArenaStatus({ ...initialView(detail), leaderboard: rows, feed }, detail));
+        const leaderboard = leaderRows(board?.entries ?? [], myUserId.current);
+        const history = (rounds?.rounds ?? []).map((round) => cs2FeedRoundFromHistory(round, myUserId.current));
+        const fresh = applyEarlyMessages(reconcileArenaStatus({ ...initialView(detail), leaderboard, rounds: history }, detail));
         setView((v) => (v ? reconcileArenaStatus(v, detail) : fresh));
       })
       .catch(() => {
@@ -275,7 +279,9 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
           void fetchCs2ArenaRounds(arenaId)
             .then((rounds) => {
               if (disposed) return;
-              setView((v) => (v ? { ...v, feed: mergeFeedFromRounds(v.feed, rounds.rounds, myUserId.current, v.mode) } : v));
+              // Rounds settled while offline come from the history.
+              const history = rounds.rounds.map((round) => cs2FeedRoundFromHistory(round, myUserId.current));
+              setView((v) => (v ? { ...v, rounds: mergeRounds(history, v.rounds) } : v));
             })
             .catch(() => undefined);
         }
