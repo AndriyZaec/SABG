@@ -169,6 +169,13 @@
       "when": 1793126248326,
       "tag": "0023_arena_result",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1793127179409,
+      "tag": "0024_leaderboard_scope",
+      "breakpoints": true
     }
   ]
 }

@@ -78,3 +78,6 @@ export type EntryPassStatus = (typeof ENTRY_PASS_STATUSES)[number];
 
 export const PAYOUT_STATUSES = ["pending", "sent", "failed"] as const;
 export type PayoutStatus = (typeof PAYOUT_STATUSES)[number];
+
+export const LEADERBOARD_SCOPE_STATUSES = ["open", "closed"] as const;
+export type LeaderboardScopeStatus = (typeof LEADERBOARD_SCOPE_STATUSES)[number];
