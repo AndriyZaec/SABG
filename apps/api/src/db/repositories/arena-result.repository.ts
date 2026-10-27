@@ -1,7 +1,7 @@
-import { inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import type { Uuid } from "@arena/contracts";
 import { db } from "../client.js";
-import { arenaResults } from "../schema.js";
+import { arenaResults, arenas, matches, series } from "../schema.js";
 
 export interface ArenaResultRow {
   arenaId: Uuid;
@@ -16,6 +16,17 @@ export interface ArenaResultRow {
 }
 
 export const arenaResultRepository = {
+  /** The arena's competition through match → series; undefined when the series has none. */
+  async competitionIdForArena(arenaId: Uuid): Promise<Uuid | undefined> {
+    const [row] = await db
+      .select({ competitionId: series.competitionId })
+      .from(arenas)
+      .innerJoin(matches, eq(matches.id, arenas.matchId))
+      .innerJoin(series, eq(series.id, matches.seriesId))
+      .where(eq(arenas.id, arenaId));
+    return row?.competitionId ?? undefined;
+  },
+
   /** Idempotent: an arena's results are written once, so a repeated write keeps the first rows. */
   async insertMany(rows: readonly ArenaResultRow[]): Promise<void> {
     if (rows.length === 0) return;

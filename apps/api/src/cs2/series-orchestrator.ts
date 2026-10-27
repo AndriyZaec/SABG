@@ -6,6 +6,7 @@ import type { WriteQueue } from "../gateway/stores/write-queue.js";
 import { MatchSignalBus } from "../ingestion/event-bus.js";
 import { arenaPlayerRepository } from "../db/repositories/arena-player.repository.js";
 import { arenaRepository } from "../db/repositories/arena.repository.js";
+import { arenaResultRepository } from "../db/repositories/arena-result.repository.js";
 import { cs2IdentityRepository } from "../db/repositories/cs2-identity.repository.js";
 import { cs2SeriesFollowRepository } from "../db/repositories/cs2-series-follow.repository.js";
 import { entryPassRepository } from "../db/repositories/entry-pass.repository.js";
@@ -21,7 +22,7 @@ import { sendPushToUser } from "../push/service.js";
 import { cancelArenaOnchain } from "../onchain/index.js";
 import { payoutService } from "../payout/index.js";
 import type { Arena, ArenaCancelledReason, Cs2GameSnapshot, Cs2Match, IsoDateTime, PredictionRound, Series, Uuid } from "@arena/contracts";
-import { Cs2ArenaRuntime, type Cs2ArenaPersistence } from "./arena-runtime.js";
+import { Cs2ArenaRuntime, type Cs2ArenaPersistence, type Cs2ArenaPlayerResult } from "./arena-runtime.js";
 import {
   initialCs2SeriesLifecycleState,
   processCs2SeriesPoll,
@@ -393,13 +394,14 @@ export class Cs2SeriesOrchestrator {
       upsertRound: (round) => {
         void this.options.writeQueue.enqueue(arena.id, () => predictionRoundRepository.upsert(round).then(() => undefined));
       },
-      finishArena: (arenaId, winners) => {
+      finishArena: (arenaId, winners, results) => {
         void this.options.writeQueue.enqueue(arenaId, async () => {
           // Pay only after our own live -> finished transition; a cancelled arena must never finish or pay.
           if ((await arenaRepository.setFinishedIfLive(arenaId)) === undefined) {
             logger.warn({ arenaId }, "cs2: match end for an arena that isn't live; not finishing or paying");
             return;
           }
+          await recordArenaResults(arenaId, results);
           await payoutService.settleArena(arenaId, winners);
         });
       },
@@ -536,5 +538,26 @@ export class Cs2SeriesOrchestrator {
       (m) => m.discipline === "cs2" && m.seriesMatchIndex === matchIndex,
     );
     return match === undefined ? undefined : (await arenaRepository.findByMatchId(match.id))?.id;
+  }
+}
+
+/** Leaderboard input only: a failure is logged and never blocks the payout. */
+async function recordArenaResults(arenaId: Uuid, results: readonly Cs2ArenaPlayerResult[]): Promise<void> {
+  try {
+    const competitionId = await arenaResultRepository.competitionIdForArena(arenaId);
+    if (competitionId === undefined) {
+      logger.warn({ arenaId }, "cs2: finished arena's series has no competition; results not stored");
+      return;
+    }
+    const finishedAt = new Date();
+    await arenaResultRepository.insertMany(results.map((result) => ({
+      ...result,
+      arenaId,
+      competitionId,
+      playersCount: results.length,
+      finishedAt,
+    })));
+  } catch (err) {
+    logger.error({ err, arenaId }, "cs2: failed to store arena results");
   }
 }

@@ -3,7 +3,7 @@ import type { ArenaMode, Cs2GameSnapshot, PredictionRound, ServerMessage, Uuid }
 import { MatchSignalBus } from "../../ingestion/event-bus.js";
 import { createInMemoryRuntimeStores } from "../../gateway/stores/in-memory-stores.js";
 import type { GatewayBroadcaster } from "../../gateway/arena-runtime.js";
-import { Cs2ArenaRuntime, type Cs2ArenaPersistence } from "../arena-runtime.js";
+import { Cs2ArenaRuntime, type Cs2ArenaPersistence, type Cs2ArenaPlayerResult } from "../arena-runtime.js";
 import type { Cs2QuestionProvider } from "../question-provider.js";
 import { defaultCs2FixturePath, loadCs2Fixture, parseFixtureSnapshot } from "../fixture.js";
 import { initialCs2TrackerState, trackCs2Poll } from "../round-tracker.js";
@@ -67,18 +67,21 @@ function createRecordingPersistence(): {
   persistence: Cs2ArenaPersistence;
   upserts: PredictionRound[];
   finished: Uuid[][];
+  results: Cs2ArenaPlayerResult[][];
   finalCircleFrom: number[];
 } {
   const upserts: PredictionRound[] = [];
   const finished: Uuid[][] = [];
+  const results: Cs2ArenaPlayerResult[][] = [];
   const finalCircleFrom: number[] = [];
   return {
     persistence: {
       upsertRound(round) {
         upserts.push(round);
       },
-      finishArena(_arenaId, winners) {
+      finishArena(_arenaId, winners, playerResults) {
         finished.push(winners);
+        results.push(playerResults);
       },
       startFinalCircle(_arenaId, fromRound) {
         finalCircleFrom.push(fromRound);
@@ -86,6 +89,7 @@ function createRecordingPersistence(): {
     },
     upserts,
     finished,
+    results,
     finalCircleFrom,
   };
 }
@@ -94,7 +98,7 @@ function buildRuntime(playerIds: Uuid[], questionProvider?: Cs2QuestionProvider,
   const bus = new MatchSignalBus();
   const { predictionStore, arenaPlayerStore } = createInMemoryRuntimeStores(ARENA_ID, playerIds);
   const { broadcaster, broadcasts, personal } = createRecordingBroadcaster();
-  const { persistence, upserts, finished, finalCircleFrom } = createRecordingPersistence();
+  const { persistence, upserts, finished, results, finalCircleFrom } = createRecordingPersistence();
   const setStatus = vi.spyOn(arenaPlayerStore, "setStatus");
 
   const runtime = new Cs2ArenaRuntime({
@@ -111,7 +115,7 @@ function buildRuntime(playerIds: Uuid[], questionProvider?: Cs2QuestionProvider,
     ...(questionProvider !== undefined ? { questionProvider } : {}),
   });
 
-  return { runtime, bus, broadcasts, personal, upserts, finished, finalCircleFrom, setStatus, arenaPlayerStore, predictionStore };
+  return { runtime, bus, broadcasts, personal, upserts, finished, results, finalCircleFrom, setStatus, arenaPlayerStore, predictionStore };
 }
 
 describe("Cs2ArenaRuntime — elimination wiring", () => {
@@ -615,5 +619,18 @@ describe("Cs2ArenaRuntime — classic mode", () => {
     bus.publish({ kind: "cs2_match_end", timestamp: "t3" });
     expect(finished).toEqual([[A, B, C]]);
     expect([A, B, C].map((userId) => runtime.statusFor(userId))).toEqual(["winner", "winner", "winner"]);
+  });
+
+  it("hands each player's final result to the persistence at finish", () => {
+    // C scores only in R1 and falls below the zone at R8; A and B answer everything through R10.
+    const rounds = Array.from({ length: 10 }, (_, i) => ({ [A]: "yes" as const, [B]: "yes" as const, [C]: i === 0 ? "yes" as const : "no" as const }));
+    const { bus, results } = playClassic([A, B, C], rounds);
+    // R11 is open at match end and gets voided; it isn't a round played.
+    bus.publish({ kind: "cs2_match_end", timestamp: "t3" });
+    expect(results).toEqual([[
+      { userId: A, score: 11, rank: 1, won: true, roundsPlayed: 10 },
+      { userId: B, score: 11, rank: 1, won: true, roundsPlayed: 10 },
+      { userId: C, score: 2, rank: 3, won: false, roundsPlayed: 8 },
+    ]]);
   });
 });
