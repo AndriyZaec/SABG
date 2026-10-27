@@ -243,6 +243,8 @@ export class Cs2ArenaRuntime implements ArenaRuntimeLike {
     });
 
     this.leaderboardService.onRoundSettled({ roundId, roundNumber });
+    // After the leaderboard, so the Survivors board never draws the new zone over the old scores.
+    if (this.mode === "classic") this.broadcastZone(roundNumber);
 
     this.flushPendingPlayerStatus(roundId, roundNumber);
     this.flushFinishIfPending();
@@ -269,10 +271,14 @@ export class Cs2ArenaRuntime implements ArenaRuntimeLike {
       this.finalCircleFromRound = roundNumber + 1;
       this.persistence?.startFinalCircle(this.arenaId, this.finalCircleFromRound);
     }
+    return outcome.survivalRuleApplied;
+  }
+
+  /** Classic: the zone after `roundNumber` settled, or Final Circle once it started. */
+  private broadcastZone(roundNumber: number): void {
     this.broadcaster?.broadcast(this.arenaId, this.finalCircleFromRound !== undefined
       ? { type: "arena.zone", stage: "final_circle", fromRound: this.finalCircleFromRound }
       : { type: "arena.zone", stage: "zone", zone: cs2ClassicZoneAfter(roundNumber), nextZone: cs2ClassicZoneAfter(roundNumber + 1) });
-    return outcome.survivalRuleApplied;
   }
 
   private handleVoid(roundNumber: number): void {

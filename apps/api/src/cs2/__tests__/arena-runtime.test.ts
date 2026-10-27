@@ -520,6 +520,14 @@ describe("Cs2ArenaRuntime — classic mode", () => {
     expect(runtime.currentRound?.roundNumber).toBe(10);
   });
 
+  it("sends the zone after the settle and the leaderboard of the same round", () => {
+    const { broadcasts } = playClassic([A, B], [{ [A]: "yes", [B]: "no" }]);
+    const order = broadcasts
+      .map((m) => m.type)
+      .filter((type) => type === "round.settle" || type === "leaderboard.update" || type === "arena.zone");
+    expect(order).toEqual(["round.settle", "leaderboard.update", "arena.zone"]);
+  });
+
   it("keeps a wrong answerer active through the warm-up, counts the double round 1, and lets them answer the next round", () => {
     const { runtime, arenaPlayerStore } = playClassic([A, B], [{ [A]: "yes", [B]: "no" }, { [A]: "yes", [B]: "no" }]);
     expect(arenaPlayerStore.getStatus(B)).toBe("active");
@@ -554,8 +562,9 @@ describe("Cs2ArenaRuntime — classic mode", () => {
     expect(finalCircleFrom).toEqual([7]);
     const stageAt = broadcasts.findIndex((m) => m.type === "arena.zone" && m.stage === "final_circle");
     const settles = broadcasts.flatMap((m, i) => (m.type === "round.settle" ? [i] : []));
-    expect(settles[5]).toBeGreaterThan(stageAt);
-    expect(settles[4]).toBeLessThan(stageAt);
+    // R6's own settle comes first; Final Circle follows it, before R7 settles.
+    expect(settles[5]).toBeLessThan(stageAt);
+    expect(settles[6]).toBeGreaterThan(stageAt);
     expect(finished).toEqual([[A]]);
     expect(runtime.finalWinners()).toEqual([A]);
     expect(runtime.statusFor(A)).toBe("winner");
