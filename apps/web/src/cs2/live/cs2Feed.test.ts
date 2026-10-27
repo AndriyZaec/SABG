@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Answer, Cs2TeamIdentity, PredictionResult } from "@arena/contracts";
-import { buildCs2Feed, FINAL_CIRCLE_FEED_TEXT, type Cs2FeedInput, type Cs2FeedRound, type Cs2RoundResult } from "./cs2Feed.js";
+import { buildCs2Feed, type Cs2FeedInput, type Cs2FeedRound, type Cs2RoundResult } from "./cs2Feed.js";
 
 const TEAMS: Cs2TeamIdentity[] = [{ teamId: "t1", name: "Aurora YB" }, { teamId: "t2", name: "Four Magic" }];
 
@@ -60,8 +60,14 @@ describe("buildCs2Feed", () => {
   it("marks Final Circle where it starts and scores its double rounds as 1", () => {
     const rounds = Array.from({ length: 12 }, (_, i) => round(i + 1, "no"));
     const items = buildCs2Feed(input({ rounds, me: { score: 9, rank: 1 }, finalCircleFromRound: 7 }));
-    const fcAt = items.findIndex((i) => i.kind === "final_circle");
-    expect(items[fcAt]).toMatchObject({ text: FINAL_CIRCLE_FEED_TEXT });
+    const fcAt = items.findIndex((i) => i.id === "final-circle");
+    expect(items[fcAt]).toEqual({
+      kind: "event",
+      id: "final-circle",
+      tone: "final_circle",
+      title: "Final Circle",
+      detail: "R7 already counts. Others got it right and you didn't? You're out.",
+    });
     expect(items[fcAt - 1]).toMatchObject({ id: "result-r7" });
     expect(items[fcAt + 1]).toMatchObject({ id: "result-r6" });
     expect(results(items).find((i) => i.id === "result-r12")?.points).toBe(1);
@@ -70,7 +76,7 @@ describe("buildCs2Feed", () => {
 
   it("shows Final Circle as soon as it starts, before any of its rounds settle", () => {
     const items = buildCs2Feed(input({ rounds: [round(6, "no")], me: { score: 1, rank: 1 }, finalCircleFromRound: 7 }));
-    expect(items[0]).toMatchObject({ kind: "final_circle" });
+    expect(items[0]).toMatchObject({ id: "final-circle", detail: expect.stringMatching(/^R7 already counts\./) });
   });
 
   it("keeps every round of the map, not just the last 20", () => {

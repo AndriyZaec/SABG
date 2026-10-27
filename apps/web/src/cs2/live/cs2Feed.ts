@@ -15,8 +15,6 @@ import {
 } from "@arena/contracts";
 import type { Cs2ArenaView } from "../cs2View.js";
 
-export const FINAL_CIRCLE_FEED_TEXT = "Final Circle — one miss and you're out";
-
 /** A round as the feed needs it, from the rounds history or the live round messages. */
 export interface Cs2FeedRound {
   id: Uuid;
@@ -56,9 +54,9 @@ export interface Cs2FeedInput {
 
 export type Cs2FeedItem =
   | { kind: "result"; id: string; outcome: "correct" | "wrong" | "missed"; points?: number; detail: string }
-  | { kind: "round" | "out" | "final_circle"; id: string; text: string }
+  | { kind: "round" | "out"; id: string; text: string }
   /** Laid out like a result: a big title, an optional value on the right, a small detail line. */
-  | { kind: "event"; id: string; tone: "void" | "won" | "lost" | "neutral"; title: string; value?: string; detail?: string };
+  | { kind: "event"; id: string; tone: "void" | "won" | "lost" | "neutral" | "final_circle"; title: string; value?: string; detail?: string };
 
 export function cs2FeedRoundFromHistory({ round, predictions }: RoundWithPredictions, myUserId: Uuid | undefined): Cs2FeedRound {
   const mine = myUserId === undefined ? undefined : predictions.find((p) => p.userId === myUserId);
@@ -165,7 +163,14 @@ export function buildCs2Feed(input: Cs2FeedInput): Cs2FeedItem[] {
   const showFinalCircle = () => {
     if (finalCircleShown || input.finalCircleFromRound === undefined) return;
     finalCircleShown = true;
-    items.push({ kind: "final_circle", id: "final-circle", text: FINAL_CIRCLE_FEED_TEXT });
+    // Final Circle is known only once the previous round settles, so it already covers the question open then.
+    items.push({
+      kind: "event",
+      id: "final-circle",
+      tone: "final_circle",
+      title: "Final Circle",
+      detail: `R${input.finalCircleFromRound} already counts. Others got it right and you didn't? You're out.`,
+    });
   };
 
   for (const round of [...input.rounds].sort((a, b) => a.roundNumber - b.roundNumber)) {
