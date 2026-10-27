@@ -519,6 +519,7 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
       amountLamports: 1000,
       txSignature: `int-test-tx-${randomUUID()}`,
     });
+    return user;
   }
 
   it.each([0, 1, 2])("starts only with at least two paid entries (paid: %s)", async (paid) => {
@@ -706,14 +707,21 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     const matchTeamIds = await synchronizeTestTeams(series.id);
 
     const writeQueue = new WriteQueue();
-    const orchestrator = await Cs2SeriesOrchestrator.create(series, { writeQueue, entryFeeLamports: 1000 });
+    let runtime: Cs2ArenaRuntime | undefined;
+    const orchestrator = await Cs2SeriesOrchestrator.create(series, {
+      writeQueue,
+      entryFeeLamports: 1000,
+      onArenaOpened: (_arenaId, opened) => {
+        runtime = opened;
+      },
+    });
     await orchestrator.poll(snapshot(matchTeamIds, {}), at(-10));
     const match1 = (await matchRepository.listBySeriesId(series.id))[0]!;
     matchIds.push(match1.id);
     const arena1 = (await arenaRepository.findByMatchId(match1.id))!;
     arenaIds.push(arena1.id);
-    await addPaidPass(arena1.id);
-    await addPaidPass(arena1.id);
+    const players = [await addPaidPass(arena1.id), await addPaidPass(arena1.id)];
+    for (const player of players) runtime!.join(player.id, player.username, at(-9));
     await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: true }), at(1));
 
     const settleSpy = vi.spyOn(payoutService, "settleArena").mockResolvedValue(undefined);
@@ -721,7 +729,10 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
       orchestrator.currentBus()!.publish({ kind: "cs2_match_end", timestamp: at(40) });
       await writeQueue.drain();
       expect((await arenaRepository.findById(arena1.id))?.status).toBe("finished");
-      expect(settleSpy).toHaveBeenCalledWith(arena1.id, []);
+      const winnerIds = players.map((player) => player.id).sort();
+      expect([...settleSpy.mock.calls[0]![1]].sort()).toEqual(winnerIds);
+      expect((await arenaPlayerRepository.list(arena1.id)).map((player) => [player.userId, player.status]).sort())
+        .toEqual(winnerIds.map((id) => [id, "winner"]));
     } finally {
       settleSpy.mockRestore();
     }

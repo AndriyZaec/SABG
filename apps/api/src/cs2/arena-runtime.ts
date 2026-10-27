@@ -316,6 +316,8 @@ export class Cs2ArenaRuntime implements ArenaRuntimeLike {
     // A winner can be decided before GRID removes the map; stop the in-flight round.
     this.roundEngine.voidRemaining();
 
+    // Queued before the payout, so the DB shows the winners once the arena is paid.
+    for (const userId of winners) this.arenaPlayerStore.setStatus(userId, "winner");
     this.broadcaster?.broadcast(this.arenaId, { type: "arena.finished", winners });
     this.persistence?.finishArena(this.arenaId, winners);
     for (const userId of winners) {

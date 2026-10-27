@@ -194,7 +194,7 @@ describe("Cs2ArenaRuntime — elimination wiring", () => {
     expect(personal).toContainEqual({ userId: PLAYER_SILENT, message: { type: "player.status", status: "eliminated", roundId: round.id } });
   });
 
-  it("eliminates an incorrect answerer and a non-answerer, keeps a correct answerer active", () => {
+  it("eliminates an incorrect answerer and a non-answerer; the correct answerer, last one left, wins", () => {
     const { runtime, bus, arenaPlayerStore, broadcasts, personal } = buildRuntime([PLAYER_YES, PLAYER_NO, PLAYER_SILENT], fakeProvider());
 
     runtime.openRoundOne("t0");
@@ -211,7 +211,7 @@ describe("Cs2ArenaRuntime — elimination wiring", () => {
     const after = snapshot(1, 0, 20);
     bus.publish({ kind: "cs2_round_end", roundNumber: 1, snapshot: after, timestamp: "t2" });
 
-    expect(arenaPlayerStore.getStatus(PLAYER_YES)).toBe("active");
+    expect(arenaPlayerStore.getStatus(PLAYER_YES)).toBe("winner");
     expect(arenaPlayerStore.getStatus(PLAYER_NO)).toBe("eliminated");
     expect(arenaPlayerStore.getStatus(PLAYER_SILENT)).toBe("eliminated");
 
@@ -302,6 +302,8 @@ describe("Cs2ArenaRuntime — elimination wiring", () => {
     expect(finishMsg).toMatchObject({ type: "arena.finished", winners: [PLAYER_YES] });
     expect(finished).toEqual([[PLAYER_YES]]);
     expect(runtime.finalWinners()).toEqual([PLAYER_YES]);
+    expect(runtime.statusFor(PLAYER_YES)).toBe("winner");
+    expect(runtime.statusFor(PLAYER_NO)).toBe("eliminated");
 
     const winnerPersonal = personal.filter((p) => p.userId === PLAYER_YES && p.message.type === "player.status" && p.message.status === "winner");
     expect(winnerPersonal.length).toBeGreaterThanOrEqual(1);
@@ -386,9 +388,9 @@ describe("Cs2ArenaRuntime — elimination wiring", () => {
     expect(round1Voided).toBeDefined();
     expect(round2).toBeDefined();
 
-    // No observed score transition means no trustworthy elimination.
-    expect(arenaPlayerStore.getStatus(PLAYER_YES)).toBe("active");
-    expect(arenaPlayerStore.getStatus(PLAYER_NO)).toBe("active");
+    // No observed score transition means no trustworthy elimination: both finish as winners.
+    expect(arenaPlayerStore.getStatus(PLAYER_YES)).toBe("winner");
+    expect(arenaPlayerStore.getStatus(PLAYER_NO)).toBe("winner");
 
     const settleMsgs = broadcasts.filter((m) => m.type === "round.settle");
     expect(settleMsgs).toHaveLength(0);
@@ -556,6 +558,8 @@ describe("Cs2ArenaRuntime — classic mode", () => {
     expect(settles[4]).toBeLessThan(stageAt);
     expect(finished).toEqual([[A]]);
     expect(runtime.finalWinners()).toEqual([A]);
+    expect(runtime.statusFor(A)).toBe("winner");
+    expect(runtime.statusFor(B)).toBe("eliminated");
   });
 
   it("sends each player their own result once per round, with double points, and nothing after elimination", () => {
@@ -598,8 +602,9 @@ describe("Cs2ArenaRuntime — classic mode", () => {
   });
 
   it("makes every remaining player a winner at match end", () => {
-    const { bus, finished } = playClassic([A, B, C], [{ [A]: "yes", [B]: "no" }, { [A]: "yes", [B]: "yes" }]);
+    const { bus, finished, runtime } = playClassic([A, B, C], [{ [A]: "yes", [B]: "no" }, { [A]: "yes", [B]: "yes" }]);
     bus.publish({ kind: "cs2_match_end", timestamp: "t3" });
     expect(finished).toEqual([[A, B, C]]);
+    expect([A, B, C].map((userId) => runtime.statusFor(userId))).toEqual(["winner", "winner", "winner"]);
   });
 });
