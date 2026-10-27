@@ -36,6 +36,8 @@ export interface Cs2SeriesOrchestratorOptions {
   entryFeeLamports: number;
   broadcaster?: GatewayBroadcaster;
   onArenaOpened?: (arenaId: Uuid, runtime: Cs2ArenaRuntime) => void;
+  /** After a finished arena's results and payout are written. */
+  onArenaFinished?: () => void;
   /** Join after map 1, which is already live (the 0:0 rule, `decideSeriesEntry`). */
   startAfterMap1?: true;
 }
@@ -403,6 +405,7 @@ export class Cs2SeriesOrchestrator {
           }
           await recordArenaResults(arenaId, results);
           await payoutService.settleArena(arenaId, winners);
+          this.options.onArenaFinished?.();
         });
       },
       startFinalCircle: (arenaId, fromRound) => {

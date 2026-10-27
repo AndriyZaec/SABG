@@ -716,12 +716,14 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
 
     const writeQueue = new WriteQueue();
     let runtime: Cs2ArenaRuntime | undefined;
+    const onArenaFinished = vi.fn();
     const orchestrator = await Cs2SeriesOrchestrator.create(series, {
       writeQueue,
       entryFeeLamports: 1000,
       onArenaOpened: (_arenaId, opened) => {
         runtime = opened;
       },
+      onArenaFinished,
     });
     await orchestrator.poll(snapshot(matchTeamIds, {}), at(-10));
     const match1 = (await matchRepository.listBySeriesId(series.id))[0]!;
@@ -739,6 +741,9 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
       expect((await arenaRepository.findById(arena1.id))?.status).toBe("finished");
       const winnerIds = players.map((player) => player.id).sort();
       expect([...settleSpy.mock.calls[0]![1]].sort()).toEqual(winnerIds);
+      // After the payout, so the triggered recompute sees this arena's payout rows.
+      expect(onArenaFinished).toHaveBeenCalledOnce();
+      expect(onArenaFinished.mock.invocationCallOrder[0]!).toBeGreaterThan(settleSpy.mock.invocationCallOrder[0]!);
       expect((await arenaPlayerRepository.list(arena1.id)).map((player) => [player.userId, player.status]).sort())
         .toEqual(winnerIds.map((id) => [id, "winner"]));
       const results = await db.select().from(schema.arenaResults).where(eq(schema.arenaResults.arenaId, arena1.id));

@@ -10,6 +10,7 @@ import { logger } from "../gateway/logger.js";
 import { createGatewayServer } from "../gateway/server.js";
 import { WriteQueue } from "../gateway/stores/write-queue.js";
 import { MongoService } from "../grid/mongo/mongo.service.js";
+import { registerLeaderboardJobs } from "../leaderboard/jobs.js";
 import { startScheduler, stopScheduler, type Scheduler } from "../scheduler/index.js";
 import { Cs2Autopilot, createCs2AutopilotDeps, registerCs2AutopilotJobs } from "./autopilot.js";
 import { cs2CatalogConfig } from "./catalog-config.js";
@@ -24,6 +25,8 @@ async function main(): Promise<void> {
   let controlServer: HttpServer | undefined;
   let autopilot: Cs2Autopilot | undefined;
   let scheduler: Scheduler | undefined;
+  // Set once pg-boss is up; arenas that finish before that wait for the scheduled recompute.
+  let queueLeaderboardRecompute: (() => void) | undefined;
   let shutdownPromise: Promise<void> | undefined;
 
   const shutdown = (signal: string): Promise<void> => {
@@ -70,6 +73,7 @@ async function main(): Promise<void> {
       writeQueue,
       entryFeeLamports: CS2_ENTRY_FEE_LAMPORTS,
       rawRecordingEnabled: cs2Config.rawRecordingEnabled,
+      onArenaFinished: () => queueLeaderboardRecompute?.(),
     }));
     await listenHttpServer(gatewayServer.httpServer, cs2Config.gatewayPort, abortController.signal);
     if (operatorControlConfig !== undefined) {
@@ -88,7 +92,12 @@ async function main(): Promise<void> {
     logger.info({ port: cs2Config.gatewayPort }, "cs2: runtime listening");
 
     const launcher = autopilot;
-    scheduler = await startScheduler({ registerJobs: (boss) => registerCs2AutopilotJobs(boss, launcher) });
+    scheduler = await startScheduler({
+      registerJobs: async (boss) => {
+        await registerCs2AutopilotJobs(boss, launcher);
+        queueLeaderboardRecompute = await registerLeaderboardJobs(boss);
+      },
+    });
     // A signal during startup already ran shutdown() without the scheduler.
     if (abortController.signal.aborted) return await stopScheduler(scheduler);
 
