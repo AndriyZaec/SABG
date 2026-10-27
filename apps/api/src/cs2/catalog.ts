@@ -1,4 +1,4 @@
-import { CS2_WEAPON_WHITELIST } from "@arena/contracts";
+import { CS2_WEAPON_LABELS, CS2_WEAPON_WHITELIST } from "@arena/contracts";
 import type {
   Cs2SettlementCondition,
   Cs2TeamIdentity,
@@ -148,7 +148,7 @@ export function renderCs2Question(
     case "round_winner":
       return `Will Team ${teamName(params, topic, teams)} win this round?`;
     case "weapon_kill":
-      return `Will there be a kill with ${requireWeapon(params)} this round?`;
+      return `Will there be a kill with ${CS2_WEAPON_LABELS[requireWeapon(params)]} this round?`;
     case "team_ace":
       return `Will every player on Team ${teamName(params, topic, teams)} get a kill this round?`;
     case "multikill":

@@ -95,7 +95,7 @@ describe.skipIf(!RUN)("cs2CatalogRepository.listAutopilotCandidates (integration
       startTime: new Date("2026-10-04T09:00:00.000Z"),
     });
     matchIds.push(match.id);
-    await arenaRepository.upsertForMatch(match.id, { entryFeeLamports: 1000, prizePoolLamports: 0 });
+    await arenaRepository.upsertForMatch(match.id, { mode: "hardcore", entryFeeLamports: 1000, prizePoolLamports: 0 });
 
     const candidates = await repository.listAutopilotCandidates([gridTournamentId]);
     const byId = new Map(candidates.map((candidate) => [candidate.seriesId, candidate]));
@@ -134,13 +134,13 @@ describe.skipIf(!RUN)("cs2CatalogRepository.listAutopilotCandidates (integration
     expect(await state()).toBeUndefined();
     const first = await matchRepository.upsertForSeriesMap(seriesId, 1, { teams, startTime: new Date() });
     matchIds.push(first.id);
-    const firstArena = await arenaRepository.upsertForMatch(first.id, { entryFeeLamports: 1000, prizePoolLamports: 0 });
+    const firstArena = await arenaRepository.upsertForMatch(first.id, { mode: "hardcore", entryFeeLamports: 1000, prizePoolLamports: 0 });
     expect(await state()).toMatchObject({ hasOpenArena: true, hasOnlyEmptyCancelledArenas: false });
     await arenaRepository.cancelIfLobby(firstArena.id, "insufficient_players");
     expect(await state()).toMatchObject({ hasOpenArena: false, hasOnlyEmptyCancelledArenas: true });
     const second = await matchRepository.upsertForSeriesMap(seriesId, 2, { teams, startTime: new Date() });
     matchIds.push(second.id);
-    const secondArena = await arenaRepository.upsertForMatch(second.id, { entryFeeLamports: 1000, prizePoolLamports: 0 });
+    const secondArena = await arenaRepository.upsertForMatch(second.id, { mode: "hardcore", entryFeeLamports: 1000, prizePoolLamports: 0 });
     expect(await state()).toMatchObject({ hasOnlyEmptyCancelledArenas: false });
     await arenaRepository.cancelIfLobby(secondArena.id, "insufficient_players");
     expect(await state()).toMatchObject({ hasOnlyEmptyCancelledArenas: true });
@@ -183,7 +183,7 @@ describe.skipIf(!RUN)("cs2CatalogRepository.listAutopilotCandidates (integration
       startTime: new Date("2026-10-04T09:00:00.000Z"),
     });
     matchIds.push(match.id);
-    await arenaRepository.upsertForMatch(match.id, { entryFeeLamports: 1000, prizePoolLamports: 0 });
+    await arenaRepository.upsertForMatch(match.id, { mode: "hardcore", entryFeeLamports: 1000, prizePoolLamports: 0 });
     const keptGridId = (await db.select().from(schema.series).where(eq(schema.series.id, kept)))[0]!.gridSeriesId;
 
     const window = { from: new Date("2026-10-03T00:00:00.000Z"), to: new Date("2026-10-10T00:00:00.000Z") };

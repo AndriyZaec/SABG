@@ -103,6 +103,7 @@ export class Cs2SeriesOrchestrator {
     const arena =
       (await arenaRepository.findByMatchId(latestMatch.id)) ??
       (await arenaRepository.upsertForMatch(latestMatch.id, {
+        mode: "classic",
         entryFeeLamports: this.options.entryFeeLamports,
         prizePoolLamports: 0,
       }));
@@ -333,6 +334,7 @@ export class Cs2SeriesOrchestrator {
       startTime: new Date(now),
     });
     const arena = await arenaRepository.upsertForMatch(match.id, {
+      mode: "classic",
       entryFeeLamports: this.options.entryFeeLamports,
       prizePoolLamports: 0,
     });
@@ -401,11 +403,15 @@ export class Cs2SeriesOrchestrator {
           await payoutService.settleArena(arenaId, winners);
         });
       },
+      startFinalCircle: (arenaId, fromRound) => {
+        void this.options.writeQueue.enqueue(arenaId, () => arenaRepository.setFinalCircleFromRound(arenaId, fromRound));
+      },
     };
 
     const runtime = new Cs2ArenaRuntime({
       matchId: match.id,
       arenaId: arena.id,
+      mode: arena.mode,
       bus,
       predictionStore,
       arenaPlayerStore,

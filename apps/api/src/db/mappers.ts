@@ -99,6 +99,7 @@ export function arenaRowToEntity(row: ArenaRow): Arena {
     id: row.id,
     matchId: row.matchId,
     status: row.status,
+    mode: row.mode,
     activePlayersCount: row.activePlayersCount,
     entryFeeLamports: row.entryFeeLamports,
     prizePoolLamports: row.prizePoolLamports,
@@ -106,6 +107,7 @@ export function arenaRowToEntity(row: ArenaRow): Arena {
     ...(row.onchainArenaId != null ? { onchainArenaId: row.onchainArenaId } : {}),
     // Only the DAL writes this non-enum value.
     ...(row.cancelledReason !== null ? { cancelledReason: row.cancelledReason as ArenaCancelledReason } : {}),
+    ...(row.finalCircleFromRound !== null ? { finalCircleFromRound: row.finalCircleFromRound } : {}),
   };
 }
 

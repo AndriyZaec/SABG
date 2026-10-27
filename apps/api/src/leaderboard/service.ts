@@ -1,4 +1,4 @@
-import type { IsoDateTime, PredictionResult, Uuid, LeaderboardEntry } from "@arena/contracts";
+import type { IsoDateTime, Uuid, LeaderboardEntry } from "@arena/contracts";
 import type { PlayerResultEvent } from "../settlement/engine.js";
 import { rankLeaderboard, resolveWinners, type LeaderboardAccumulator } from "./rank.js";
 
@@ -58,7 +58,8 @@ export class LeaderboardService {
     pending.push(event);
   }
 
-  onRoundSettled(event: { roundId: Uuid }): void {
+  /** `roundNumber` is recorded as the elimination round of players this round eliminates. */
+  onRoundSettled(event: { roundId: Uuid; roundNumber?: number }): void {
     const pending = this.pendingByRound.get(event.roundId);
     this.pendingByRound.delete(event.roundId);
     if (pending === undefined || this.finished) return;
@@ -68,7 +69,8 @@ export class LeaderboardService {
     for (const result of pending) {
       const row = this.rows.get(result.userId);
       if (row === undefined) continue;
-      this.applyResult(row, result.result, result.status);
+      this.applyResult(row, result);
+      if (row.status === "eliminated" && event.roundNumber !== undefined) row.eliminatedRound = event.roundNumber;
     }
 
     this.options.onSnapshot?.(this.snapshot());
@@ -90,13 +92,10 @@ export class LeaderboardService {
     return rankLeaderboard([...this.rows.values()]);
   }
 
-  private applyResult(row: LeaderboardAccumulator, result: PredictionResult, status: PlayerResultEvent["status"]): void {
-    if (result === "correct") {
-      row.score += 1;
-      return;
-    }
-    if (result === "missed") row.missedCount += 1;
-    row.status = status;
+  private applyResult(row: LeaderboardAccumulator, event: PlayerResultEvent): void {
+    row.score += event.points;
+    if (event.result === "missed") row.missedCount += 1;
+    row.status = event.status;
   }
 
   private activeRows(): LeaderboardAccumulator[] {
@@ -106,7 +105,10 @@ export class LeaderboardService {
   private finish(finalists: LeaderboardAccumulator[]): void {
     if (this.finished) return;
     this.finished = true;
-    for (const row of finalists) row.status = "winner";
+    for (const row of finalists) {
+      row.status = "winner";
+      delete row.eliminatedRound;
+    }
     this.options.onSnapshot?.(this.snapshot());
     this.options.onFinished?.(resolveWinners(finalists));
   }

@@ -36,9 +36,10 @@ export function createPgArenaPlayerStore(arenaId: Uuid, writeQueue: WriteQueue):
       return [...statusByUser.entries()].filter(([, status]) => status === "active").map(([id]) => id);
     },
 
-    setStatus(userId, status) {
+    setStatus(userId, status, roundId) {
       statusByUser.set(userId, status);
-      void writeQueue.enqueue(arenaId, () => arenaPlayerRepository.setStatus(arenaId, userId, status));
+      const eliminatedRoundId = status === "eliminated" ? roundId : undefined;
+      void writeQueue.enqueue(arenaId, () => arenaPlayerRepository.setStatus(arenaId, userId, status, eliminatedRoundId));
     },
 
     getStatus(userId) {

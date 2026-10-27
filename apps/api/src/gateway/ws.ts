@@ -6,6 +6,7 @@ import type {
   Answer,
   ArenaCancelledMessage,
   ArenaFinishedMessage,
+  ArenaZoneMessage,
   LeaderboardMessage,
   MatchStateMessage,
   RoundLockMessage,
@@ -32,9 +33,12 @@ interface ArenaCache {
   matchState?: MatchStateMessage;
   // Cache only the latest round transition so reconnects never replay stale state.
   round?: RoundOpenMessage | RoundLockMessage | RoundSettleMessage | RoundVoidMessage;
+  // CS2 settles a round after the next one opened; keep that open round so a reconnect can still answer it.
+  openRound?: RoundOpenMessage;
   leaderboard?: LeaderboardMessage;
   finished?: ArenaFinishedMessage;
   cancelled?: ArenaCancelledMessage;
+  zone?: ArenaZoneMessage;
 }
 
 export class GatewayWebSocketServer implements GatewayBroadcaster, ArenaRuntimeLookup {
@@ -182,7 +186,9 @@ export class GatewayWebSocketServer implements GatewayBroadcaster, ArenaRuntimeL
     if (cache !== undefined) {
       if (cache.matchState !== undefined) this.send(conn, cache.matchState);
       if (cache.round !== undefined) this.send(conn, cache.round);
+      if (cache.openRound !== undefined && cache.openRound !== cache.round) this.send(conn, cache.openRound);
       if (cache.leaderboard !== undefined) this.send(conn, cache.leaderboard);
+      if (cache.zone !== undefined) this.send(conn, cache.zone);
       if (cache.finished !== undefined) this.send(conn, cache.finished);
       if (cache.cancelled !== undefined) this.send(conn, cache.cancelled);
     }
@@ -192,6 +198,7 @@ export class GatewayWebSocketServer implements GatewayBroadcaster, ArenaRuntimeL
     let answerRoundId = runtime?.currentRound?.id;
     if (cache?.round?.type === "round.open") answerRoundId = cache.round.round.id;
     if (cache?.round?.type === "round.lock") answerRoundId = cache.round.roundId;
+    if (cache?.openRound !== undefined) answerRoundId = cache.openRound.round.id;
     if (runtime?.answerFor !== undefined && answerRoundId !== undefined) {
       const answer = runtime.answerFor(conn.userId, answerRoundId);
       this.send(conn, { type: "answer.snapshot", roundId: answerRoundId, answer: answer ?? null });
@@ -243,10 +250,14 @@ export class GatewayWebSocketServer implements GatewayBroadcaster, ArenaRuntimeL
         cache.matchState = message;
         break;
       case "round.open":
+        cache.round = message;
+        cache.openRound = message;
+        break;
       case "round.lock":
       case "round.settle":
       case "round.void":
         cache.round = message;
+        if (cache.openRound?.round.id === message.roundId) delete cache.openRound;
         break;
       case "leaderboard.update":
         cache.leaderboard = message;
@@ -257,7 +268,11 @@ export class GatewayWebSocketServer implements GatewayBroadcaster, ArenaRuntimeL
       case "arena.cancelled":
         cache.cancelled = message;
         break;
+      case "arena.zone":
+        cache.zone = message;
+        break;
       case "player.status":
+      case "player.result":
       case "player.pending":
         break; // Personal messages must never enter the shared cache.
     }

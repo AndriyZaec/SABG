@@ -59,7 +59,7 @@ describe.skipIf(!RUN)("processPendingRefunds (integration, requires DATABASE_URL
       startTime: new Date(),
     });
     matchIds.push(match.id);
-    const arena = await arenaRepository.upsertForMatch(match.id, { entryFeeLamports: 1000, prizePoolLamports: 0 });
+    const arena = await arenaRepository.upsertForMatch(match.id, { mode: "hardcore", entryFeeLamports: 1000, prizePoolLamports: 0 });
     arenaIds.push(arena.id);
     await db
       .update(schema.arenas)

@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import type { Cs2GameSnapshot, PredictionRound, ServerMessage, Uuid } from "@arena/contracts";
+import { describe, expect, it, vi } from "vitest";
+import type { ArenaMode, Cs2GameSnapshot, PredictionRound, ServerMessage, Uuid } from "@arena/contracts";
 import { MatchSignalBus } from "../../ingestion/event-bus.js";
 import { createInMemoryRuntimeStores } from "../../gateway/stores/in-memory-stores.js";
 import type { GatewayBroadcaster } from "../../gateway/arena-runtime.js";
@@ -63,9 +63,15 @@ function createRecordingBroadcaster(): {
   };
 }
 
-function createRecordingPersistence(): { persistence: Cs2ArenaPersistence; upserts: PredictionRound[]; finished: Uuid[][] } {
+function createRecordingPersistence(): {
+  persistence: Cs2ArenaPersistence;
+  upserts: PredictionRound[];
+  finished: Uuid[][];
+  finalCircleFrom: number[];
+} {
   const upserts: PredictionRound[] = [];
   const finished: Uuid[][] = [];
+  const finalCircleFrom: number[] = [];
   return {
     persistence: {
       upsertRound(round) {
@@ -74,21 +80,27 @@ function createRecordingPersistence(): { persistence: Cs2ArenaPersistence; upser
       finishArena(_arenaId, winners) {
         finished.push(winners);
       },
+      startFinalCircle(_arenaId, fromRound) {
+        finalCircleFrom.push(fromRound);
+      },
     },
     upserts,
     finished,
+    finalCircleFrom,
   };
 }
 
-function buildRuntime(playerIds: Uuid[], questionProvider?: Cs2QuestionProvider) {
+function buildRuntime(playerIds: Uuid[], questionProvider?: Cs2QuestionProvider, mode: ArenaMode = "hardcore") {
   const bus = new MatchSignalBus();
   const { predictionStore, arenaPlayerStore } = createInMemoryRuntimeStores(ARENA_ID, playerIds);
   const { broadcaster, broadcasts, personal } = createRecordingBroadcaster();
-  const { persistence, upserts, finished } = createRecordingPersistence();
+  const { persistence, upserts, finished, finalCircleFrom } = createRecordingPersistence();
+  const setStatus = vi.spyOn(arenaPlayerStore, "setStatus");
 
   const runtime = new Cs2ArenaRuntime({
     matchId: MATCH_ID,
     arenaId: ARENA_ID,
+    mode,
     bus,
     predictionStore,
     arenaPlayerStore,
@@ -99,18 +111,20 @@ function buildRuntime(playerIds: Uuid[], questionProvider?: Cs2QuestionProvider)
     ...(questionProvider !== undefined ? { questionProvider } : {}),
   });
 
-  return { runtime, bus, broadcasts, personal, upserts, finished, arenaPlayerStore, predictionStore };
+  return { runtime, bus, broadcasts, personal, upserts, finished, finalCircleFrom, setStatus, arenaPlayerStore, predictionStore };
 }
 
 describe("Cs2ArenaRuntime — elimination wiring", () => {
   it.each([false, true])("keeps incorrect answerers active across no-correct rounds, without forgiving AFK (AFK: %s)", (afk) => {
     const players = Array.from({ length: 5 }, (_, i) => `00000000-0000-0000-0000-00000000000${i + 1}`);
     const answerers = afk ? players.slice(0, 4) : players;
-    const { runtime, bus, broadcasts, personal, upserts, finished, arenaPlayerStore, predictionStore } = buildRuntime(players, fakeProvider());
+    const { runtime, bus, broadcasts, personal, upserts, finished, finalCircleFrom, setStatus, arenaPlayerStore, predictionStore } = buildRuntime(players, fakeProvider());
+    const roundIds: Uuid[] = [];
     runtime.openRoundOne("t0");
     for (const roundNumber of [1, 2]) {
       const round = runtime.currentRound!;
       expect(round.roundNumber).toBe(roundNumber);
+      roundIds.push(round.id);
       for (const userId of answerers) expect(runtime.submitAnswer(userId, round.id, "no").ok).toBe(true);
       bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(roundNumber - 1, 0), timestamp: "t1" });
       bus.publish({ kind: "cs2_round_lock", roundNumber, timestamp: "t1" });
@@ -129,11 +143,15 @@ describe("Cs2ArenaRuntime — elimination wiring", () => {
     expect(personal.filter((p) => answerers.includes(p.userId) && p.message.type === "player.status").every((p) => p.message.type === "player.status" && p.message.status === "active")).toBe(true);
     if (afk) {
       expect(arenaPlayerStore.getStatus(players[4]!)).toBe("eliminated");
-      expect(runtime.leaderboardSnapshot().find((p) => p.userId === players[4])).toMatchObject({ status: "eliminated", missedCount: 1 });
+      expect(runtime.leaderboardSnapshot().find((p) => p.userId === players[4])).toMatchObject({ status: "eliminated", missedCount: 1, eliminatedRound: 1 });
+      expect(setStatus).toHaveBeenCalledWith(players[4], "eliminated", roundIds[0]);
     }
     bus.publish({ kind: "cs2_match_end", timestamp: "t3" });
     expect(finished).toEqual([answerers]);
     expect(runtime.finalWinners()).toEqual(answerers);
+    // Hardcore has no zone and no Final Circle.
+    expect(finalCircleFrom).toEqual([]);
+    expect(broadcasts.some((m) => m.type === "arena.zone")).toBe(false);
   });
 
   it("ignores a previously eliminated player's correct answer when rescuing the remaining survivors", () => {
@@ -176,8 +194,8 @@ describe("Cs2ArenaRuntime — elimination wiring", () => {
     expect(personal).toContainEqual({ userId: PLAYER_SILENT, message: { type: "player.status", status: "eliminated", roundId: round.id } });
   });
 
-  it("eliminates an incorrect answerer and a non-answerer, keeps a correct answerer active", () => {
-    const { runtime, bus, arenaPlayerStore, broadcasts } = buildRuntime([PLAYER_YES, PLAYER_NO, PLAYER_SILENT], fakeProvider());
+  it("eliminates an incorrect answerer and a non-answerer; the correct answerer, last one left, wins", () => {
+    const { runtime, bus, arenaPlayerStore, broadcasts, personal } = buildRuntime([PLAYER_YES, PLAYER_NO, PLAYER_SILENT], fakeProvider());
 
     runtime.openRoundOne("t0");
     const round1 = runtime.currentRound;
@@ -193,13 +211,20 @@ describe("Cs2ArenaRuntime — elimination wiring", () => {
     const after = snapshot(1, 0, 20);
     bus.publish({ kind: "cs2_round_end", roundNumber: 1, snapshot: after, timestamp: "t2" });
 
-    expect(arenaPlayerStore.getStatus(PLAYER_YES)).toBe("active");
+    expect(arenaPlayerStore.getStatus(PLAYER_YES)).toBe("winner");
     expect(arenaPlayerStore.getStatus(PLAYER_NO)).toBe("eliminated");
     expect(arenaPlayerStore.getStatus(PLAYER_SILENT)).toBe("eliminated");
 
     const settleMsg = broadcasts.find((m) => m.type === "round.settle");
     expect(settleMsg).toMatchObject({ type: "round.settle", correctAnswer: "yes", settledBy: "round_end", survivorsCount: 1 });
     expect(settleMsg).not.toHaveProperty("survivalRuleApplied");
+
+    const results = personal.filter((p) => p.message.type === "player.result");
+    expect(results).toEqual([
+      { userId: PLAYER_YES, message: { type: "player.result", roundId: round1!.id, roundNumber: 1, answer: "yes", result: "correct", points: 1 } },
+      { userId: PLAYER_NO, message: { type: "player.result", roundId: round1!.id, roundNumber: 1, answer: "no", result: "incorrect", points: 0 } },
+      { userId: PLAYER_SILENT, message: { type: "player.result", roundId: round1!.id, roundNumber: 1, answer: null, result: "missed", points: 0 } },
+    ]);
   });
 
   it("broadcasts round.open with the round but no lockAt", () => {
@@ -277,6 +302,8 @@ describe("Cs2ArenaRuntime — elimination wiring", () => {
     expect(finishMsg).toMatchObject({ type: "arena.finished", winners: [PLAYER_YES] });
     expect(finished).toEqual([[PLAYER_YES]]);
     expect(runtime.finalWinners()).toEqual([PLAYER_YES]);
+    expect(runtime.statusFor(PLAYER_YES)).toBe("winner");
+    expect(runtime.statusFor(PLAYER_NO)).toBe("eliminated");
 
     const winnerPersonal = personal.filter((p) => p.userId === PLAYER_YES && p.message.type === "player.status" && p.message.status === "winner");
     expect(winnerPersonal.length).toBeGreaterThanOrEqual(1);
@@ -361,9 +388,9 @@ describe("Cs2ArenaRuntime — elimination wiring", () => {
     expect(round1Voided).toBeDefined();
     expect(round2).toBeDefined();
 
-    // No observed score transition means no trustworthy elimination.
-    expect(arenaPlayerStore.getStatus(PLAYER_YES)).toBe("active");
-    expect(arenaPlayerStore.getStatus(PLAYER_NO)).toBe("active");
+    // No observed score transition means no trustworthy elimination: both finish as winners.
+    expect(arenaPlayerStore.getStatus(PLAYER_YES)).toBe("winner");
+    expect(arenaPlayerStore.getStatus(PLAYER_NO)).toBe("winner");
 
     const settleMsgs = broadcasts.filter((m) => m.type === "round.settle");
     expect(settleMsgs).toHaveLength(0);
@@ -446,11 +473,147 @@ describe("Cs2ArenaRuntime — full recorded fixture (real question provider, gen
     expect(locks.length).toBeGreaterThan(0);
     expect(settles.length).toBeGreaterThanOrEqual(locks.length - 1);
 
-    // Messages must not expose an individual answer.
-    for (const message of [...broadcasts, ...personal.map((p) => p.message)]) {
-      expect(message).not.toHaveProperty("answer");
+    // Shared messages never expose an answer; only a player's own settled result carries theirs.
+    for (const message of broadcasts) expect(message).not.toHaveProperty("answer");
+    for (const { message } of personal) {
+      if (message.type !== "player.result") expect(message).not.toHaveProperty("answer");
     }
 
     expect(personal.some((p) => p.userId === PLAYER_SILENT && p.message.type === "player.status" && p.message.status === "eliminated")).toBe(true);
+  });
+});
+
+describe("Cs2ArenaRuntime — classic mode", () => {
+  const A: Uuid = "00000000-0000-0000-0000-00000000000a";
+  const B: Uuid = "00000000-0000-0000-0000-00000000000b";
+  const C: Uuid = "00000000-0000-0000-0000-00000000000c";
+
+  /** Team A wins every round, so "yes" is always correct. Each entry maps a player to its answer (absent = missed). */
+  function playClassic(players: Uuid[], rounds: Array<Partial<Record<Uuid, "yes" | "no">>>) {
+    const ctx = buildRuntime(players, fakeProvider(), "classic");
+    ctx.runtime.openRoundOne("t0");
+    const roundIds: Uuid[] = [];
+    rounds.forEach((answers, i) => {
+      const roundNumber = i + 1;
+      const round = ctx.runtime.currentRound!;
+      expect(round.roundNumber).toBe(roundNumber);
+      roundIds.push(round.id);
+      for (const [userId, answer] of Object.entries(answers)) ctx.runtime.submitAnswer(userId, round.id, answer!);
+      ctx.bus.publish({ kind: "cs2_snapshot", snapshot: snapshot(roundNumber - 1, 0), timestamp: "t1" });
+      ctx.bus.publish({ kind: "cs2_round_lock", roundNumber, timestamp: "t1" });
+      ctx.bus.publish({ kind: "cs2_round_end", roundNumber, snapshot: snapshot(roundNumber, 0), timestamp: "t2" });
+    });
+    return { ...ctx, roundIds };
+  }
+
+  const score = (runtime: Cs2ArenaRuntime, userId: Uuid) => runtime.leaderboardSnapshot().find((e) => e.userId === userId)?.score;
+
+  it("sends the server's zone after each settle, never the zone of a round that is open but unsettled", () => {
+    const rounds = Array.from({ length: 9 }, () => ({ [A]: "yes" as const, [B]: "yes" as const }));
+    const { broadcasts, runtime } = playClassic([A, B], rounds);
+    const zones = broadcasts.filter((m) => m.type === "arena.zone");
+    expect(zones).toHaveLength(9);
+    expect(zones[4]).toEqual({ type: "arena.zone", stage: "zone", zone: 0, nextZone: 1 });
+    expect(zones[7]).toEqual({ type: "arena.zone", stage: "zone", zone: 4, nextZone: 5 });
+    expect(zones[8]).toEqual({ type: "arena.zone", stage: "zone", zone: 5, nextZone: 6 });
+    // R10 is open now; the last zone still describes R9.
+    expect(runtime.currentRound?.roundNumber).toBe(10);
+  });
+
+  it("sends the zone after the settle and the leaderboard of the same round", () => {
+    const { broadcasts } = playClassic([A, B], [{ [A]: "yes", [B]: "no" }]);
+    const order = broadcasts
+      .map((m) => m.type)
+      .filter((type) => type === "round.settle" || type === "leaderboard.update" || type === "arena.zone");
+    expect(order).toEqual(["round.settle", "leaderboard.update", "arena.zone"]);
+  });
+
+  it("keeps a wrong answerer active through the warm-up, counts the double round 1, and lets them answer the next round", () => {
+    const { runtime, arenaPlayerStore } = playClassic([A, B], [{ [A]: "yes", [B]: "no" }, { [A]: "yes", [B]: "no" }]);
+    expect(arenaPlayerStore.getStatus(B)).toBe("active");
+    expect(score(runtime, A)).toBe(3);
+    expect(score(runtime, B)).toBe(0);
+    expect(runtime.submitAnswer(B, runtime.currentRound!.id, "yes").ok).toBe(true);
+  });
+
+  it("eliminates a player who falls below the zone at R8 and tells them", () => {
+    const rounds = Array.from({ length: 8 }, (_, i) => ({ [A]: "yes" as const, [B]: "yes" as const, [C]: i === 0 ? "yes" as const : "no" as const }));
+    const { runtime, arenaPlayerStore, personal, roundIds, setStatus } = playClassic([A, B, C], rounds);
+    // C: 2 points after R1, then nothing; zone after R7 = 2, after R8 = 4.
+    expect(score(runtime, C)).toBe(2);
+    expect(arenaPlayerStore.getStatus(C)).toBe("eliminated");
+    expect(setStatus).toHaveBeenCalledWith(C, "eliminated", roundIds[7]);
+    expect(runtime.leaderboardSnapshot().find((e) => e.userId === C)?.eliminatedRound).toBe(8);
+    expect(personal).toContainEqual({ userId: C, message: { type: "player.status", status: "eliminated", roundId: roundIds[7] } });
+    expect(personal.some((p) => p.userId === C && p.message.type === "player.status" && p.message.status === "eliminated" && p.message.roundId !== roundIds[7])).toBe(false);
+    expect(runtime.finalWinners()).toBeUndefined();
+  });
+
+  it("starts Final Circle once when the zone would empty the field with tied leaders, then a wrong answer eliminates", () => {
+    // Nobody scores, so zone 1 after R6 would eliminate everyone; A and B tie at 0 and survive.
+    const warmup = Array.from({ length: 6 }, () => ({ [A]: "no" as const, [B]: "no" as const }));
+    const { broadcasts, finished, finalCircleFrom, runtime } = playClassic([A, B], [...warmup, { [A]: "yes", [B]: "no" }]);
+    const zones = broadcasts.filter((m) => m.type === "arena.zone");
+    // R6 started Final Circle, so R7 is its first round; every later settle repeats it.
+    expect(zones.slice(5)).toEqual([
+      { type: "arena.zone", stage: "final_circle", fromRound: 7 },
+      { type: "arena.zone", stage: "final_circle", fromRound: 7 },
+    ]);
+    expect(finalCircleFrom).toEqual([7]);
+    const stageAt = broadcasts.findIndex((m) => m.type === "arena.zone" && m.stage === "final_circle");
+    const settles = broadcasts.flatMap((m, i) => (m.type === "round.settle" ? [i] : []));
+    // R6's own settle comes first; Final Circle follows it, before R7 settles.
+    expect(settles[5]).toBeLessThan(stageAt);
+    expect(settles[6]).toBeGreaterThan(stageAt);
+    expect(finished).toEqual([[A]]);
+    expect(runtime.finalWinners()).toEqual([A]);
+    expect(runtime.statusFor(A)).toBe("winner");
+    expect(runtime.statusFor(B)).toBe("eliminated");
+  });
+
+  it("sends each player their own result once per round, with double points, and nothing after elimination", () => {
+    const rounds = Array.from({ length: 9 }, (_, i) => ({ [A]: "yes" as const, [B]: "yes" as const, ...(i === 0 ? { [C]: "yes" as const } : i === 1 ? { [C]: "no" as const } : {}) }));
+    const { personal, roundIds } = playClassic([A, B, C], rounds);
+    const resultsOf = (userId: Uuid) => personal.flatMap((p) => (p.userId === userId && p.message.type === "player.result" ? [p.message] : []));
+
+    expect(resultsOf(A).map((m) => m.points)).toEqual([2, 1, 1, 1, 1, 1, 1, 1, 1]);
+    // C: double round 1, a wrong answer, then misses until the zone takes them at R8.
+    expect(resultsOf(C).slice(0, 3)).toEqual([
+      { type: "player.result", roundId: roundIds[0], roundNumber: 1, answer: "yes", result: "correct", points: 2 },
+      { type: "player.result", roundId: roundIds[1], roundNumber: 2, answer: "no", result: "incorrect", points: 0 },
+      { type: "player.result", roundId: roundIds[2], roundNumber: 3, answer: null, result: "missed", points: 0 },
+    ]);
+    expect(resultsOf(C).map((m) => m.roundNumber)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+  });
+
+  it("scores a double round as 1 in Final Circle", () => {
+    // Nobody scores R1-R6, so Final Circle starts at R7; both keep answering right through R12.
+    const rounds = [
+      ...Array.from({ length: 6 }, () => ({ [A]: "no" as const, [B]: "no" as const })),
+      ...Array.from({ length: 6 }, () => ({ [A]: "yes" as const, [B]: "yes" as const })),
+    ];
+    const { personal } = playClassic([A, B], rounds);
+    const r12 = personal.find((p) => p.userId === A && p.message.type === "player.result" && p.message.roundNumber === 12);
+    expect(r12?.message).toMatchObject({ result: "correct", points: 1 });
+  });
+
+  it("lets a single leader win outright when the zone would empty the field, without Final Circle", () => {
+    // After R7: A has 3, B has 2. Zone after R8 = 4 puts both below; A alone survives.
+    const rounds = [
+      { [A]: "yes" as const, [B]: "yes" as const },
+      { [A]: "yes" as const, [B]: "no" as const },
+      ...Array.from({ length: 6 }, () => ({ [A]: "no" as const, [B]: "no" as const })),
+    ];
+    const { broadcasts, finished, finalCircleFrom } = playClassic([A, B], rounds);
+    expect(broadcasts.some((m) => m.type === "arena.zone" && m.stage === "final_circle")).toBe(false);
+    expect(finalCircleFrom).toEqual([]);
+    expect(finished).toEqual([[A]]);
+  });
+
+  it("makes every remaining player a winner at match end", () => {
+    const { bus, finished, runtime } = playClassic([A, B, C], [{ [A]: "yes", [B]: "no" }, { [A]: "yes", [B]: "yes" }]);
+    bus.publish({ kind: "cs2_match_end", timestamp: "t3" });
+    expect(finished).toEqual([[A, B, C]]);
+    expect([A, B, C].map((userId) => runtime.statusFor(userId))).toEqual(["winner", "winner", "winner"]);
   });
 });

@@ -1,6 +1,7 @@
 import type {
   Answer,
   ArenaCancelledReason,
+  ArenaMode,
   ArenaPlayerStatus,
   ArenaStatus,
   Discipline,
@@ -80,6 +81,7 @@ export interface Arena {
   id: Uuid;
   matchId: Uuid;
   status: ArenaStatus;
+  mode: ArenaMode;
   activePlayersCount: number;
   entryFeeLamports: number;
   prizePoolLamports: number;
@@ -88,6 +90,8 @@ export interface Arena {
   onchainArenaId?: number;
   /** Present only for terminal cancellation. */
   cancelledReason?: ArenaCancelledReason;
+  /** Classic only: the first round played under Final Circle rules. */
+  finalCircleFromRound?: number;
 }
 
 export interface EntryPass {
@@ -189,5 +193,7 @@ export interface LeaderboardEntry {
   avgAnswerMs?: number;
   missedCount: number;
   joinedAt: IsoDateTime;
+  /** Round number that eliminated this player; absent while active or as a winner. */
+  eliminatedRound?: number;
   rank?: number;
 }

@@ -113,6 +113,36 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     return ids;
   }
 
+  it("opens new arenas as classic and restores a lobby arena with its stored mode", async () => {
+    const at = clockFrom(new Date(Date.now()).toISOString());
+    const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
+      format: 3, scheduledStartTime: new Date(at(0)),
+    });
+    seriesIds.push(series.id);
+    const ids = await synchronizeTestTeams(series.id);
+    const writeQueue = new WriteQueue();
+    const opened: Cs2ArenaRuntime[] = [];
+    const orchestrator = await Cs2SeriesOrchestrator.create(series, {
+      writeQueue, entryFeeLamports: 1000, onArenaOpened: (_id, runtime) => opened.push(runtime),
+    });
+    await orchestrator.poll(snapshot(ids, {}), at(-10));
+    await writeQueue.drain();
+    const match = (await matchRepository.findBySeriesMatchIndex(series.id, 1))!;
+    matchIds.push(match.id);
+    const arena = (await arenaRepository.findByMatchId(match.id))!;
+    arenaIds.push(arena.id);
+    expect(arena.mode).toBe("classic");
+    expect(opened.map((runtime) => runtime.mode)).toEqual(["classic"]);
+
+    await db.update(schema.arenas).set({ mode: "hardcore" }).where(eq(schema.arenas.id, arena.id));
+    await Cs2SeriesOrchestrator.create(series, {
+      writeQueue, entryFeeLamports: 1000, onArenaOpened: (_id, runtime) => opened.push(runtime),
+    });
+    expect(opened.map((runtime) => runtime.mode)).toEqual(["classic", "hardcore"]);
+    expect((await arenaRepository.findById(arena.id))?.mode).toBe("hardcore");
+    await writeQueue.drain();
+  });
+
   it("persists the CS2 no-correct-answer outcome for round history and rejects markers on unsettled rounds", async () => {
     const at = clockFrom(new Date(Date.now()).toISOString());
     const series = await seriesRepository.upsertByGridSeriesId(`int-test-${randomUUID()}`, {
@@ -128,6 +158,7 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     matchIds.push(match.id);
     const arena = (await arenaRepository.findByMatchId(match.id))!;
     arenaIds.push(arena.id);
+    expect(arena.mode).toBe("classic");
     const round = (await predictionRoundRepository.listByArenaId(arena.id))[0]!;
     expect(round).not.toHaveProperty("survivalRuleApplied");
     const saved = await predictionRoundRepository.upsert({
@@ -488,6 +519,7 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
       amountLamports: 1000,
       txSignature: `int-test-tx-${randomUUID()}`,
     });
+    return user;
   }
 
   it.each([0, 1, 2])("starts only with at least two paid entries (paid: %s)", async (paid) => {
@@ -675,14 +707,21 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     const matchTeamIds = await synchronizeTestTeams(series.id);
 
     const writeQueue = new WriteQueue();
-    const orchestrator = await Cs2SeriesOrchestrator.create(series, { writeQueue, entryFeeLamports: 1000 });
+    let runtime: Cs2ArenaRuntime | undefined;
+    const orchestrator = await Cs2SeriesOrchestrator.create(series, {
+      writeQueue,
+      entryFeeLamports: 1000,
+      onArenaOpened: (_arenaId, opened) => {
+        runtime = opened;
+      },
+    });
     await orchestrator.poll(snapshot(matchTeamIds, {}), at(-10));
     const match1 = (await matchRepository.listBySeriesId(series.id))[0]!;
     matchIds.push(match1.id);
     const arena1 = (await arenaRepository.findByMatchId(match1.id))!;
     arenaIds.push(arena1.id);
-    await addPaidPass(arena1.id);
-    await addPaidPass(arena1.id);
+    const players = [await addPaidPass(arena1.id), await addPaidPass(arena1.id)];
+    for (const player of players) runtime!.join(player.id, player.username, at(-9));
     await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: true }), at(1));
 
     const settleSpy = vi.spyOn(payoutService, "settleArena").mockResolvedValue(undefined);
@@ -690,7 +729,10 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
       orchestrator.currentBus()!.publish({ kind: "cs2_match_end", timestamp: at(40) });
       await writeQueue.drain();
       expect((await arenaRepository.findById(arena1.id))?.status).toBe("finished");
-      expect(settleSpy).toHaveBeenCalledWith(arena1.id, []);
+      const winnerIds = players.map((player) => player.id).sort();
+      expect([...settleSpy.mock.calls[0]![1]].sort()).toEqual(winnerIds);
+      expect((await arenaPlayerRepository.list(arena1.id)).map((player) => [player.userId, player.status]).sort())
+        .toEqual(winnerIds.map((id) => [id, "winner"]));
     } finally {
       settleSpy.mockRestore();
     }

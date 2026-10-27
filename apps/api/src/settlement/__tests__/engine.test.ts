@@ -66,8 +66,8 @@ describe("SettlementEngine", () => {
     expect(settled).toEqual([
       { type: "settle", roundId: round.id, windowStartMinute: 20, correctAnswer: "yes", settledBy: "early" },
     ]);
-    expect(playerResults).toContainEqual({ roundId: round.id, userId: USER_1, answer: "yes", result: "correct", status: "active" });
-    expect(playerResults).toContainEqual({ roundId: round.id, userId: USER_2, answer: "no", result: "incorrect", status: "eliminated" });
+    expect(playerResults).toContainEqual({ roundId: round.id, userId: USER_1, answer: "yes", result: "correct", points: 1, status: "active" });
+    expect(playerResults).toContainEqual({ roundId: round.id, userId: USER_2, answer: "no", result: "incorrect", points: 0, status: "eliminated" });
   });
 
   it("does not settle early on a non-matching or unconfirmed event, and settles no at window end", () => {
@@ -96,8 +96,8 @@ describe("SettlementEngine", () => {
     expect(settled).toEqual([
       { type: "settle", roundId: round.id, windowStartMinute: 20, correctAnswer: "no", settledBy: "window_end" },
     ]);
-    expect(playerResults).toContainEqual({ roundId: round.id, userId: USER_1, answer: "no", result: "correct", status: "active" });
-    expect(playerResults).toContainEqual({ roundId: round.id, userId: USER_2, answer: "yes", result: "incorrect", status: "eliminated" });
+    expect(playerResults).toContainEqual({ roundId: round.id, userId: USER_1, answer: "no", result: "correct", points: 1, status: "active" });
+    expect(playerResults).toContainEqual({ roundId: round.id, userId: USER_2, answer: "yes", result: "incorrect", points: 0, status: "eliminated" });
   });
 
   it("marks a player who never answered as missed and eliminated", () => {
@@ -106,8 +106,8 @@ describe("SettlementEngine", () => {
     engine.onRoundLocked(round);
     engine.apply({ kind: "clock", period: "first_half", matchMinute: 26, running: true, timestamp: "t" });
 
-    expect(playerResults).toContainEqual({ roundId: round.id, userId: USER_1, answer: undefined, result: "missed", status: "eliminated" });
-    expect(playerResults).toContainEqual({ roundId: round.id, userId: USER_2, answer: undefined, result: "missed", status: "eliminated" });
+    expect(playerResults).toContainEqual({ roundId: round.id, userId: USER_1, answer: undefined, result: "missed", points: 0, status: "eliminated" });
+    expect(playerResults).toContainEqual({ roundId: round.id, userId: USER_2, answer: undefined, result: "missed", points: 0, status: "eliminated" });
   });
 
   it("still settles yes on a confirmed event at exactly windowEndMinute, even after the clock already ticked to that minute", () => {

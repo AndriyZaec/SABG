@@ -92,6 +92,7 @@ function fakeArena(overrides: Partial<Arena> = {}): Arena {
     id: ARENA_ID,
     matchId: MATCH_ID,
     status: "lobby",
+    mode: "hardcore",
     activePlayersCount: 0,
     entryFeeLamports: 1000,
     prizePoolLamports: 0,
@@ -396,7 +397,8 @@ describe("REST gateway routes", () => {
       runtimeLookup.getRuntime.mockReturnValue(undefined);
 
       const res = await fetch(`${baseUrl}/arenas/${ARENA_ID}`);
-      const body = await res.json();
+      const body = (await res.json()) as { arena: Arena };
+      expect(body.arena.mode).toBe("hardcore");
       expect(body).not.toHaveProperty("matchState");
       expect(body).not.toHaveProperty("currentRound");
     });

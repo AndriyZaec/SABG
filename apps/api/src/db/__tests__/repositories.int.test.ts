@@ -54,9 +54,10 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
 
   afterAll(async () => {
     if (db === undefined) return;
+    // arena_player references its elimination round, so it goes first.
+    if (arenaId) await db.delete(schema.arenaPlayers).where(eq(schema.arenaPlayers.arenaId, arenaId));
     if (roundId) await db.delete(schema.predictions).where(eq(schema.predictions.roundId, roundId));
     if (roundId) await db.delete(schema.predictionRounds).where(eq(schema.predictionRounds.id, roundId));
-    if (arenaId) await db.delete(schema.arenaPlayers).where(eq(schema.arenaPlayers.arenaId, arenaId));
     if (arenaId) await db.delete(schema.entryPasses).where(eq(schema.entryPasses.arenaId, arenaId));
     if (arenaId) await db.delete(schema.arenas).where(eq(schema.arenas.id, arenaId));
     if (matchId) await db.delete(schema.matches).where(eq(schema.matches.id, matchId));
@@ -94,11 +95,11 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
   });
 
   it("arena.repository: upsertForMatch is idempotent, and bumpActivePlayers/bumpPrizePool increment atomically", async () => {
-    const first = await arenaRepository.upsertForMatch(matchId, { entryFeeLamports: 1000, prizePoolLamports: 0 });
+    const first = await arenaRepository.upsertForMatch(matchId, { mode: "hardcore", entryFeeLamports: 1000, prizePoolLamports: 0 });
     arenaId = first.id;
     expect(first.status).toBe("lobby");
 
-    const second = await arenaRepository.upsertForMatch(matchId, { entryFeeLamports: 1000, prizePoolLamports: 0 });
+    const second = await arenaRepository.upsertForMatch(matchId, { mode: "hardcore", entryFeeLamports: 1000, prizePoolLamports: 0 });
     expect(second.id).toBe(first.id);
 
     await arenaRepository.bumpActivePlayers(arenaId, 1);
@@ -112,6 +113,13 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
     await arenaRepository.setStatus(arenaId, "live");
     const afterStatus = await arenaRepository.findById(arenaId);
     expect(afterStatus?.status).toBe("live");
+  });
+
+  it("arena.repository: setFinalCircleFromRound writes once and keeps the first value", async () => {
+    expect((await arenaRepository.findById(arenaId))?.finalCircleFromRound).toBeUndefined();
+    await arenaRepository.setFinalCircleFromRound(arenaId, 18);
+    await arenaRepository.setFinalCircleFromRound(arenaId, 20);
+    expect((await arenaRepository.findById(arenaId))?.finalCircleFromRound).toBe(18);
   });
 
   it("entry-pass.repository: create persists a paid entry pass", async () => {
@@ -223,13 +231,13 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
     const store = createPgArenaPlayerStore(arenaId, writeQueue);
     store.hydrate([{ userId, status: "active" }]);
 
-    store.setStatus(userId, "eliminated");
+    store.setStatus(userId, "eliminated", roundId);
     expect(store.getStatus(userId)).toBe("eliminated");
     expect(store.getActivePlayerIds(arenaId)).not.toContain(userId);
 
     await writeQueue.enqueue(arenaId, async () => {});
     const roster = await arenaPlayerRepository.list(arenaId);
-    expect(roster.find((p) => p.userId === userId)?.status).toBe("eliminated");
+    expect(roster.find((p) => p.userId === userId)).toMatchObject({ status: "eliminated", eliminatedRoundId: roundId });
   });
 
   it("tryAcquireSeriesRuntimeLock excludes a second acquire for the same gridSeriesId, releases cleanly", async () => {
@@ -298,6 +306,7 @@ describe.skipIf(!RUN)("repositories + write-through PG stores (integration, requ
 
     const recreatedMatch = await matchRepository.upsertByTxoddsFixtureId(fixtureId, { homeTeam, awayTeam, startTime });
     const recreatedArena = await arenaRepository.upsertForMatch(recreatedMatch.id, {
+      mode: "hardcore",
       entryFeeLamports: 1000,
       prizePoolLamports: 0,
     });

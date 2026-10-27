@@ -23,14 +23,16 @@ function setup(userIds: Uuid[]) {
   return { service, snapshots, finishedCalls };
 }
 
-/** Drives one settled round: buffers each player's result, then fires onRoundSettled. */
+/** Drives one settled round: buffers each player's result, then fires onRoundSettled. Points default to hardcore's 1/0. */
 function settleRound(
   service: LeaderboardService,
   roundId: Uuid,
-  results: Array<Omit<PlayerResultEvent, "roundId">>,
+  results: Array<Omit<PlayerResultEvent, "roundId" | "points"> & { points?: number }>,
   overrides: Partial<Omit<SettlementEvent, "roundId">> = {},
 ): void {
-  for (const result of results) service.onPlayerResult({ roundId, ...result });
+  for (const result of results) {
+    service.onPlayerResult({ roundId, points: result.result === "correct" ? 1 : 0, ...result });
+  }
   service.onRoundSettled({
     type: "settle",
     roundId,
@@ -112,6 +114,22 @@ describe("LeaderboardService", () => {
     expect(service.snapshot().find((e) => e.userId === "b")?.status).toBe("winner");
   });
 
+  it("adds each result's points to the score, so a double-round answer counts 2", () => {
+    const { service } = setup(["a", "b"]);
+
+    settleRound(service, "r1", [
+      { userId: "a", answer: "yes", result: "correct", points: 2, status: "active" },
+      { userId: "b", answer: "no", result: "incorrect", points: 0, status: "active" },
+    ]);
+    settleRound(service, "r2", [
+      { userId: "a", answer: "yes", result: "correct", points: 1, status: "active" },
+      { userId: "b", answer: "yes", result: "correct", points: 1, status: "active" },
+    ]);
+
+    expect(service.snapshot().find((e) => e.userId === "a")?.score).toBe(3);
+    expect(service.snapshot().find((e) => e.userId === "b")?.score).toBe(1);
+  });
+
   it("full tie -> shared: equal scores at finalize still make everyone a winner (no tie-break selection)", () => {
     const { service, finishedCalls } = setup(["a", "b"]);
 
@@ -129,6 +147,29 @@ describe("LeaderboardService", () => {
     expect(finishedCalls).toEqual([["a", "b"]]);
     expect(service.snapshot().find((e) => e.userId === "a")?.score).toBe(2);
     expect(service.snapshot().find((e) => e.userId === "b")?.score).toBe(2);
+  });
+
+  it("records the elimination round on eliminated rows only, and clears it for winners", () => {
+    const { service } = setup(["a", "b", "c"]);
+    for (const result of [
+      { userId: "a", answer: "yes" as const, result: "correct" as const, status: "active" as const },
+      { userId: "b", answer: "no" as const, result: "incorrect" as const, status: "eliminated" as const },
+      { userId: "c", answer: "yes" as const, result: "correct" as const, status: "active" as const },
+    ]) service.onPlayerResult({ roundId: "r7", points: 1, ...result });
+    service.onRoundSettled({ roundId: "r7", roundNumber: 7 });
+
+    const byUser = (id: Uuid) => service.snapshot().find((e) => e.userId === id);
+    expect(byUser("b")).toMatchObject({ status: "eliminated", eliminatedRound: 7 });
+    expect(byUser("a")).not.toHaveProperty("eliminatedRound");
+
+    // Everyone left falls together: they become winners, not eliminated in round 8.
+    for (const userId of ["a", "c"]) {
+      service.onPlayerResult({ roundId: "r8", userId, answer: "no", result: "incorrect", points: 0, status: "eliminated" });
+    }
+    service.onRoundSettled({ roundId: "r8", roundNumber: 8 });
+    expect(byUser("a")).toMatchObject({ status: "winner" });
+    expect(byUser("a")).not.toHaveProperty("eliminatedRound");
+    expect(byUser("b")).toMatchObject({ eliminatedRound: 7 });
   });
 
   it("zero-survivors: a round eliminating every remaining active player makes all pre-round finalists winners", () => {

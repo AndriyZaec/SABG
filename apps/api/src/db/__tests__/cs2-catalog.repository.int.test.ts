@@ -161,6 +161,7 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
     });
     seriesMatchIds.push(firstMap.id);
     const firstMapArena = await arenaRepository.upsertForMatch(firstMap.id, {
+      mode: "hardcore",
       entryFeeLamports: 100_000_000,
       prizePoolLamports: 0,
     });
@@ -286,7 +287,7 @@ describe.skipIf(!RUN)("cs2CatalogRepository (integration, requires DATABASE_URL)
       startTime: new Date("2026-09-03T12:00:00.000Z"),
     });
     seriesMatchIds.push(firstMap.id);
-    await arenaRepository.upsertForMatch(firstMap.id, { entryFeeLamports: 100_000_000, prizePoolLamports: 0 });
+    await arenaRepository.upsertForMatch(firstMap.id, { mode: "hardcore", entryFeeLamports: 100_000_000, prizePoolLamports: 0 });
 
     await db.update(schema.series).set({ mapNames: ["mirage", "inferno"] }).where(eq(schema.series.id, seriesId));
 

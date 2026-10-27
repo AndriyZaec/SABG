@@ -9,6 +9,8 @@
   --white: #ffffff;
   --survive: #28e191;
   --eliminate: #ff4d4d;
+  --eliminate-soft: #ffd0d0;
+  --blue-soft: #d6e2ff;
   --yellow: #ffd22e;
   --blue: #2d6bff;
   --pink: #ff57c1;
@@ -812,6 +814,62 @@ button.nb-footer__link {
   padding: 6px 14px;
 }
 
+/* ---- Live Arena: Survivors board with the classic zone ---- */
+.cs2-board { position: relative; }
+.cs2-board__body { padding: 10px 16px 16px; }
+.cs2-board__band { list-style: none; margin: 0 -16px; padding: 6px 16px; display: grid; gap: 6px; }
+.cs2-board__band--empty { min-height: 14px; padding-block: 0; }
+.cs2-board__band--risk { background: var(--blue-soft); }
+.cs2-board__band--out { background: var(--eliminate-soft); margin-bottom: -16px; padding-bottom: 16px; }
+.cs2-board__more {
+  display: flex; align-items: center; gap: 8px; padding: 4px 10px;
+  border: 2px dashed rgba(10, 10, 10, 0.45); font-size: 0.78rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.75;
+}
+.cs2-board__more::before { content: "⋯"; font-size: 1.1rem; line-height: 1; }
+/* Narrow screens: the line is its own strip with the tag in it, so the tag never covers a score. */
+.cs2-board__line { position: relative; display: flex; justify-content: flex-end; margin: 2px -16px; padding: 0 8px; }
+.cs2-board__line::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; border-top: 4px solid; transform: translateY(-50%); }
+.cs2-board__line--next::before { border-color: var(--blue); }
+.cs2-board__line--zone::before { border-color: var(--eliminate); }
+.cs2-board__tag {
+  position: relative; z-index: 1;
+  font-family: var(--font-display); text-transform: uppercase; font-size: 0.9rem; letter-spacing: 0.04em;
+  border: 2px solid var(--ink); padding: 2px 8px; white-space: nowrap;
+}
+/* Wide screens have room to hang the tag outside the panel, so the line can sit flush between rows. */
+@media (min-width: 1200px) {
+  .cs2-board__line { display: block; height: 0; margin: 0 -16px; padding: 0; }
+  .cs2-board__line::before { top: -2px; transform: none; }
+  .cs2-board__tag { position: absolute; right: -14px; top: 0; transform: translate(100%, -50%); }
+}
+.cs2-board__line--next .cs2-board__tag { background: var(--blue); color: var(--white); }
+.cs2-board__line--zone .cs2-board__tag { background: var(--eliminate); color: var(--ink); }
+.cs2-board__line--zone .cs2-board__tag:has(.cs2-board__tag-next) { display: grid; padding: 0; background: none; }
+.cs2-board__tag-next, .cs2-board__tag-zone { padding: 2px 8px; }
+.cs2-board__tag-next { background: var(--blue); color: var(--white); border-bottom: 2px solid var(--ink); }
+.cs2-board__tag-zone { background: var(--eliminate); color: var(--ink); }
+
+/* Final Circle: same panel, calmer red. */
+.cs2-board--final { background: var(--eliminate-soft); }
+.cs2-board__bar--final { background: var(--eliminate); color: var(--ink); }
+.cs2-board__fc { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 14px; margin: 6px 0 12px; }
+.cs2-board__ring { position: relative; width: 64px; height: 64px; display: grid; place-items: center; }
+.cs2-board__ring::before, .cs2-board__ring::after {
+  content: ""; position: absolute; inset: 0; border-radius: 50%; border: 3px solid var(--eliminate);
+}
+.cs2-board__ring::before { background: var(--white); }
+.cs2-board__ring::after { animation: cs2-ring-pulse 2.8s ease-out infinite; }
+@keyframes cs2-ring-pulse { from { transform: scale(1); opacity: 0.5; } to { transform: scale(1.25); opacity: 0; } }
+.cs2-board__ring b { position: relative; font-family: var(--font-display); font-size: 1.8rem; line-height: 1; }
+.cs2-board__fc-title { font-family: var(--font-display); text-transform: uppercase; font-size: 1.3rem; line-height: 0.95; }
+.cs2-board__fc-sub { margin-top: 6px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.72rem; opacity: 0.8; }
+.cs2-board--final .nb-board__row:not(.nb-board__row--eliminated) { border-color: var(--eliminate); }
+.cs2-board__fc-out { margin-top: 12px; padding-top: 10px; border-top: 2px dashed rgba(10, 10, 10, 0.3); }
+.cs2-board__fc-out .cs2-board__band { margin: 0; padding: 4px 0 0; }
+.cs2-board__fc-out .nb-board__row { background: transparent; padding: 4px 10px; }
+@media (prefers-reduced-motion: reduce) { .cs2-board__ring::after { animation: none; } }
+
 /* ---- Live Arena: countdown + yes/no ---- */
 .nb-timer {
   height: 22px;
@@ -826,6 +884,13 @@ button.nb-footer__link {
 }
 .nb-timer--low .nb-timer__bar { background: var(--eliminate); }
 .nb-yesno { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 16px; }
+/* Classic double rounds: the reward sits on the buttons, not a ×2 that reads like a score multiplier. */
+.cs2-answer--double { position: relative; }
+.cs2-answer__points {
+  position: absolute; top: -12px; right: -8px;
+  font-family: var(--font-display); font-size: 1rem; letter-spacing: 0;
+  background: var(--yellow); color: var(--ink); border: 2px solid var(--ink); padding: 0 6px;
+}
 
 /* ---- Inputs ---- */
 .nb-input {
@@ -862,6 +927,34 @@ button.nb-footer__link {
 .nb-feed__item--survived .nb-feed__marker { background: var(--survive); }
 .nb-feed__item--info .nb-feed__marker { background: var(--yellow); }
 .nb-feed__min { margin-left: auto; font-weight: 700; opacity: 0.55; }
+
+/* CS2 feed: result first, then the round in small print. */
+.cs2-feed__result { display: grid; grid-template-columns: auto 1fr auto; align-items: baseline; gap: 2px 10px; }
+.cs2-feed__result .nb-feed__marker { align-self: center; }
+.cs2-feed__outcome { font-family: var(--font-display); text-transform: uppercase; font-size: 1.1rem; line-height: 1; }
+.cs2-feed__points { grid-column: 3; grid-row: 1; font-family: var(--font-display); font-size: 1.15rem; }
+.cs2-feed__detail { grid-column: 2 / 4; font-size: 0.75rem; opacity: 0.7; }
+.cs2-feed__result--correct .nb-feed__marker { background: var(--survive); }
+.cs2-feed__result--wrong .nb-feed__marker { background: var(--eliminate); }
+.cs2-feed__result--missed .nb-feed__marker { background: var(--paper-2); }
+.cs2-feed__item--round .nb-feed__marker { background: var(--paper-2); }
+.cs2-feed__item--out { background: var(--eliminate-soft); border-color: var(--eliminate); }
+.cs2-feed__item--out .nb-feed__marker { background: var(--eliminate); }
+/* The newest items stay in view; the panel sizes the list to them and older ones scroll. */
+.cs2-feed { position: relative; overflow-y: auto; overscroll-behavior: contain; }
+.cs2-feed__event--void { border-style: dashed; }
+.cs2-feed__event--void .nb-feed__marker { background: var(--paper-2); }
+.cs2-feed__event--void .cs2-feed__outcome { opacity: 0.55; }
+.cs2-feed__event--neutral { background: var(--paper-2); }
+.cs2-feed__event--neutral .nb-feed__marker { background: var(--yellow); }
+.cs2-feed__event--won { background: var(--survive); }
+.cs2-feed__event--won .nb-feed__marker { background: var(--white); }
+.cs2-feed__event--won .cs2-feed__outcome { font-size: 1.5rem; }
+.cs2-feed__event--lost { background: var(--eliminate-soft); border-color: var(--eliminate); }
+.cs2-feed__event--lost .nb-feed__marker { background: var(--eliminate); }
+.cs2-feed__event--final_circle { background: var(--eliminate); }
+.cs2-feed__event--final_circle .nb-feed__marker { background: var(--ink); }
+.cs2-feed__event--final_circle .cs2-feed__detail { opacity: 0.85; }
 
 .nb-board { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .nb-board__row {

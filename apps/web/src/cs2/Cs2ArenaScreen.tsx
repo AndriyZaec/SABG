@@ -12,8 +12,11 @@ import { useCs2ArenaEntry } from "./useCs2ArenaEntry.js";
 import { useCs2RoundAlerts, type Cs2NewRoundSignal } from "./live/useCs2RoundAlerts.js";
 import { useCs2VictoryAlert } from "./live/useCs2VictoryAlert.js";
 import type { Cs2AnswerSubmission, Cs2ArenaView } from "./cs2View.js";
-import { EliminationFeed } from "../arena/live/EliminationFeed.js";
-import { LeaderboardRail } from "../arena/live/LeaderboardRail.js";
+import { classicRoundScoring, classicZoneHud } from "./classicZone.js";
+import { Cs2Survivors } from "./live/Cs2Survivors.js";
+import { survivorsBoard } from "./survivorsBoard.js";
+import { Cs2MatchFeed } from "./live/Cs2MatchFeed.js";
+import { cs2FeedForView } from "./live/cs2Feed.js";
 import { PendingPredictionsList } from "../arena/live/PendingPredictionsList.js";
 import { WinnerBanner } from "../arena/live/WinnerBanner.js";
 import { Loading } from "../ui/Loading.js";
@@ -79,6 +82,7 @@ function Cs2ArenaLobby({
     backendArenaId: arena.id,
   });
   const [muted, toggleMuted] = useCs2RoundAlerts(newRoundSignal, entry.hasEntry);
+  const zoneHud = view?.round ? classicZoneHud(view) : undefined;
 
   if (entry.hasEntry) {
     return (
@@ -97,12 +101,17 @@ function Cs2ArenaLobby({
                 participant
                 muted={muted}
                 onToggleMute={toggleMuted}
+                classic={classicRoundScoring(view, view.round.roundNumber)}
               />
             )}
-            <EliminationFeed feed={view?.feed ?? []} />
+            <Cs2MatchFeed items={view ? cs2FeedForView(view) : []} />
           </div>
           <aside style={{ display: "grid", gap: 20 }}>
-            <LeaderboardRail entries={view?.leaderboard ?? []} />
+            <Cs2Survivors
+              board={survivorsBoard(view?.leaderboard ?? [], zoneHud)}
+              active={view?.survivors ?? 0}
+              total={view?.totalPlayers ?? 0}
+            />
           </aside>
         </div>
       </div>
@@ -231,6 +240,7 @@ function Cs2ArenaLive({
   const pending = (view.pendingPredictions ?? []).filter((prediction) => prediction.roundId !== view.round?.roundId);
   const [muted, toggleMuted] = useCs2RoundAlerts(newRoundSignal, isParticipant);
   useCs2VictoryAlert(victorySignal, muted);
+  const zoneHud = classicZoneHud(view);
 
   return (
     <div className="nb-container">
@@ -266,13 +276,14 @@ function Cs2ArenaLive({
               participant={isParticipant}
               muted={muted}
               onToggleMute={toggleMuted}
+              classic={classicRoundScoring(view, view.round.roundNumber)}
             />
           )}
           {pending.length > 0 && <PendingPredictionsList predictions={pending} />}
-          <EliminationFeed feed={view.feed} />
+          <Cs2MatchFeed items={cs2FeedForView(view)} />
         </div>
         <aside style={{ display: "grid", gap: 20 }}>
-          <LeaderboardRail entries={view.leaderboard} />
+          <Cs2Survivors board={survivorsBoard(view.leaderboard, zoneHud)} active={view.survivors} total={view.totalPlayers} />
         </aside>
       </div>
     </div>

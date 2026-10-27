@@ -33,6 +33,8 @@ export interface LeaderRow {
   score: number;
   status: "active" | "eliminated" | "winner";
   you?: boolean;
+  /** CS2: round number that eliminated this player. */
+  eliminatedRound?: number;
 }
 
 export interface ArenaView {

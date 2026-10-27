@@ -104,6 +104,24 @@ describe("GatewayWebSocketServer", () => {
     socket.close();
   });
 
+  it("replays only the latest arena.zone to a late subscriber", async () => {
+    const token = issueToken("user-1");
+    const socket = connect(token);
+    await waitForOpen(socket);
+    const messages = collectMessages(socket);
+
+    gateway.broadcast(ARENA_ID, { type: "arena.zone", stage: "zone", zone: 4, nextZone: 5 });
+    gateway.broadcast(ARENA_ID, { type: "arena.zone", stage: "final_circle", fromRound: 10 });
+    send(socket, { type: "subscribe", arenaId: ARENA_ID });
+
+    await vi.waitFor(() => {
+      expect(messages).toContainEqual({ type: "arena.zone", stage: "final_circle", fromRound: 10 });
+    });
+    expect(messages.filter((m) => m.type === "arena.zone")).toHaveLength(1);
+
+    socket.close();
+  });
+
   it("pushes the subscriber's personal player.pending snapshot from the live runtime on subscribe", async () => {
     const token = issueToken("user-1");
     const socket = connect(token);
@@ -267,6 +285,83 @@ describe("GatewayWebSocketServer", () => {
     socket.close();
   });
 
+  describe("CS2 open round after a settle (next question opens before the previous one settles)", () => {
+    const openMsg = (id: string): ServerMessage => ({
+      type: "round.open",
+      round: {
+        id,
+        arenaId: ARENA_ID,
+        matchId: "m1",
+        discipline: "cs2",
+        roundNumber: Number(id.slice(1)),
+        question: "?",
+        settlementCondition: { discipline: "cs2", topic: "weapon_kill", params: { weapon: "awp" }, roundNumber: Number(id.slice(1)), resolve: "snapshot_diff" },
+        status: "open",
+      },
+    });
+    const lockMsg = (id: string): ServerMessage => ({ type: "round.lock", roundId: id, aggregate: { yesPct: 0, noPct: 0, total: 0 } });
+
+    function registerAnswers(answers: Record<string, "yes" | "no">) {
+      gateway.registerRuntime(ARENA_ID, {
+        currentRound: undefined,
+        join: vi.fn(),
+        submitAnswer: vi.fn(() => ({ ok: true as const, receivedAt: "2024-01-01T00:00:00.000Z" })),
+        leaderboardSnapshot: () => [],
+        finalWinners: () => undefined,
+        answerFor: (_userId: string, roundId: string) => answers[roundId],
+      });
+    }
+
+    async function subscribeAndCollect(): Promise<ServerMessage[]> {
+      const socket = connect(issueToken("user-1"));
+      await waitForOpen(socket);
+      const messages = collectMessages(socket);
+      send(socket, { type: "subscribe", arenaId: ARENA_ID });
+      await vi.waitFor(() => {
+        expect(messages.some((m) => m.type === "answer.snapshot")).toBe(true);
+      });
+      socket.close();
+      return messages;
+    }
+
+    const roundMessages = (messages: ServerMessage[]) =>
+      messages.flatMap((m) => {
+        if (m.type === "round.open") return [`open ${m.round.id}`];
+        if (m.type === "round.lock" || m.type === "round.settle") return [`${m.type.slice(6)} ${m.roundId}`];
+        if (m.type === "answer.snapshot") return [`snapshot ${m.roundId} ${String(m.answer)}`];
+        return [];
+      });
+
+    it("replays the still-open next question after the previous settle, with its answer snapshot", async () => {
+      registerAnswers({ r13: "yes" });
+      gateway.broadcast(ARENA_ID, openMsg("r12"));
+      gateway.broadcast(ARENA_ID, lockMsg("r12"));
+      gateway.broadcast(ARENA_ID, openMsg("r13"));
+      gateway.broadcast(ARENA_ID, {
+        type: "round.settle", roundId: "r12", question: "?", correctAnswer: "no", settledBy: "round_end", survivorsCount: 2,
+      });
+
+      expect(roundMessages(await subscribeAndCollect())).toEqual(["settle r12", "open r13", "snapshot r13 yes"]);
+    });
+
+    it("sends the open question once when it is the latest round message", async () => {
+      registerAnswers({});
+      gateway.broadcast(ARENA_ID, openMsg("r12"));
+      gateway.broadcast(ARENA_ID, lockMsg("r12"));
+      gateway.broadcast(ARENA_ID, openMsg("r13"));
+
+      expect(roundMessages(await subscribeAndCollect())).toEqual(["open r13", "snapshot r13 null"]);
+    });
+
+    it("forgets the open question once it locks", async () => {
+      registerAnswers({});
+      gateway.broadcast(ARENA_ID, openMsg("r13"));
+      gateway.broadcast(ARENA_ID, lockMsg("r13"));
+
+      expect(roundMessages(await subscribeAndCollect())).toEqual(["lock r13", "snapshot r13 null"]);
+    });
+  });
+
   it("isolates broadcasts per arena — a subscriber to arena-2 never sees arena-1's broadcasts", async () => {
     const token = issueToken("user-1");
     const socket = connect(token);
@@ -307,6 +402,32 @@ describe("GatewayWebSocketServer", () => {
 
     socketA.close();
     socketB.close();
+  });
+
+  it("never replays a player.result to a later subscriber", async () => {
+    const socketA = connect(issueToken("user-a"));
+    await waitForOpen(socketA);
+    const messagesA = collectMessages(socketA);
+    send(socketA, { type: "subscribe", arenaId: ARENA_ID });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    gateway.sendToUser(ARENA_ID, "user-a", {
+      type: "player.result", roundId: "r1", roundNumber: 1, answer: "yes", result: "correct", points: 2,
+    });
+    await vi.waitFor(() => {
+      expect(messagesA.some((m) => m.type === "player.result")).toBe(true);
+    });
+
+    // The same user reconnects: their result is personal history, not shared state.
+    const socketA2 = connect(issueToken("user-a"));
+    await waitForOpen(socketA2);
+    const messagesA2 = collectMessages(socketA2);
+    send(socketA2, { type: "subscribe", arenaId: ARENA_ID });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(messagesA2.some((m) => m.type === "player.result")).toBe(false);
+
+    socketA.close();
+    socketA2.close();
   });
 
   it("forwards an 'answer' client message to the subscribed arena's runtime.submitAnswer", async () => {

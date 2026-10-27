@@ -33,6 +33,18 @@ export const CS2_WEAPON_WHITELIST = [
 ] as const;
 export type Cs2Weapon = (typeof CS2_WEAPON_WHITELIST)[number];
 
+/** How weapons are named to players; the ids above stay GRID's names. */
+export const CS2_WEAPON_LABELS: Record<Cs2Weapon, string> = {
+  awp: "AWP",
+  ak47: "AK-47",
+  usp_silencer: "USP-S",
+  deagle: "Desert Eagle",
+  molotov: "Molotov",
+  glock: "Glock",
+  tec9: "Tec-9",
+  hegrenade: "HE grenade",
+};
+
 export type Cs2TeamId = string;
 
 export interface Cs2TeamIdentity {

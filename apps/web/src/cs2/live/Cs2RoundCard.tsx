@@ -1,4 +1,4 @@
-import type { Answer } from "@arena/contracts";
+import { cs2ClassicRoundPoints, type Answer } from "@arena/contracts";
 import type { Cs2AnswerSubmission, Cs2RoundView } from "../cs2View.js";
 import { Panel } from "../../ui/Panel.js";
 import { Button } from "../../ui/Button.js";
@@ -13,6 +13,7 @@ export function Cs2RoundCard({
   participant = true,
   muted,
   onToggleMute,
+  classic,
 }: {
   round: Cs2RoundView;
   onAnswer?: (a: Answer) => void;
@@ -22,12 +23,15 @@ export function Cs2RoundCard({
   participant?: boolean;
   muted?: boolean;
   onToggleMute?: () => void;
+  /** Classic zone stage: a correct answer scores points and a wrong one does not eliminate by itself. */
+  classic?: { double: boolean };
 }) {
   const isOpen = round.status === "open";
   const currentSubmission = "roundId" in submission && submission.roundId === round.roundId ? submission : undefined;
   const picked = currentSubmission?.status === "submitting" ? currentSubmission.answer : round.myAnswer;
   const survived = !eliminated && picked !== undefined &&
     (picked === round.correctAnswer || round.survivalRuleApplied === "no_correct_answers");
+  const correct = picked !== undefined && picked === round.correctAnswer;
   const submitting = currentSubmission?.status === "submitting";
   const pressed = { transform: "translate(4px, 4px)", boxShadow: "0 0 0 var(--ink)" } as const;
 
@@ -70,8 +74,10 @@ export function Cs2RoundCard({
             block
             onClick={() => answer("yes")}
             style={picked === "yes" ? pressed : undefined}
+            className={classic?.double ? "cs2-answer--double" : ""}
           >
             Yes
+            {classic?.double && <span className="cs2-answer__points">+2</span>}
           </Button>
           <Button
             disabled={!connected || submitting}
@@ -80,8 +86,10 @@ export function Cs2RoundCard({
             block
             onClick={() => answer("no")}
             style={picked === "no" ? pressed : undefined}
+            className={classic?.double ? "cs2-answer--double" : ""}
           >
             No
+            {classic?.double && <span className="cs2-answer__points">+2</span>}
           </Button>
         </div>
       )}
@@ -119,7 +127,16 @@ export function Cs2RoundCard({
         <p className="nb-label" style={{ marginTop: 12 }}>The match ended before this round played out — no penalty.</p>
       )}
 
-      {round.status === "settled" && round.correctAnswer && participant && (
+      {round.status === "settled" && round.correctAnswer && participant && classic && (
+        <div style={{ marginTop: 14 }}>
+          <Badge tone={eliminated ? "eliminated" : correct ? "survive" : "neutral"}>
+            {eliminated ? "Eliminated" : correct ? `+${cs2ClassicRoundPoints(round.roundNumber)}` : "No points"} · answer
+            was {round.correctAnswer.toUpperCase()}
+          </Badge>
+        </div>
+      )}
+
+      {round.status === "settled" && round.correctAnswer && participant && !classic && (
         <div style={{ marginTop: 14 }}>
           <Badge tone={survived ? "survive" : "eliminated"}>
             {survived ? "Survived" : "Eliminated"} · answer

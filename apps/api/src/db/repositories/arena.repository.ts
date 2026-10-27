@@ -1,5 +1,5 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
-import type { Arena, ArenaCancelledReason, Uuid, WalletAddress } from "@arena/contracts";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import type { Arena, ArenaCancelledReason, ArenaMode, Uuid, WalletAddress } from "@arena/contracts";
 import { db } from "../client.js";
 import { arenas, entryPasses } from "../schema.js";
 import { arenaRowToEntity } from "../mappers.js";
@@ -25,7 +25,7 @@ export const arenaRepository = {
 
   async upsertForMatch(
     matchId: Uuid,
-    defaults: { entryFeeLamports: number; prizePoolLamports: number },
+    defaults: { mode: ArenaMode; entryFeeLamports: number; prizePoolLamports: number },
   ): Promise<Arena> {
     const existing = await this.findByMatchId(matchId);
     if (existing) return existing;
@@ -35,6 +35,7 @@ export const arenaRepository = {
       .values({
         matchId,
         status: "lobby",
+        mode: defaults.mode,
         activePlayersCount: 0,
         entryFeeLamports: defaults.entryFeeLamports,
         prizePoolLamports: defaults.prizePoolLamports,
@@ -69,6 +70,14 @@ export const arenaRepository = {
 
   async setStatus(id: Uuid, status: Arena["status"]): Promise<void> {
     await db.update(arenas).set({ status }).where(eq(arenas.id, id));
+  },
+
+  /** Final Circle starts once per arena; a replayed write keeps the first value. */
+  async setFinalCircleFromRound(id: Uuid, round: number): Promise<void> {
+    await db
+      .update(arenas)
+      .set({ finalCircleFromRound: round })
+      .where(and(eq(arenas.id, id), isNull(arenas.finalCircleFromRound)));
   },
 
   async clearCancelledBalances(id: Uuid): Promise<void> {

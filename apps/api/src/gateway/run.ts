@@ -114,6 +114,7 @@ async function main(): Promise<void> {
     if (abortController.signal.aborted) return;
     const arena = await trackWork(
       arenaRepository.upsertForMatch(match.id, {
+        mode: "hardcore",
         entryFeeLamports: EVENT_ENTRY_FEE_LAMPORTS,
         prizePoolLamports: 0,
       }),

@@ -1,10 +1,13 @@
+import { cs2ClassicZoneAfter } from "@arena/contracts";
 import type {
   Answer,
+  ArenaMode,
   ArenaPlayerStatus,
   Cs2TeamIdentity,
   IsoDateTime,
   PendingPrediction,
   PredictionRound,
+  RoundSurvivalRule,
   Uuid,
 } from "@arena/contracts";
 import type { MatchSignalBus } from "../ingestion/event-bus.js";
@@ -17,17 +20,21 @@ import type {
 } from "../gateway/arena-runtime.js";
 import { LeaderboardService, type LeaderboardRosterEntry } from "../leaderboard/service.js";
 import { applyRoundOutcome, type PlayerResultEvent } from "../settlement/apply-outcome.js";
+import { resolveClassicRound } from "../settlement/classic-outcome.js";
 import { Cs2RoundEngine, type Cs2RoundLifecycleEvent } from "./round-engine.js";
 import type { Cs2QuestionProvider } from "./question-provider.js";
 
 export interface Cs2ArenaPersistence {
   upsertRound(round: PredictionRound): void;
   finishArena(arenaId: Uuid, winners: Uuid[]): void;
+  /** Classic: the first round played under Final Circle rules. */
+  startFinalCircle(arenaId: Uuid, fromRound: number): void;
 }
 
 export interface Cs2ArenaRuntimeOptions {
   matchId: Uuid;
   arenaId: Uuid;
+  mode: ArenaMode;
   bus: MatchSignalBus;
   predictionStore: RuntimePredictionStore;
   arenaPlayerStore: RuntimeArenaPlayerStore;
@@ -42,6 +49,9 @@ export interface Cs2ArenaRuntimeOptions {
 export class Cs2ArenaRuntime implements ArenaRuntimeLike {
   private readonly matchId: Uuid;
   private readonly arenaId: Uuid;
+  readonly mode: ArenaMode;
+  /** Classic only: set once Final Circle starts; hardcore never sets it. */
+  private finalCircleFromRound: number | undefined;
   private readonly predictionStore: RuntimePredictionStore;
   private readonly arenaPlayerStore: RuntimeArenaPlayerStore;
   private readonly broadcaster: GatewayBroadcaster | undefined;
@@ -58,6 +68,7 @@ export class Cs2ArenaRuntime implements ArenaRuntimeLike {
   constructor(options: Cs2ArenaRuntimeOptions) {
     this.matchId = options.matchId;
     this.arenaId = options.arenaId;
+    this.mode = options.mode;
     this.predictionStore = options.predictionStore;
     this.arenaPlayerStore = options.arenaPlayerStore;
     this.broadcaster = options.broadcaster;
@@ -207,14 +218,16 @@ export class Cs2ArenaRuntime implements ArenaRuntimeLike {
     const round = this.roundEngine.roundsByNumber.get(roundNumber);
     if (round === undefined) return;
 
-    const survivalRuleApplied = applyRoundOutcome(
-      roundId,
-      this.arenaId,
-      correctAnswer,
-      { predictionStore: this.predictionStore, arenaPlayerStore: this.arenaPlayerStore },
-      (result) => this.onPlayerResult(result),
-      { noCorrectAnswers: "continue" },
-    );
+    const survivalRuleApplied = this.mode === "classic"
+      ? this.settleClassic(roundId, roundNumber, correctAnswer)
+      : applyRoundOutcome(
+        roundId,
+        this.arenaId,
+        correctAnswer,
+        { predictionStore: this.predictionStore, arenaPlayerStore: this.arenaPlayerStore },
+        (result) => this.onPlayerResult(result),
+        { noCorrectAnswers: "continue" },
+      );
     if (survivalRuleApplied !== undefined) round.survivalRuleApplied = survivalRuleApplied;
     this.persistence?.upsertRound(round);
 
@@ -229,11 +242,43 @@ export class Cs2ArenaRuntime implements ArenaRuntimeLike {
       ...(survivalRuleApplied !== undefined ? { survivalRuleApplied } : {}),
     });
 
-    this.leaderboardService.onRoundSettled({ roundId });
+    this.leaderboardService.onRoundSettled({ roundId, roundNumber });
+    // After the leaderboard, so the Survivors board never draws the new zone over the old scores.
+    if (this.mode === "classic") this.broadcastZone(roundNumber);
 
-    this.flushPendingPlayerStatus(roundId);
+    this.flushPendingPlayerStatus(roundId, roundNumber);
     this.flushFinishIfPending();
     this.pushPendingForAnswerers(roundId);
+  }
+
+  /** Same side effects as `applyRoundOutcome`; scores before this round come from the leaderboard. */
+  private settleClassic(roundId: Uuid, roundNumber: number, correctAnswer: Answer): RoundSurvivalRule | undefined {
+    const scores = new Map(this.leaderboardService.snapshot().map((entry) => [entry.userId, entry.score]));
+    const outcome = resolveClassicRound({
+      roundNumber,
+      stage: this.finalCircleFromRound === undefined ? "zone" : "final_circle",
+      players: this.arenaPlayerStore.getActivePlayerIds(this.arenaId).map((userId) => ({ userId, score: scores.get(userId) ?? 0 })),
+      answers: this.predictionStore.getAnswers(roundId),
+      correctAnswer,
+    });
+
+    for (const { userId, answer, result, points, status } of outcome.results) {
+      this.predictionStore.recordResult(roundId, userId, result);
+      this.arenaPlayerStore.setStatus(userId, status, roundId);
+      this.onPlayerResult({ roundId, userId, answer, result, points, status });
+    }
+    if (outcome.stage === "final_circle" && this.finalCircleFromRound === undefined) {
+      this.finalCircleFromRound = roundNumber + 1;
+      this.persistence?.startFinalCircle(this.arenaId, this.finalCircleFromRound);
+    }
+    return outcome.survivalRuleApplied;
+  }
+
+  /** Classic: the zone after `roundNumber` settled, or Final Circle once it started. */
+  private broadcastZone(roundNumber: number): void {
+    this.broadcaster?.broadcast(this.arenaId, this.finalCircleFromRound !== undefined
+      ? { type: "arena.zone", stage: "final_circle", fromRound: this.finalCircleFromRound }
+      : { type: "arena.zone", stage: "zone", zone: cs2ClassicZoneAfter(roundNumber), nextZone: cs2ClassicZoneAfter(roundNumber + 1) });
   }
 
   private handleVoid(roundNumber: number): void {
@@ -248,7 +293,7 @@ export class Cs2ArenaRuntime implements ArenaRuntimeLike {
     this.leaderboardService.onPlayerResult(event);
   }
 
-  private flushPendingPlayerStatus(roundId: Uuid): void {
+  private flushPendingPlayerStatus(roundId: Uuid, roundNumber: number): void {
     const events = this.pendingPlayerStatus;
     this.pendingPlayerStatus = [];
     for (const event of events) {
@@ -256,6 +301,14 @@ export class Cs2ArenaRuntime implements ArenaRuntimeLike {
         type: "player.status",
         status: event.status,
         roundId,
+      });
+      this.broadcaster?.sendToUser(this.arenaId, event.userId, {
+        type: "player.result",
+        roundId,
+        roundNumber,
+        answer: event.answer ?? null,
+        result: event.result,
+        points: event.points,
       });
     }
   }
@@ -269,6 +322,8 @@ export class Cs2ArenaRuntime implements ArenaRuntimeLike {
     // A winner can be decided before GRID removes the map; stop the in-flight round.
     this.roundEngine.voidRemaining();
 
+    // Queued before the payout, so the DB shows the winners once the arena is paid.
+    for (const userId of winners) this.arenaPlayerStore.setStatus(userId, "winner");
     this.broadcaster?.broadcast(this.arenaId, { type: "arena.finished", winners });
     this.persistence?.finishArena(this.arenaId, winners);
     for (const userId of winners) {

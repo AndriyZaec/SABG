@@ -141,6 +141,27 @@
       "when": 1792089503616,
       "tag": "0019_cs2_no_correct_answers",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1792611310384,
+      "tag": "0020_arena_mode",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1793037767956,
+      "tag": "0021_arena_final_circle_round",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1793116859309,
+      "tag": "0022_arena_mode_default",
+      "breakpoints": true
     }
   ]
 }

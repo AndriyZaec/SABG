@@ -1,0 +1,1 @@
+ALTER TABLE "arena" ADD COLUMN "final_circle_from_round" integer;

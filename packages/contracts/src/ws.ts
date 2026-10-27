@@ -1,6 +1,6 @@
 // Never expose personal answers to spectators before settlement.
 
-import type { Answer, ArenaCancelledReason, SettledBy } from "./enums.js";
+import type { Answer, ArenaCancelledReason, PredictionResult, SettledBy } from "./enums.js";
 import type {
   LeaderboardEntry,
   MatchState,
@@ -48,6 +48,23 @@ export interface ArenaFinishedMessage {
   winners: Uuid[];
 }
 
+/** Classic arenas only, after every settled round: the server's zone, or Final Circle once it starts. */
+export type ArenaZoneMessage =
+  | {
+      type: "arena.zone";
+      stage: "zone";
+      /** Zone after the last settled round. */
+      zone: number;
+      /** Zone after the next round to settle. */
+      nextZone: number;
+    }
+  | {
+      type: "arena.zone";
+      stage: "final_circle";
+      /** First round played under Final Circle rules. */
+      fromRound: number;
+    };
+
 /** Terminal cancellation of an arena that will not go live. */
 export interface ArenaCancelledMessage {
   type: "arena.cancelled";
@@ -66,6 +83,18 @@ export interface PlayerStatusMessage {
   type: "player.status";
   status: "active" | "eliminated" | "winner";
   roundId?: Uuid;
+}
+
+/** Personal; sent after every settled round to each player who was active when it started. */
+export interface PlayerResultMessage {
+  type: "player.result";
+  roundId: Uuid;
+  roundNumber: number;
+  /** null when the player did not answer. */
+  answer: Answer | null;
+  result: PredictionResult;
+  /** What the round added to the score (classic double rounds give 2, Final Circle 1). */
+  points: number;
 }
 
 /** Personal answer state. Soccer uses minute windows; CS2 uses round numbers. */
@@ -122,7 +151,9 @@ export type ServerMessage =
   | LeaderboardMessage
   | ArenaFinishedMessage
   | ArenaCancelledMessage
+  | ArenaZoneMessage
   | PlayerStatusMessage
+  | PlayerResultMessage
   | PlayerPendingMessage
   | AnswerAcceptedMessage
   | AnswerSnapshotMessage
