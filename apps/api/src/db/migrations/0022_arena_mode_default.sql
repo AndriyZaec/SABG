@@ -1,0 +1,1 @@
+ALTER TABLE "arena" ALTER COLUMN "mode" SET DEFAULT 'hardcore';

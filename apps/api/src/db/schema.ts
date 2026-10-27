@@ -208,7 +208,7 @@ export const arenas = pgTable("arena", {
     .notNull()
     .references(() => matches.id),
   status: arenaStatusEnum("status").notNull(),
-  mode: arenaModeEnum("mode").notNull(),
+  mode: arenaModeEnum("mode").notNull().default("hardcore"),
   activePlayersCount: integer("active_players_count").notNull(),
   entryFeeLamports: bigint("entry_fee_lamports", { mode: "number" }).notNull(),
   prizePoolLamports: bigint("prize_pool_lamports", { mode: "number" }).notNull(),
