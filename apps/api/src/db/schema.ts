@@ -287,6 +287,36 @@ export const arenaPlayers = pgTable("arena_player", {
   index("arena_player_arena_id_idx").on(t.arenaId),
 ]);
 
+/** A player's final result in a finished CS2 arena, written once at finish; leaderboards are built from it. */
+export const arenaResults = pgTable("arena_result", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  arenaId: uuid("arena_id")
+    .notNull()
+    .references(() => arenas.id),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id),
+  competitionId: uuid("competition_id")
+    .notNull()
+    .references(() => cs2Competitions.id, { onDelete: "restrict" }),
+  score: integer("score").notNull(),
+  /** Final rank in the arena's own leaderboard. */
+  rank: integer("rank").notNull(),
+  won: boolean("won").notNull(),
+  /** Settled rounds played, up to and including the elimination round; voided rounds don't count. */
+  roundsPlayed: integer("rounds_played").notNull(),
+  playersCount: integer("players_count").notNull(),
+  finishedAt: timestamp("finished_at", { withTimezone: true }).notNull(),
+  ...timestamps,
+}, (t) => [
+  uniqueIndex("arena_result_arena_user_idx").on(t.arenaId, t.userId),
+  index("arena_result_competition_id_idx").on(t.competitionId),
+  check("arena_result_score_check", sql`${t.score} >= 0`),
+  check("arena_result_rank_check", sql`${t.rank} >= 1`),
+  check("arena_result_rounds_played_check", sql`${t.roundsPlayed} >= 0`),
+  check("arena_result_players_count_check", sql`${t.playersCount} >= 1`),
+]);
+
 export const predictions = pgTable("prediction", {
   id: uuid("id").primaryKey().defaultRandom(),
   roundId: uuid("round_id")
