@@ -1,7 +1,7 @@
-import { and, asc, eq, ne } from "drizzle-orm";
+import { and, asc, eq, ne, sql } from "drizzle-orm";
 import type { LeaderboardScopeStatus, Uuid } from "@arena/contracts";
 import { db, type DatabaseTransaction } from "../client.js";
-import { leaderboardEntries, leaderboardScopeCompetitions, leaderboardScopes } from "../schema.js";
+import { arenaResults, cs2Competitions, leaderboardEntries, leaderboardScopeCompetitions, leaderboardScopes, series, users } from "../schema.js";
 
 export interface LeaderboardScope {
   id: Uuid;
@@ -25,6 +25,21 @@ export interface LeaderboardEntryRow {
   computedAt: Date;
 }
 
+export interface LeaderboardEntryView extends LeaderboardEntryRow {
+  username: string;
+  avatar: string | null;
+}
+
+export interface AdminCompetitionRow {
+  id: Uuid;
+  name: string;
+  shortName: string | null;
+  logoUrl: string | null;
+  scopeIds: Uuid[];
+  arenasWithResults: number;
+  unfinished: boolean;
+}
+
 const scopeColumns = {
   id: leaderboardScopes.id,
   name: leaderboardScopes.name,
@@ -45,6 +60,8 @@ const entryColumns = {
   totalScore: leaderboardEntries.totalScore,
   totalPayoutLamports: leaderboardEntries.totalPayoutLamports,
   computedAt: leaderboardEntries.computedAt,
+  username: users.username,
+  avatar: users.avatar,
 };
 
 export const leaderboardRepository = {
@@ -108,6 +125,29 @@ export const leaderboardRepository = {
     return rows.length > 0;
   },
 
+  async competitionExists(competitionId: Uuid): Promise<boolean> {
+    const [row] = await db.select({ id: cs2Competitions.id }).from(cs2Competitions).where(eq(cs2Competitions.id, competitionId));
+    return row !== undefined;
+  },
+
+  /** Every synced competition with what the admin needs to pick it for a scope. */
+  async listAdminCompetitions(): Promise<AdminCompetitionRow[]> {
+    // Qualified by hand: drizzle renders a single-table select's columns unqualified, which a subquery would resolve to its own table.
+    const competitionId = sql.raw(`"cs2_competition"."id"`);
+    return db
+      .select({
+        id: cs2Competitions.id,
+        name: cs2Competitions.name,
+        shortName: cs2Competitions.shortName,
+        logoUrl: cs2Competitions.logoUrl,
+        scopeIds: sql<Uuid[]>`coalesce((select array_agg(${leaderboardScopeCompetitions.scopeId}) from ${leaderboardScopeCompetitions} where ${leaderboardScopeCompetitions.competitionId} = ${competitionId}), '{}')`,
+        arenasWithResults: sql<number>`(select count(distinct ${arenaResults.arenaId}) from ${arenaResults} where ${arenaResults.competitionId} = ${competitionId})`.mapWith(Number),
+        unfinished: sql<boolean>`exists (select 1 from ${series} where ${series.competitionId} = ${competitionId} and ${series.catalogLifecycle} in ('upcoming', 'live'))`,
+      })
+      .from(cs2Competitions)
+      .orderBy(asc(cs2Competitions.name));
+  },
+
   async listCompetitionIds(scopeId: Uuid): Promise<Uuid[]> {
     const rows = await db
       .select({ competitionId: leaderboardScopeCompetitions.competitionId })
@@ -142,19 +182,21 @@ export const leaderboardRepository = {
     });
   },
 
-  async topEntries(scopeId: Uuid, limit: number): Promise<LeaderboardEntryRow[]> {
+  async topEntries(scopeId: Uuid, limit: number): Promise<LeaderboardEntryView[]> {
     return db
       .select(entryColumns)
       .from(leaderboardEntries)
+      .innerJoin(users, eq(users.id, leaderboardEntries.userId))
       .where(eq(leaderboardEntries.scopeId, scopeId))
       .orderBy(asc(leaderboardEntries.rank), asc(leaderboardEntries.userId))
       .limit(limit);
   },
 
-  async entryFor(scopeId: Uuid, userId: Uuid): Promise<LeaderboardEntryRow | undefined> {
+  async entryFor(scopeId: Uuid, userId: Uuid): Promise<LeaderboardEntryView | undefined> {
     const [row] = await db
       .select(entryColumns)
       .from(leaderboardEntries)
+      .innerJoin(users, eq(users.id, leaderboardEntries.userId))
       .where(and(eq(leaderboardEntries.scopeId, scopeId), eq(leaderboardEntries.userId, userId)));
     return row;
   },

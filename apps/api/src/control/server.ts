@@ -7,12 +7,19 @@ import { logger } from "../gateway/logger.js";
 import type { OperatorControlService, OperatorIdentity } from "./service.js";
 
 const GridIdSchema = z.string().trim().min(1).max(200).regex(/^[A-Za-z0-9._:-]+$/u);
+const ScopeNameSchema = z.string().trim().min(1).max(80);
 const MutationSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("autopilot.set"), enabled: z.boolean() }),
   z.object({ type: z.literal("series.priority.set"), gridSeriesId: GridIdSchema, priority: z.boolean() }),
   z.object({ type: z.literal("series.stream.set"), gridSeriesId: GridIdSchema, streamUrl: z.string().max(500).nullable() }),
   z.object({ type: z.literal("series.skip.request"), gridSeriesId: GridIdSchema }),
   z.object({ type: z.literal("tournament.publish"), gridTournamentId: GridIdSchema, gridSeriesId: GridIdSchema }),
+  z.object({ type: z.literal("leaderboard.scope.create"), name: ScopeNameSchema }),
+  z.object({ type: z.literal("leaderboard.scope.rename"), scopeId: z.string().uuid(), name: ScopeNameSchema }),
+  z.object({ type: z.literal("leaderboard.scope.current.set"), scopeId: z.string().uuid() }),
+  z.object({ type: z.literal("leaderboard.scope.close") }),
+  z.object({ type: z.literal("leaderboard.competition.add"), scopeId: z.string().uuid(), competitionId: z.string().uuid() }),
+  z.object({ type: z.literal("leaderboard.competition.remove"), scopeId: z.string().uuid(), competitionId: z.string().uuid() }),
 ]);
 const ActorIdSchema = z.string().trim().min(1).max(100);
 const ActorLoginSchema = z.string().trim().min(1).max(100);
@@ -63,6 +70,9 @@ export function createOperatorControlServer(options: {
   });
   app.get("/catalog", async (_request, response) => {
     response.json(await options.service.catalog());
+  });
+  app.get("/leaderboard", async (_request, response) => {
+    response.json(await options.service.leaderboard());
   });
   app.get("/discovery", async (_request, response) => {
     response.json(await options.service.discover());

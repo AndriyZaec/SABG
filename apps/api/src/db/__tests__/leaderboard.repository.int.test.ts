@@ -16,6 +16,9 @@ describe.skipIf(!RUN)("leaderboardRepository (integration, requires DATABASE_URL
   const scopeIds: string[] = [];
   const competitionIds: string[] = [];
   const userIds: string[] = [];
+  const seriesIds: string[] = [];
+  const matchIds: string[] = [];
+  const arenaIds: string[] = [];
 
   beforeAll(async () => {
     ({ db } = await import("../client.js"));
@@ -27,6 +30,12 @@ describe.skipIf(!RUN)("leaderboardRepository (integration, requires DATABASE_URL
     if (db === undefined) return;
     // Entries and scope competitions cascade with their scope.
     if (scopeIds.length > 0) await db.delete(schema.leaderboardScopes).where(inArray(schema.leaderboardScopes.id, scopeIds));
+    if (arenaIds.length > 0) {
+      await db.delete(schema.arenaResults).where(inArray(schema.arenaResults.arenaId, arenaIds));
+      await db.delete(schema.arenas).where(inArray(schema.arenas.id, arenaIds));
+    }
+    if (matchIds.length > 0) await db.delete(schema.matches).where(inArray(schema.matches.id, matchIds));
+    if (seriesIds.length > 0) await db.delete(schema.series).where(inArray(schema.series.id, seriesIds));
     if (competitionIds.length > 0) await db.delete(schema.cs2Competitions).where(inArray(schema.cs2Competitions.id, competitionIds));
     if (userIds.length > 0) await db.delete(schema.users).where(inArray(schema.users.id, userIds));
   });
@@ -114,5 +123,46 @@ describe.skipIf(!RUN)("leaderboardRepository (integration, requires DATABASE_URL
     expect(await repository.topEntries(scope.id, 1)).toHaveLength(1);
     expect(await repository.entryFor(scope.id, b!)).toBeUndefined();
     expect((await repository.entryFor(scope.id, a!))?.points).toBe(7);
+  });
+
+  it("lists competitions with their scopes, arenas with results, and whether a series is still to come", async () => {
+    const running = await seedCompetition(`Running Cup ${runId}`);
+    const done = await seedCompetition(`Done Cup ${runId}`);
+    const scope = await createScope("Admin list");
+    await repository.addCompetition(scope.id, running);
+    const userId = await seedUser("admin-list-player");
+
+    const seedSeries = async (competitionId: string, name: string, catalogLifecycle: "upcoming" | "completed") => {
+      const [row] = await db.insert(schema.series).values({
+        gridSeriesId: `leaderboard-${name}-${runId}`,
+        competitionId,
+        format: 3,
+        scheduledStartTime: new Date(),
+        status: "active",
+        catalogLifecycle,
+      }).returning();
+      seriesIds.push(row!.id);
+      return row!.id;
+    };
+    await seedSeries(running, "running-next", "upcoming");
+    const playedSeries = await seedSeries(running, "running-played", "completed");
+    await seedSeries(done, "done-played", "completed");
+
+    const [match] = await db.insert(schema.matches).values({
+      discipline: "cs2", seriesId: playedSeries, seriesMatchIndex: 0, startTime: new Date(), status: "finished", currentMinute: 0, period: "pre",
+    }).returning();
+    matchIds.push(match!.id);
+    const [arena] = await db.insert(schema.arenas).values({
+      matchId: match!.id, status: "finished", mode: "classic", activePlayersCount: 0, entryFeeLamports: 0, prizePoolLamports: 0,
+      escrowAccount: `leaderboard-escrow-${runId}`,
+    }).returning();
+    arenaIds.push(arena!.id);
+    await db.insert(schema.arenaResults).values({
+      arenaId: arena!.id, userId, competitionId: running, score: 4, rank: 1, won: true, roundsPlayed: 10, playersCount: 1, finishedAt: new Date(),
+    });
+
+    const rows = (await repository.listAdminCompetitions()).filter((row) => row.id === running || row.id === done);
+    expect(rows.find((row) => row.id === running)).toMatchObject({ scopeIds: [scope.id], arenasWithResults: 1, unfinished: true });
+    expect(rows.find((row) => row.id === done)).toMatchObject({ scopeIds: [], arenasWithResults: 0, unfinished: false });
   });
 });
