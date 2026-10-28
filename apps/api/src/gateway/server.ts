@@ -15,6 +15,7 @@ import { createRestRouter } from "./rest.js";
 import { GatewayWebSocketServer } from "./ws.js";
 import { createEventAccess, type EventAccessOptions } from "./event-access.js";
 import { createCs2CatalogRouter, type Cs2CatalogReadStore } from "../cs2/catalog-routes.js";
+import { createLeaderboardRouter, type PlayerLeaderboardStore } from "../leaderboard/routes.js";
 
 export interface GatewayServer {
   httpServer: HttpServer;
@@ -27,6 +28,7 @@ export interface GatewayServerOptions {
   runtimeConfig?: RuntimeConfigResponse;
   eventAccess?: EventAccessOptions;
   catalogStore?: Cs2CatalogReadStore;
+  leaderboardStore?: PlayerLeaderboardStore;
 }
 
 export function createGatewayServer(options: GatewayServerOptions = {}): GatewayServer {
@@ -57,6 +59,7 @@ export function createGatewayServer(options: GatewayServerOptions = {}): Gateway
   app.use("/api/access", eventAccess.router);
   app.use("/api", eventAccess.requireAccess);
   app.use("/api", createCs2CatalogRouter(options.catalogStore));
+  app.use("/api", createLeaderboardRouter(options.leaderboardStore));
   app.get("/api/runtime-config", (_req, res) => res.json(runtimeConfig));
   // wsGateway also implements ArenaRuntimeLookup — REST and WS share the one runtime registry
   // (see arena-runtime.ts's doc comment on that interface).

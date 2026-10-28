@@ -148,6 +148,15 @@ export const leaderboardRepository = {
       .orderBy(asc(cs2Competitions.name));
   },
 
+  async listScopeCompetitions(scopeId: Uuid): Promise<{ name: string; shortName: string | null; logoUrl: string | null }[]> {
+    return db
+      .select({ name: cs2Competitions.name, shortName: cs2Competitions.shortName, logoUrl: cs2Competitions.logoUrl })
+      .from(leaderboardScopeCompetitions)
+      .innerJoin(cs2Competitions, eq(cs2Competitions.id, leaderboardScopeCompetitions.competitionId))
+      .where(eq(leaderboardScopeCompetitions.scopeId, scopeId))
+      .orderBy(asc(cs2Competitions.name));
+  },
+
   async listCompetitionIds(scopeId: Uuid): Promise<Uuid[]> {
     const rows = await db
       .select({ competitionId: leaderboardScopeCompetitions.competitionId })

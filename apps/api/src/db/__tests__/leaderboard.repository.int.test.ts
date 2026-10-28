@@ -164,5 +164,6 @@ describe.skipIf(!RUN)("leaderboardRepository (integration, requires DATABASE_URL
     const rows = (await repository.listAdminCompetitions()).filter((row) => row.id === running || row.id === done);
     expect(rows.find((row) => row.id === running)).toMatchObject({ scopeIds: [scope.id], arenasWithResults: 1, unfinished: true });
     expect(rows.find((row) => row.id === done)).toMatchObject({ scopeIds: [], arenasWithResults: 0, unfinished: false });
+    expect(await repository.listScopeCompetitions(scope.id)).toEqual([{ name: `Running Cup ${runId}`, shortName: null, logoUrl: null }]);
   });
 });
