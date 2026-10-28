@@ -1,6 +1,7 @@
 import type {
   AdminCatalogResponse,
   AdminControlStatus,
+  AdminLeaderboardResponse,
   AdminMutationCommand,
   AdminMutationResult,
   Cs2OperatorDiscoveryPayload,
@@ -44,6 +45,12 @@ export async function readControlCatalog(): Promise<AdminCatalogResponse> {
   const response = await fetch("/api/control/catalog", { headers: { accept: "application/json" } });
   if (!response.ok) throw new AdminApiError("Series catalog is unavailable", response.status);
   return response.json() as Promise<AdminCatalogResponse>;
+}
+
+export async function readLeaderboard(): Promise<AdminLeaderboardResponse> {
+  const response = await fetch("/api/control/leaderboard", { headers: { accept: "application/json" } });
+  if (!response.ok) throw new AdminApiError("Leaderboard is unavailable", response.status);
+  return response.json() as Promise<AdminLeaderboardResponse>;
 }
 
 export async function inspectGridSeries(gridSeriesId: string): Promise<Cs2OperatorDiscoveryPayload> {

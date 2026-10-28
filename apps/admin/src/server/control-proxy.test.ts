@@ -37,6 +37,7 @@ function mockControl() {
   return {
     status: vi.fn().mockResolvedValue({ status: 200, body: {} }),
     catalog: vi.fn().mockResolvedValue({ status: 200, body: {} }),
+    leaderboard: vi.fn().mockResolvedValue({ status: 200, body: { scopes: [], competitions: [] } }),
     discovery: vi.fn().mockResolvedValue({ status: 200, body: {} }),
     inspect: vi.fn().mockResolvedValue({ status: 200, body: {} }),
     audit: vi.fn().mockResolvedValue({ status: 200, body: {} }),
@@ -98,5 +99,19 @@ describe("admin control proxy", () => {
     expect(accepted.headers.get("x-request-id")).toBe("b87cff24-2c6d-485e-902b-9b9c7396f67c");
     expect(control.mutate).toHaveBeenCalledWith(command, { id: "1234", login: "operator" });
     expect(await accepted.json()).toEqual({ status: "refused", reason: "Another tournament publication is running" });
+  });
+
+  it("proxies the leaderboard read only for a signed-in operator", async () => {
+    const control = mockControl();
+    const origin = await start(control);
+
+    expect((await fetch(`${origin}/api/control/leaderboard`)).status).toBe(401);
+    expect(control.leaderboard).not.toHaveBeenCalled();
+
+    const cookie = `${SESSION_COOKIE}=${sealSession(createOperatorSession("1234", "operator"), config.sessionSecret)}`;
+    const response = await fetch(`${origin}/api/control/leaderboard`, { headers: { cookie } });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ scopes: [], competitions: [] });
+    expect(control.leaderboard).toHaveBeenCalledOnce();
   });
 });
