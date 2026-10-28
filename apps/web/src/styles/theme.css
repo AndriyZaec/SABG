@@ -971,6 +971,13 @@ button.nb-footer__link {
 .nb-board__name { flex: 1; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nb-board__score { font-family: var(--font-display); font-size: 1.2rem; }
 
+.cs2-leaderboard__competitions { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.cs2-leaderboard__competitions li { display: flex; align-items: center; gap: 8px; border: 2px solid var(--ink); padding: 4px 10px 4px 4px; background: var(--white); font-size: 0.8rem; font-weight: 700; }
+.cs2-leaderboard__competitions .cs2-logo { width: 28px; height: 28px; }
+.cs2-leaderboard__meta { font-size: 0.72rem; font-weight: 700; opacity: 0.7; white-space: nowrap; }
+.cs2-leaderboard__pinned { padding-top: 10px; border-top: 2px dashed var(--ink); }
+.cs2-leaderboard__empty { margin: 0; font-weight: 700; }
+
 /* ---- Account dropdown ---- */
 .nb-menu { position: relative; }
 .nb-menu__trigger { gap: 8px; }
