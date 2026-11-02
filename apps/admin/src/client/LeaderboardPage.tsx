@@ -207,10 +207,20 @@ export function LeaderboardPage({ session, onSessionExpired }: {
             ? "Players see a coming-soon page until a scope is made current."
             : data.current?.computedAt !== undefined
               ? `Last computed ${formatDateTime(data.current.computedAt)}.`
-              : "Not computed yet: the first recompute runs after the next arena or within 15 minutes."}
+              : "Not computed yet: recompute now, or it runs after the next arena or within 15 minutes."}
         </p>
         {currentScope !== undefined && (
-          <button className="danger-action" type="button" disabled={mutating} onClick={() => setConfirmation({ kind: "close" })}>Close current scope</button>
+          <div className="leaderboard-current__actions">
+            <button
+              className="secondary-action"
+              type="button"
+              disabled={mutating}
+              onClick={() => void runMutation({ type: "leaderboard.recompute" }, "Recompute started. The leaderboard will update shortly.")}
+            >
+              Recompute now
+            </button>
+            <button className="danger-action" type="button" disabled={mutating} onClick={() => setConfirmation({ kind: "close" })}>Close current scope</button>
+          </div>
         )}
       </section>
 

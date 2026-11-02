@@ -314,6 +314,8 @@ button:focus-visible, a:focus-visible { outline: 3px solid var(--yellow); outlin
 .leaderboard-page__header { align-items: flex-end; }
 .leaderboard-page .catalog-table-heading { flex-wrap: wrap; }
 .leaderboard-current { min-height: 0; margin-top: 28px; }
+.leaderboard-current__actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.leaderboard-current__actions .danger-action { min-height: 42px; }
 .leaderboard-new-scope { display: grid; grid-template-columns: minmax(200px, 280px) auto; align-items: end; gap: 10px; }
 .leaderboard-new-scope .primary-action { min-height: 42px; }
 .leaderboard-scope-picker select { min-height: 42px; min-width: 220px; padding: 0 12px; border: 1px solid #364148; border-radius: 0; color: var(--ink); background: #0a0f12; }
