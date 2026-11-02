@@ -415,7 +415,7 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     const orchestrator = await Cs2SeriesOrchestrator.create(series, { writeQueue, entryFeeLamports: 1000 });
 
     await orchestrator.poll(snapshot(matchTeamIds, {}), at(-10));
-    const match1 = (await matchRepository.list()).find((m) => m.discipline === "cs2" && m.seriesId === series.id)!;
+    const match1 = (await matchRepository.listBySeriesId(series.id))[0]!;
     matchIds.push(match1.id);
     const arena1 = await arenaRepository.findByMatchId(match1.id);
     arenaIds.push(arena1!.id);
