@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import dotenv from "dotenv";
-import { inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 dotenv.config();
@@ -19,11 +19,14 @@ describe.skipIf(!RUN)("leaderboardRepository (integration, requires DATABASE_URL
   const seriesIds: string[] = [];
   const matchIds: string[] = [];
   const arenaIds: string[] = [];
+  // These tests switch the single current scope, which closes one a developer left current in this database.
+  let currentBefore: string | undefined;
 
   beforeAll(async () => {
     ({ db } = await import("../client.js"));
     schema = await import("../schema.js");
     ({ leaderboardRepository: repository } = await import("../repositories/leaderboard.repository.js"));
+    currentBefore = (await repository.findCurrent())?.id;
   });
 
   afterAll(async () => {
@@ -38,6 +41,11 @@ describe.skipIf(!RUN)("leaderboardRepository (integration, requires DATABASE_URL
     if (seriesIds.length > 0) await db.delete(schema.series).where(inArray(schema.series.id, seriesIds));
     if (competitionIds.length > 0) await db.delete(schema.cs2Competitions).where(inArray(schema.cs2Competitions.id, competitionIds));
     if (userIds.length > 0) await db.delete(schema.users).where(inArray(schema.users.id, userIds));
+    if (currentBefore !== undefined) {
+      await db.update(schema.leaderboardScopes)
+        .set({ status: "open", isCurrent: true, closedAt: null })
+        .where(eq(schema.leaderboardScopes.id, currentBefore));
+    }
   });
 
   async function createScope(name: string) {
