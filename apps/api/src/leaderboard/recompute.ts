@@ -6,8 +6,8 @@ import { rankPlayers } from "./player-ranking.js";
 
 /**
  * Rebuilds an open scope's leaderboard from its competitions' arena results. A full rebuild, so a
- * repeated run writes the same rows. False when the scope is missing or closed: a closed scope keeps
- * the result of its final recompute, which runs before it closes.
+ * repeated run writes the same rows. False when the scope is missing or closed, also when it closes
+ * mid-run: a closed scope keeps the result of its final recompute, which runs before it closes.
  */
 export async function recomputeScope(scopeId: Uuid, now: Date = new Date()): Promise<boolean> {
   const scope = await leaderboardRepository.findScope(scopeId);
@@ -15,6 +15,5 @@ export async function recomputeScope(scopeId: Uuid, now: Date = new Date()): Pro
 
   const results = await arenaResultRepository.listByCompetitions(await leaderboardRepository.listCompetitionIds(scopeId));
   const payouts = await payoutRepository.sentTotalsByUser([...new Set(results.map((result) => result.arenaId))]);
-  await leaderboardRepository.replaceEntries(scopeId, rankPlayers(results, payouts), now);
-  return true;
+  return leaderboardRepository.replaceEntries(scopeId, rankPlayers(results, payouts), now);
 }

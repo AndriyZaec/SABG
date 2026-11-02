@@ -184,10 +184,16 @@ export const leaderboardRepository = {
     });
   },
 
-  async replaceEntries(scopeId: Uuid, entries: readonly Omit<LeaderboardEntryRow, "computedAt">[], computedAt: Date): Promise<void> {
-    await db.transaction(async (tx) => {
+  /**
+   * Locks the scope row first, so recomputes of one scope wait for each other instead of colliding on
+   * the primary key. False, writing nothing, when the scope is missing or closed: it keeps its final rows.
+   */
+  async replaceEntries(scopeId: Uuid, entries: readonly Omit<LeaderboardEntryRow, "computedAt">[], computedAt: Date): Promise<boolean> {
+    return db.transaction(async (tx) => {
+      if (!(await lockOpenScope(tx, scopeId))) return false;
       await tx.delete(leaderboardEntries).where(eq(leaderboardEntries.scopeId, scopeId));
       if (entries.length > 0) await tx.insert(leaderboardEntries).values(entries.map((entry) => ({ ...entry, scopeId, computedAt })));
+      return true;
     });
   },
 

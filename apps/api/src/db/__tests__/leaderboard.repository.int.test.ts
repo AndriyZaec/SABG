@@ -122,8 +122,8 @@ describe.skipIf(!RUN)("leaderboardRepository (integration, requires DATABASE_URL
     const firstRun = new Date("2026-10-27T12:00:00.000Z");
     const secondRun = new Date("2026-10-27T12:15:00.000Z");
 
-    await repository.replaceEntries(scope.id, [entry(a!, 2, 5), entry(b!, 1, 9)], firstRun);
-    await repository.replaceEntries(scope.id, [entry(c!, 1, 12), entry(a!, 2, 7)], secondRun);
+    expect(await repository.replaceEntries(scope.id, [entry(a!, 2, 5), entry(b!, 1, 9)], firstRun)).toBe(true);
+    expect(await repository.replaceEntries(scope.id, [entry(c!, 1, 12), entry(a!, 2, 7)], secondRun)).toBe(true);
 
     const top = await repository.topEntries(scope.id, 10);
     expect(top.map((row) => [row.userId, row.rank, row.points])).toEqual([[c, 1, 12], [a, 2, 7]]);
@@ -131,6 +131,41 @@ describe.skipIf(!RUN)("leaderboardRepository (integration, requires DATABASE_URL
     expect(await repository.topEntries(scope.id, 1)).toHaveLength(1);
     expect(await repository.entryFor(scope.id, b!)).toBeUndefined();
     expect((await repository.entryFor(scope.id, a!))?.points).toBe(7);
+  });
+
+  it("waits for another writer of the same scope, and never writes a closed scope", async () => {
+    const scope = await createScope("Locked");
+    const player = await seedUser("locked-a");
+    const entry = { userId: player, rank: 1, points: 5, arenasPlayed: 1, wins: 1, secondPlaces: 0, roundsPlayed: 10, totalScore: 5, totalPayoutLamports: 0 };
+
+    let markLocked!: () => void;
+    let release!: () => void;
+    const locked = new Promise<void>((resolve) => { markLocked = resolve; });
+    const released = new Promise<void>((resolve) => { release = resolve; });
+    const holder = db.transaction(async (tx) => {
+      await tx.select({ id: schema.leaderboardScopes.id }).from(schema.leaderboardScopes).where(eq(schema.leaderboardScopes.id, scope.id)).for("update");
+      markLocked();
+      await released;
+    });
+    await locked;
+
+    let settled = false;
+    const write = repository.replaceEntries(scope.id, [entry], new Date()).finally(() => { settled = true; });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(settled).toBe(false);
+    } finally {
+      // Always let go, so a regression fails here instead of hanging on the held lock.
+      release();
+      await holder;
+    }
+    await expect(write).resolves.toBe(true);
+    expect((await repository.topEntries(scope.id, 10)).map((row) => row.userId)).toEqual([player]);
+
+    await repository.setCurrent(scope.id);
+    await repository.closeCurrent();
+    expect(await repository.replaceEntries(scope.id, [], new Date())).toBe(false);
+    expect((await repository.topEntries(scope.id, 10)).map((row) => row.userId)).toEqual([player]);
   });
 
   it("lists competitions with their scopes, arenas with results, and whether a series is still to come", async () => {
