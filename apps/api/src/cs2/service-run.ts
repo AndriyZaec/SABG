@@ -83,6 +83,11 @@ async function main(): Promise<void> {
           getRunningSeriesId: () => autopilot?.runningSeriesId,
           hasRunner: () => autopilot?.hasRunner === true,
           runWhileIdle: (task) => autopilot!.runWhileIdle(task),
+          queueLeaderboardRecompute: () => {
+            if (queueLeaderboardRecompute === undefined) return false;
+            queueLeaderboardRecompute();
+            return true;
+          },
         }),
       });
       await listenHttpServer(controlServer, operatorControlConfig.port, abortController.signal, operatorControlConfig.host);

@@ -20,6 +20,7 @@ const MutationSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("leaderboard.scope.close") }),
   z.object({ type: z.literal("leaderboard.competition.add"), scopeId: z.string().uuid(), competitionId: z.string().uuid() }),
   z.object({ type: z.literal("leaderboard.competition.remove"), scopeId: z.string().uuid(), competitionId: z.string().uuid() }),
+  z.object({ type: z.literal("leaderboard.recompute") }),
 ]);
 const ActorIdSchema = z.string().trim().min(1).max(100);
 const ActorLoginSchema = z.string().trim().min(1).max(100);

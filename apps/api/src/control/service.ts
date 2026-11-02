@@ -74,6 +74,8 @@ export interface OperatorControlDependencies {
   inspect(gridSeriesId: string): Promise<Cs2OperatorDiscoveryPayload>;
   activate(gridSeriesId: string, expectedTournamentId: string): ReturnType<typeof activateCs2Series>;
   leaderboard: LeaderboardControl;
+  /** False while the recompute queue isn't running yet. */
+  queueLeaderboardRecompute(): boolean;
 }
 
 export interface OperatorAuditQuery {
@@ -95,6 +97,7 @@ const targetIdFor = (command: AdminMutationCommand): string | undefined => {
       return command.gridSeriesId;
     case "leaderboard.scope.create":
     case "leaderboard.scope.close":
+    case "leaderboard.recompute":
       return undefined;
     case "leaderboard.scope.rename":
     case "leaderboard.scope.current.set":
@@ -109,6 +112,7 @@ function createDefaultDependencies(
   hasRunner: () => boolean,
   runWhileIdle: OperatorControlDependencies["runWhileIdle"],
   now: () => Date,
+  queueLeaderboardRecompute: () => boolean,
 ): OperatorControlDependencies {
   const gridClient = new GridCentralDataClient();
   return {
@@ -142,6 +146,7 @@ function createDefaultDependencies(
     },
     activate: (gridSeriesId, expectedTournamentId) => activateCs2Series(gridSeriesId, { expectedTournamentId }),
     leaderboard: { ...leaderboardRepository, recomputeScope },
+    queueLeaderboardRecompute,
   };
 }
 
@@ -364,6 +369,12 @@ export class OperatorControlService {
         if (!await this.deps.leaderboard.closeCurrent()) return this.refused("No current scope");
         return { result: { status: "succeeded" }, details: { before: current.id, after: null } };
       }
+      case "leaderboard.recompute": {
+        const current = await this.deps.leaderboard.findCurrent();
+        if (current === undefined) return this.refused("No current scope");
+        if (!this.deps.queueLeaderboardRecompute()) return this.refused("Recompute queue is not running");
+        return { result: { status: "requested" }, details: { after: current.id } };
+      }
       case "leaderboard.competition.add":
       case "leaderboard.competition.remove": {
         const scope = await this.deps.leaderboard.findScope(command.scopeId);
@@ -420,6 +431,7 @@ export function createOperatorControlService(options: {
   getRunningSeriesId?: () => Uuid | undefined;
   hasRunner?: () => boolean;
   runWhileIdle?: OperatorControlDependencies["runWhileIdle"];
+  queueLeaderboardRecompute?: () => boolean;
   now?: () => Date;
   dependencies?: OperatorControlDependencies;
 } = {}): OperatorControlService {
@@ -427,8 +439,9 @@ export function createOperatorControlService(options: {
   const getRunningSeriesId = options.getRunningSeriesId ?? (() => undefined);
   const hasRunner = options.hasRunner ?? (() => false);
   const runWhileIdle = options.runWhileIdle ?? (async (task) => ({ kind: "completed" as const, value: await task() }));
+  const queueLeaderboardRecompute = options.queueLeaderboardRecompute ?? (() => false);
   return new OperatorControlService(
-    options.dependencies ?? createDefaultDependencies(getRunningSeriesId, hasRunner, runWhileIdle, now),
+    options.dependencies ?? createDefaultDependencies(getRunningSeriesId, hasRunner, runWhileIdle, now, queueLeaderboardRecompute),
     options.revision ?? process.env["SABG_VCS_REF"] ?? "unknown",
     now,
   );

@@ -56,6 +56,7 @@ describe("operator control machine authentication", () => {
       inspect: vi.fn(),
       activate: vi.fn(),
       leaderboard: fakeLeaderboard(),
+      queueLeaderboardRecompute: vi.fn(),
     } satisfies OperatorControlDependencies;
     server = createOperatorControlServer({
       machineToken: "test-machine-token-with-at-least-32-characters",
@@ -122,5 +123,8 @@ describe("operator control leaderboard routes", () => {
 
     expect((await post({ type: "leaderboard.scope.create", name: "  Autumn  " })).status).toBe(200);
     expect(mutate).toHaveBeenCalledWith({ type: "leaderboard.scope.create", name: "Autumn" }, { id: "123", login: "operator" }, expect.any(String));
+
+    expect((await post({ type: "leaderboard.recompute" })).status).toBe(200);
+    expect(mutate).toHaveBeenLastCalledWith({ type: "leaderboard.recompute" }, { id: "123", login: "operator" }, expect.any(String));
   });
 });

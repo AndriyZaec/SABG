@@ -40,7 +40,9 @@ export type AdminMutationCommand =
   /** Final recompute and close of the current scope, leaving none current. */
   | { type: "leaderboard.scope.close" }
   | { type: "leaderboard.competition.add"; scopeId: Uuid; competitionId: Uuid }
-  | { type: "leaderboard.competition.remove"; scopeId: Uuid; competitionId: Uuid };
+  | { type: "leaderboard.competition.remove"; scopeId: Uuid; competitionId: Uuid }
+  /** Queues a worker recompute of the current scope; the result shows up once the worker runs. */
+  | { type: "leaderboard.recompute" };
 
 export type AdminMutationResult =
   | { status: "succeeded" }

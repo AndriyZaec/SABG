@@ -62,6 +62,7 @@ function setup(overrides: Partial<OperatorControlDependencies> = {}) {
       syncedSeries: 2,
     }),
     leaderboard: fakeLeaderboard(),
+    queueLeaderboardRecompute: vi.fn().mockReturnValue(true),
     ...overrides,
   } satisfies OperatorControlDependencies;
   return { service: new OperatorControlService(deps, "test-revision"), deps, release, runWhileIdleCalls };
@@ -214,6 +215,26 @@ describe("operator control leaderboard", () => {
     vi.mocked(leaderboard.competitionExists).mockResolvedValue(false);
     await expect(service.mutate({ type: "leaderboard.competition.remove", scopeId: "open", competitionId: "nope" }, actor, randomUUID()))
       .resolves.toEqual({ result: { status: "refused", reason: "Competition not found" } });
+  });
+
+  it("queues a recompute of the current scope, and refuses without one or before the queue runs", async () => {
+    const leaderboard = fakeLeaderboard({ findCurrent: vi.fn().mockResolvedValue(scope("live", { isCurrent: true })) });
+    const { service, deps } = setup({ leaderboard });
+
+    await expect(service.mutate({ type: "leaderboard.recompute" }, actor, randomUUID()))
+      .resolves.toEqual({ result: { status: "requested" } });
+    expect(deps.queueLeaderboardRecompute).toHaveBeenCalledOnce();
+    expect(leaderboard.recomputeScope).not.toHaveBeenCalled();
+    expect(deps.appendAudit).toHaveBeenLastCalledWith(expect.objectContaining({ action: "leaderboard.recompute", result: "requested", details: { after: "live" } }));
+
+    vi.mocked(deps.queueLeaderboardRecompute).mockReturnValue(false);
+    await expect(service.mutate({ type: "leaderboard.recompute" }, actor, randomUUID()))
+      .resolves.toEqual({ result: { status: "refused", reason: "Recompute queue is not running" } });
+
+    const empty = setup();
+    await expect(empty.service.mutate({ type: "leaderboard.recompute" }, actor, randomUUID()))
+      .resolves.toEqual({ result: { status: "refused", reason: "No current scope" } });
+    expect(empty.deps.queueLeaderboardRecompute).not.toHaveBeenCalled();
   });
 
   it("reports scopes, competitions with the unfinished flag, and the current top", async () => {
