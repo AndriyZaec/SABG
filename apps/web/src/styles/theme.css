@@ -975,6 +975,13 @@ button.nb-footer__link {
 .cs2-leaderboard__competitions li { display: flex; align-items: center; gap: 8px; border: 2px solid var(--ink); padding: 4px 10px 4px 4px; background: var(--white); font-size: 0.8rem; font-weight: 700; }
 .cs2-leaderboard__competitions .cs2-logo { width: 28px; height: 28px; }
 .cs2-leaderboard__meta { font-size: 0.72rem; font-weight: 700; opacity: 0.7; white-space: nowrap; }
+/* The leader inverts; the viewer's yellow still wins when the viewer leads. */
+.cs2-leaderboard__row--first { background: var(--ink); color: var(--white); padding: 11px 10px; }
+.cs2-leaderboard__row--first.nb-board__row--you { background: var(--yellow); color: var(--ink); }
+.cs2-leaderboard__row--first .nb-board__score { font-size: 1.5rem; }
+.cs2-leaderboard__row--first .cs2-leaderboard__meta { opacity: 0.85; }
+.cs2-leaderboard__trophy { display: block; width: 22px; height: 22px; }
+.cs2-leaderboard__group { display: grid; gap: 6px; }
 .cs2-leaderboard__pinned { padding-top: 10px; border-top: 2px dashed var(--ink); }
 .cs2-leaderboard__empty { margin: 0; font-weight: 700; }
 

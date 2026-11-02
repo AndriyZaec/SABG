@@ -12,9 +12,18 @@ type LoadState =
   | { state: "error" };
 
 function Row({ row }: { row: PlayerBoardRow }) {
+  const first = row.rank === 1;
   return (
-    <li className={`nb-board__row${row.you ? " nb-board__row--you" : ""}`}>
-      <span className="nb-board__rank">{row.rank}</span>
+    <li className={`nb-board__row${row.you ? " nb-board__row--you" : ""}${first ? " cs2-leaderboard__row--first" : ""}`}>
+      {first ? (
+        <span className="nb-board__rank">
+          <svg className="cs2-leaderboard__trophy" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" role="img" aria-label="Rank 1">
+            <path d="M8 3h8v7a4 4 0 0 1-8 0V3ZM8 5H4v3a4 4 0 0 0 4 4M16 5h4v3a4 4 0 0 1-4 4M12 14v7M8 21h8" />
+          </svg>
+        </span>
+      ) : (
+        <span className="nb-board__rank">{row.rank}</span>
+      )}
       <span className="nb-board__name">{row.username}</span>
       <span className="cs2-leaderboard__meta">{row.wins} W · {row.arenasPlayed} {row.arenasPlayed === 1 ? "arena" : "arenas"}</span>
       <span className="nb-board__score">{row.points}</span>
@@ -100,15 +109,26 @@ export function Cs2PlayerLeaderboardScreen() {
             ))}
           </ul>
         )}
+        {view.me !== undefined && (
+          <div className="cs2-leaderboard__group">
+            <span className="nb-label">Your position</span>
+            <ol className="nb-board" aria-label="Your position">
+              <Row row={{ ...view.me, you: true }} />
+            </ol>
+          </div>
+        )}
         {view.rows.length === 0 ? (
           <p className="cs2-leaderboard__empty">No results yet. Standings appear after the first counted arena finishes.</p>
         ) : (
-          <ol className="nb-board">
-            {view.rows.map((row) => <Row key={row.userId} row={row} />)}
-          </ol>
+          <div className="cs2-leaderboard__group">
+            <span className="nb-label">Standings</span>
+            <ol className="nb-board" aria-label="Standings">
+              {view.rows.map((row) => <Row key={row.userId} row={row} />)}
+            </ol>
+          </div>
         )}
         {view.pinned !== undefined && (
-          <ol className="nb-board cs2-leaderboard__pinned" aria-label="Your position">
+          <ol className="nb-board cs2-leaderboard__pinned" aria-label="Your position below the top">
             <Row row={view.pinned} />
           </ol>
         )}

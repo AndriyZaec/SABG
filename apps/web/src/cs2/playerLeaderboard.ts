@@ -11,12 +11,14 @@ export type PlayerLeaderboardView =
       scopeName: string;
       competitions: Cs2CompetitionSummary[];
       rows: PlayerBoardRow[];
+      /** The viewer's own entry, wherever they rank. */
+      me?: PlayerLeaderboardEntry;
       /** The viewer's own row when it is ranked below the shown top. */
       pinned?: PlayerBoardRow;
       computedAt?: string;
     };
 
-/** Marks the viewer in the top and pins their row below it when they rank outside. */
+/** Marks the viewer in the top, pins their row below it when they rank outside, and keeps their entry for the summary. */
 export function playerLeaderboardView(
   response: PlayerLeaderboardResponse,
   me: PlayerLeaderboardEntry | null,
@@ -29,6 +31,7 @@ export function playerLeaderboardView(
     scopeName: response.scope.name,
     competitions: response.competitions,
     rows,
+    ...(me !== null ? { me } : {}),
     ...(pinned !== undefined ? { pinned } : {}),
     ...(response.computedAt !== undefined ? { computedAt: response.computedAt } : {}),
   };

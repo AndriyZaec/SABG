@@ -23,6 +23,7 @@ describe("playerLeaderboardView", () => {
     if (view.kind !== "board") throw new Error("expected board");
     expect(view.rows.map((row) => [row.userId, row.you])).toEqual([["a", false], ["me", true]]);
     expect(view.pinned).toBeUndefined();
+    expect(view.me).toEqual(entry("me", 2));
   });
 
   it("pins the viewer's row below the top when they rank outside it", () => {
@@ -30,6 +31,7 @@ describe("playerLeaderboardView", () => {
     if (view.kind !== "board") throw new Error("expected board");
     expect(view.rows.some((row) => row.you)).toBe(false);
     expect(view.pinned).toEqual({ ...entry("me", 140), you: true });
+    expect(view.me).toEqual(entry("me", 140));
   });
 
   it("marks nobody for a signed-out or unranked viewer", () => {
@@ -37,5 +39,6 @@ describe("playerLeaderboardView", () => {
     if (view.kind !== "board") throw new Error("expected board");
     expect(view.rows.map((row) => row.you)).toEqual([false]);
     expect(view.pinned).toBeUndefined();
+    expect(view.me).toBeUndefined();
   });
 });
