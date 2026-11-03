@@ -185,14 +185,23 @@ export const leaderboardRepository = {
   },
 
   /**
-   * Locks the scope row first, so recomputes of one scope wait for each other instead of colliding on
-   * the primary key. False, writing nothing, when the scope is missing or closed: it keeps its final rows.
+   * Locks the scope row, then computes and writes its entries while holding it. Recomputes of one scope
+   * run one after another, and each reads only after the previous one committed, so an older result
+   * never overwrites a newer one. False, computing and writing nothing, when the scope is missing or
+   * closed: it keeps its final rows. `computedAt` defaults to the time the inputs were read, not the
+   * time the call started waiting for the lock.
    */
-  async replaceEntries(scopeId: Uuid, entries: readonly Omit<LeaderboardEntryRow, "computedAt">[], computedAt: Date): Promise<boolean> {
+  async replaceEntries(
+    scopeId: Uuid,
+    compute: () => Promise<readonly Omit<LeaderboardEntryRow, "computedAt">[]>,
+    computedAt?: Date,
+  ): Promise<boolean> {
     return db.transaction(async (tx) => {
       if (!(await lockOpenScope(tx, scopeId))) return false;
+      const at = computedAt ?? new Date();
+      const entries = await compute();
       await tx.delete(leaderboardEntries).where(eq(leaderboardEntries.scopeId, scopeId));
-      if (entries.length > 0) await tx.insert(leaderboardEntries).values(entries.map((entry) => ({ ...entry, scopeId, computedAt })));
+      if (entries.length > 0) await tx.insert(leaderboardEntries).values(entries.map((entry) => ({ ...entry, scopeId, computedAt: at })));
       return true;
     });
   },

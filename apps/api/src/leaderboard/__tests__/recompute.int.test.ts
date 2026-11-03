@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import dotenv from "dotenv";
-import { inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 dotenv.config();
@@ -121,6 +121,41 @@ describe.skipIf(!RUN)("recomputeScope (integration, requires DATABASE_URL)", () 
     expect(await recomputeScope(scope.id, new Date("2026-10-27T12:15:00.000Z"))).toBe(true);
     const second = await leaderboardRepository.topEntries(scope.id, 10);
     expect(second.map(({ computedAt: _, ...entry }) => entry)).toEqual(first.map(({ computedAt: _, ...entry }) => entry));
+  });
+
+  it("reads its inputs only once it holds the scope lock, so a result stored while it waits counts", async () => {
+    const competition = await seedCompetition("Waiting Cup");
+    const arena = await seedArena(competition, "waiting");
+    const player = await seedUser("waiting-player");
+    const scope = await leaderboardRepository.createScope(`Waiting ${runId}`);
+    scopeIds.push(scope.id);
+    await leaderboardRepository.addCompetition(scope.id, competition);
+
+    let markLocked!: () => void;
+    let release!: () => void;
+    const locked = new Promise<void>((resolve) => { markLocked = resolve; });
+    const released = new Promise<void>((resolve) => { release = resolve; });
+    const holder = db.transaction(async (tx) => {
+      await tx.select({ id: schema.leaderboardScopes.id }).from(schema.leaderboardScopes).where(eq(schema.leaderboardScopes.id, scope.id)).for("update");
+      markLocked();
+      await released;
+    });
+    await locked;
+
+    const recompute = recomputeScope(scope.id);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      await arenaResultRepository.insertMany([
+        { arenaId: arena, competitionId: competition, userId: player, score: 6, rank: 1, won: true, roundsPlayed: 12, playersCount: 1, finishedAt: new Date() },
+      ]);
+    } finally {
+      // Always let go, so a regression fails here instead of hanging on the held lock.
+      release();
+      await holder;
+    }
+
+    await expect(recompute).resolves.toBe(true);
+    expect((await leaderboardRepository.topEntries(scope.id, 10)).map((entry) => [entry.userId, entry.points])).toEqual([[player, 6]]);
   });
 
   it("leaves a closed scope's rows alone", async () => {
