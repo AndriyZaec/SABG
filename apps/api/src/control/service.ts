@@ -1,6 +1,7 @@
 import type {
   AdminCatalogResponse,
   AdminControlStatus,
+  AdminLeaderboardResponse,
   AdminMutationCommand,
   AdminMutationResult,
   Cs2OperatorDiscoveryPayload,
@@ -15,7 +16,9 @@ import { GridCentralDataClient } from "../cs2/central-data-client.js";
 import { tryAcquireOperatorMutationLock, type ReleaseDatabaseLock } from "../db/client.js";
 import { cs2CatalogRepository } from "../db/repositories/cs2-catalog.repository.js";
 import { operatorAuditRepository, type AppendOperatorAudit } from "../db/repositories/operator-audit.repository.js";
+import { leaderboardRepository } from "../db/repositories/leaderboard.repository.js";
 import { operatorControlRepository } from "../db/repositories/operator-control.repository.js";
+import { recomputeScope } from "../leaderboard/recompute.js";
 import {
   CS2_AUTOPILOT_SETTING,
   settingsRepository,
@@ -30,6 +33,26 @@ export interface OperatorMutationExecution {
   result: AdminMutationResult;
   conflict?: boolean;
 }
+
+const ADMIN_LEADERBOARD_TOP = 100;
+// Another operator switched or closed the current scope between this request's read and its write.
+const CURRENT_SCOPE_CHANGED = "Current scope changed; reload and try again";
+
+export type LeaderboardControl = Pick<
+  typeof leaderboardRepository,
+  | "listScopes"
+  | "findScope"
+  | "findCurrent"
+  | "createScope"
+  | "renameScope"
+  | "setCurrent"
+  | "closeCurrent"
+  | "addCompetition"
+  | "removeCompetition"
+  | "competitionExists"
+  | "listAdminCompetitions"
+  | "topEntries"
+> & { recomputeScope: typeof recomputeScope };
 
 export interface OperatorControlDependencies {
   getActiveTournamentId(): Promise<string | undefined>;
@@ -52,6 +75,9 @@ export interface OperatorControlDependencies {
   discover(): Promise<Cs2OperatorDiscoveryPayload>;
   inspect(gridSeriesId: string): Promise<Cs2OperatorDiscoveryPayload>;
   activate(gridSeriesId: string, expectedTournamentId: string): ReturnType<typeof activateCs2Series>;
+  leaderboard: LeaderboardControl;
+  /** False while the recompute queue isn't running yet. */
+  queueLeaderboardRecompute(): boolean;
 }
 
 export interface OperatorAuditQuery {
@@ -61,10 +87,26 @@ export interface OperatorAuditQuery {
   cursor?: { createdAt: Date; id: string };
 }
 
-const targetIdFor = (command: AdminMutationCommand): string => {
-  if (command.type === "autopilot.set") return CS2_AUTOPILOT_SETTING;
-  if (command.type === "tournament.publish") return command.gridTournamentId;
-  return command.gridSeriesId;
+const targetIdFor = (command: AdminMutationCommand): string | undefined => {
+  switch (command.type) {
+    case "autopilot.set":
+      return CS2_AUTOPILOT_SETTING;
+    case "tournament.publish":
+      return command.gridTournamentId;
+    case "series.priority.set":
+    case "series.stream.set":
+    case "series.skip.request":
+      return command.gridSeriesId;
+    case "leaderboard.scope.create":
+    case "leaderboard.scope.close":
+    case "leaderboard.recompute":
+      return undefined;
+    case "leaderboard.scope.rename":
+    case "leaderboard.scope.current.set":
+    case "leaderboard.competition.add":
+    case "leaderboard.competition.remove":
+      return command.scopeId;
+  }
 };
 
 function createDefaultDependencies(
@@ -72,6 +114,7 @@ function createDefaultDependencies(
   hasRunner: () => boolean,
   runWhileIdle: OperatorControlDependencies["runWhileIdle"],
   now: () => Date,
+  queueLeaderboardRecompute: () => boolean,
 ): OperatorControlDependencies {
   const gridClient = new GridCentralDataClient();
   return {
@@ -104,6 +147,8 @@ function createDefaultDependencies(
       return buildOperatorDiscoveryPayload(window, found === undefined ? [] : [found]);
     },
     activate: (gridSeriesId, expectedTournamentId) => activateCs2Series(gridSeriesId, { expectedTournamentId }),
+    leaderboard: { ...leaderboardRepository, recomputeScope },
+    queueLeaderboardRecompute,
   };
 }
 
@@ -140,6 +185,47 @@ export class OperatorControlService {
       this.deps.listCatalog(this.deps.getRunningSeriesId()),
     ]);
     return { ...(activeTournamentId !== undefined ? { activeTournamentId } : {}), series };
+  }
+
+  async leaderboard(): Promise<AdminLeaderboardResponse> {
+    const { leaderboard } = this.deps;
+    const [scopes, competitions] = await Promise.all([leaderboard.listScopes(), leaderboard.listAdminCompetitions()]);
+    const current = scopes.find((scope) => scope.isCurrent);
+    const entries = current === undefined ? [] : await leaderboard.topEntries(current.id, ADMIN_LEADERBOARD_TOP);
+    const computedAt = entries[0]?.computedAt;
+    return {
+      scopes: scopes.map((scope) => ({
+        id: scope.id,
+        name: scope.name,
+        status: scope.status,
+        current: scope.isCurrent,
+        ...(scope.closedAt !== null ? { closedAt: scope.closedAt.toISOString() } : {}),
+      })),
+      competitions: competitions.map(({ shortName, logoUrl, ...competition }) => ({
+        ...competition,
+        ...(shortName !== null ? { shortName } : {}),
+        ...(logoUrl !== null ? { logoUrl } : {}),
+      })),
+      ...(current !== undefined
+        ? {
+            current: {
+              scopeId: current.id,
+              ...(computedAt !== undefined ? { computedAt: computedAt.toISOString() } : {}),
+              entries: entries.map((entry) => ({
+                userId: entry.userId,
+                username: entry.username,
+                rank: entry.rank,
+                points: entry.points,
+                wins: entry.wins,
+                secondPlaces: entry.secondPlaces,
+                roundsPlayed: entry.roundsPlayed,
+                arenasPlayed: entry.arenasPlayed,
+                totalPayoutLamports: entry.totalPayoutLamports,
+              })),
+            },
+          }
+        : {}),
+    };
   }
 
   async discover(): Promise<Cs2OperatorDiscoveryPayload> {
@@ -258,6 +344,57 @@ export class OperatorControlService {
           ? this.refused("A CS2 Series is running; Skip it or wait for it to finish")
           : publication.value;
       }
+      case "leaderboard.scope.create": {
+        await this.deps.leaderboard.createScope(command.name);
+        return { result: { status: "succeeded" }, details: { after: command.name } };
+      }
+      case "leaderboard.scope.rename": {
+        const scope = await this.deps.leaderboard.findScope(command.scopeId);
+        if (scope === undefined) return this.refused("Scope not found");
+        await this.deps.leaderboard.renameScope(command.scopeId, command.name);
+        return { result: { status: "succeeded" }, details: { before: scope.name, after: command.name } };
+      }
+      case "leaderboard.scope.current.set": {
+        const scope = await this.deps.leaderboard.findScope(command.scopeId);
+        if (scope === undefined) return this.refused("Scope not found");
+        if (scope.status !== "open") return this.refused("Scope is closed");
+        const previous = await this.deps.leaderboard.findCurrent();
+        // The previous scope's final result, before it closes and stops being recomputed.
+        if (previous !== undefined && previous.id !== scope.id) await this.deps.leaderboard.recomputeScope(previous.id);
+        const switched = await this.deps.leaderboard.setCurrent(scope.id, previous?.id ?? null);
+        if (switched === "closed") return this.refused("Scope is closed");
+        if (switched === "current_changed") return this.refused(CURRENT_SCOPE_CHANGED);
+        return { result: { status: "succeeded" }, details: { before: previous?.id ?? null, after: scope.id } };
+      }
+      case "leaderboard.scope.close": {
+        const current = await this.deps.leaderboard.findCurrent();
+        if (current === undefined) return this.refused("No current scope");
+        await this.deps.leaderboard.recomputeScope(current.id);
+        if (!await this.deps.leaderboard.closeCurrent(current.id)) return this.refused(CURRENT_SCOPE_CHANGED);
+        return { result: { status: "succeeded" }, details: { before: current.id, after: null } };
+      }
+      case "leaderboard.recompute": {
+        const current = await this.deps.leaderboard.findCurrent();
+        if (current === undefined) return this.refused("No current scope");
+        if (!this.deps.queueLeaderboardRecompute()) return this.refused("Recompute queue is not running");
+        return { result: { status: "requested" }, details: { after: current.id } };
+      }
+      case "leaderboard.competition.add":
+      case "leaderboard.competition.remove": {
+        const scope = await this.deps.leaderboard.findScope(command.scopeId);
+        if (scope === undefined) return this.refused("Scope not found");
+        if (scope.status !== "open") return this.refused("Scope is closed");
+        if (!await this.deps.leaderboard.competitionExists(command.competitionId)) return this.refused("Competition not found");
+        const adding = command.type === "leaderboard.competition.add";
+        const changed = adding
+          ? await this.deps.leaderboard.addCompetition(command.scopeId, command.competitionId)
+          : await this.deps.leaderboard.removeCompetition(command.scopeId, command.competitionId);
+        if (!changed) return this.refused("Scope is closed");
+        return {
+          result: { status: "succeeded" },
+          details: adding ? { after: command.competitionId } : { before: command.competitionId, after: null },
+        };
+      }
     }
   }
 
@@ -280,11 +417,12 @@ export class OperatorControlService {
     result: AppendOperatorAudit["result"],
     details?: OperatorAuditDetails,
   ): Promise<unknown> {
+    const targetId = targetIdFor(command);
     return this.deps.appendAudit({
       actorId: actor.id,
       actorLogin: actor.login,
       action: command.type,
-      targetId: targetIdFor(command),
+      ...(targetId !== undefined ? { targetId } : {}),
       result,
       requestId,
       ...(details !== undefined ? { details } : {}),
@@ -297,6 +435,7 @@ export function createOperatorControlService(options: {
   getRunningSeriesId?: () => Uuid | undefined;
   hasRunner?: () => boolean;
   runWhileIdle?: OperatorControlDependencies["runWhileIdle"];
+  queueLeaderboardRecompute?: () => boolean;
   now?: () => Date;
   dependencies?: OperatorControlDependencies;
 } = {}): OperatorControlService {
@@ -304,8 +443,9 @@ export function createOperatorControlService(options: {
   const getRunningSeriesId = options.getRunningSeriesId ?? (() => undefined);
   const hasRunner = options.hasRunner ?? (() => false);
   const runWhileIdle = options.runWhileIdle ?? (async (task) => ({ kind: "completed" as const, value: await task() }));
+  const queueLeaderboardRecompute = options.queueLeaderboardRecompute ?? (() => false);
   return new OperatorControlService(
-    options.dependencies ?? createDefaultDependencies(getRunningSeriesId, hasRunner, runWhileIdle, now),
+    options.dependencies ?? createDefaultDependencies(getRunningSeriesId, hasRunner, runWhileIdle, now, queueLeaderboardRecompute),
     options.revision ?? process.env["SABG_VCS_REF"] ?? "unknown",
     now,
   );

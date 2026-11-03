@@ -5,6 +5,7 @@ import {
   ARENA_STATUSES,
   CS2_SERIES_LIFECYCLES,
   DISCIPLINES,
+  LEADERBOARD_SCOPE_STATUSES,
   ENTRY_PASS_STATUSES,
   MATCH_PERIODS,
   MATCH_STATUSES,
@@ -51,6 +52,7 @@ export const teamSideEnum = pgEnum("team_side", TEAM_SIDES);
 export const disciplineEnum = pgEnum("discipline", DISCIPLINES);
 export const seriesStatusEnum = pgEnum("series_status", SERIES_STATUSES);
 export const cs2SeriesLifecycleEnum = pgEnum("cs2_series_lifecycle", CS2_SERIES_LIFECYCLES);
+export const leaderboardScopeStatusEnum = pgEnum("leaderboard_scope_status", LEADERBOARD_SCOPE_STATUSES);
 
 const timestamps = {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -285,6 +287,84 @@ export const arenaPlayers = pgTable("arena_player", {
 }, (t) => [
   uniqueIndex("arena_player_arena_user_idx").on(t.arenaId, t.userId),
   index("arena_player_arena_id_idx").on(t.arenaId),
+]);
+
+/** A player's final result in a finished CS2 arena, written once at finish; leaderboards are built from it. */
+export const arenaResults = pgTable("arena_result", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  arenaId: uuid("arena_id")
+    .notNull()
+    .references(() => arenas.id),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id),
+  competitionId: uuid("competition_id")
+    .notNull()
+    .references(() => cs2Competitions.id, { onDelete: "restrict" }),
+  score: integer("score").notNull(),
+  /** Place in the arena by points only: equal points share a place and the next one skips (1, 1, 3). */
+  rank: integer("rank").notNull(),
+  won: boolean("won").notNull(),
+  /** Settled rounds played, up to and including the elimination round; voided rounds don't count. */
+  roundsPlayed: integer("rounds_played").notNull(),
+  playersCount: integer("players_count").notNull(),
+  finishedAt: timestamp("finished_at", { withTimezone: true }).notNull(),
+  ...timestamps,
+}, (t) => [
+  uniqueIndex("arena_result_arena_user_idx").on(t.arenaId, t.userId),
+  index("arena_result_competition_id_idx").on(t.competitionId),
+  check("arena_result_score_check", sql`${t.score} >= 0`),
+  check("arena_result_rank_check", sql`${t.rank} >= 1`),
+  check("arena_result_rounds_played_check", sql`${t.roundsPlayed} >= 0`),
+  check("arena_result_players_count_check", sql`${t.playersCount} >= 1`),
+]);
+
+/** A player leaderboard over the competitions an admin picked. At most one is current; a closed one never reopens. */
+export const leaderboardScopes = pgTable("leaderboard_scope", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  status: leaderboardScopeStatusEnum("status").notNull().default("open"),
+  isCurrent: boolean("is_current").notNull().default(false),
+  closedAt: timestamp("closed_at", { withTimezone: true }),
+  ...timestamps,
+}, (t) => [
+  uniqueIndex("leaderboard_scope_one_current_idx").on(t.isCurrent).where(sql`${t.isCurrent}`),
+  check("leaderboard_scope_name_not_blank", sql`btrim(${t.name}) <> ''`),
+  check("leaderboard_scope_closed_check", sql`(${t.status} = 'closed') = (${t.closedAt} is not null) and not (${t.status} = 'closed' and ${t.isCurrent})`),
+]);
+
+export const leaderboardScopeCompetitions = pgTable("leaderboard_scope_competition", {
+  scopeId: uuid("scope_id")
+    .notNull()
+    .references(() => leaderboardScopes.id, { onDelete: "cascade" }),
+  competitionId: uuid("competition_id")
+    .notNull()
+    .references(() => cs2Competitions.id, { onDelete: "restrict" }),
+  ...timestamps,
+}, (t) => [
+  primaryKey({ columns: [t.scopeId, t.competitionId], name: "leaderboard_scope_competition_pk" }),
+]);
+
+/** A scope's ranked rows, rebuilt in full by each recompute. */
+export const leaderboardEntries = pgTable("leaderboard_entry", {
+  scopeId: uuid("scope_id")
+    .notNull()
+    .references(() => leaderboardScopes.id, { onDelete: "cascade" }),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id),
+  rank: integer("rank").notNull(),
+  points: integer("points").notNull(),
+  arenasPlayed: integer("arenas_played").notNull(),
+  wins: integer("wins").notNull(),
+  secondPlaces: integer("second_places").notNull(),
+  roundsPlayed: integer("rounds_played").notNull(),
+  totalScore: integer("total_score").notNull(),
+  totalPayoutLamports: bigint("total_payout_lamports", { mode: "number" }).notNull(),
+  computedAt: timestamp("computed_at", { withTimezone: true }).notNull(),
+}, (t) => [
+  primaryKey({ columns: [t.scopeId, t.userId], name: "leaderboard_entry_pk" }),
+  index("leaderboard_entry_scope_rank_idx").on(t.scopeId, t.rank),
 ]);
 
 export const predictions = pgTable("prediction", {

@@ -120,7 +120,7 @@ describe.skipIf(!RUN)("CS2 live gateway wiring (integration, requires DATABASE_U
     const tenMinutesLater = new Date(start.getTime() + 10 * 60_000).toISOString();
     await orchestrator.poll(snapshot(matchTeamIds, false), tenMinutesLater);
 
-    const match = (await matchRepository.list()).find((m) => m.discipline === "cs2" && m.seriesId === series.id)!;
+    const match = (await matchRepository.listBySeriesId(series.id))[0]!;
     matchIds.push(match.id);
     const arena = await arenaRepository.findByMatchId(match.id);
     arenaIds.push(arena!.id);

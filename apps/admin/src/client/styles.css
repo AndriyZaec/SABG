@@ -311,6 +311,17 @@ button:focus-visible, a:focus-visible { outline: 3px solid var(--yellow); outlin
 .error-screen > div { width: min(100%, 840px); padding-left: 28px; border-left: 8px solid var(--danger); }
 .error-screen__code { color: var(--danger); font-family: "Space Mono", monospace; font-size: 0.72rem; font-weight: 700; }
 
+.leaderboard-page__header { align-items: flex-end; }
+.leaderboard-page .catalog-table-heading { flex-wrap: wrap; }
+.leaderboard-current { min-height: 0; margin-top: 28px; }
+.leaderboard-current__actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.leaderboard-current__actions .danger-action { min-height: 42px; }
+.leaderboard-new-scope { display: grid; grid-template-columns: minmax(200px, 280px) auto; align-items: end; gap: 10px; }
+.leaderboard-new-scope .primary-action { min-height: 42px; }
+.leaderboard-scope-picker select { min-height: 42px; min-width: 220px; padding: 0 12px; border: 1px solid #364148; border-radius: 0; color: var(--ink); background: #0a0f12; }
+.leaderboard-table { min-width: 640px; }
+.confirm-modal .leaderboard-warning { margin-top: -14px; padding: 12px 15px; border-left: 3px solid var(--yellow); color: var(--ink); background: var(--paper-deep); font-size: 0.75rem; }
+
 @media (max-width: 1180px) and (min-width: 761px) {
   .overview-panels { grid-template-columns: 1fr 1fr; }
   .series-panel--primary { grid-column: 1 / -1; }
@@ -322,11 +333,12 @@ button:focus-visible, a:focus-visible { outline: 3px solid var(--yellow); outlin
   .app-shell { display: block; }
   .sidebar { position: static; width: 100%; height: auto; padding: 20px 18px 0; border-right: 0; border-bottom: 4px solid var(--yellow); }
   .brand-lockup--sidebar { padding: 0 4px 18px; }
-  .sidebar__nav { grid-template-columns: repeat(4, minmax(115px, 1fr)); overflow-x: auto; margin: 0 -18px; padding: 12px 18px; }
+  .sidebar__nav { grid-template-columns: repeat(5, minmax(115px, 1fr)); overflow-x: auto; margin: 0 -18px; padding: 12px 18px; }
   .sidebar__nav a { min-height: 50px; padding-left: 12px; }
   .sidebar__nav a::before { display: none; }
   .sidebar__foot { display: none; }
   .operator-bar { min-height: 60px; display: block; padding: 0; }
+  .leaderboard-new-scope { grid-template-columns: 1fr; }
   .runtime-strip { width: 100%; min-height: 56px; padding: 0 18px; }
   .runtime-strip > span:first-child { display: none; }
   .operator-bar__identity { width: 100%; display: flex; justify-content: space-between; padding: 9px 20px; border-top: 1px solid var(--line); }

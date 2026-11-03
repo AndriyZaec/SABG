@@ -4,6 +4,7 @@ import type { AdminSessionResponse } from "../shared/session.js";
 import { logout, readSession } from "./api.js";
 import { AuditPage } from "./AuditPage.js";
 import { CatalogPage } from "./CatalogPage.js";
+import { LeaderboardPage } from "./LeaderboardPage.js";
 import { OverviewPage } from "./OverviewPage.js";
 import { PublishPage } from "./PublishPage.js";
 import { formatUpdatedAt, useControlStatus } from "./useControlStatus.js";
@@ -18,6 +19,7 @@ const routes = [
   { path: "/", label: "Overview", detail: "Runtime state" },
   { path: "/catalog", label: "Catalog", detail: "Series controls" },
   { path: "/publish", label: "Publish", detail: "Tournament switch" },
+  { path: "/leaderboard", label: "Leaderboard", detail: "Player scopes" },
   { path: "/audit", label: "Audit", detail: "Operator history" },
 ] as const;
 
@@ -124,6 +126,7 @@ function Shell({ session, onSignedOut }: { session: AdminSessionResponse; onSign
               <Route path="/" element={<OverviewPage session={session} onSessionExpired={onSignedOut} control={control} />} />
               <Route path="/catalog" element={<CatalogPage session={session} onSessionExpired={onSignedOut} control={control} />} />
               <Route path="/publish" element={<PublishPage session={session} onSessionExpired={onSignedOut} control={control} />} />
+              <Route path="/leaderboard" element={<LeaderboardPage session={session} onSessionExpired={onSignedOut} />} />
               <Route path="/audit" element={<AuditPage onSessionExpired={onSignedOut} />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

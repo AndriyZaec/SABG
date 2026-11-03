@@ -8,6 +8,8 @@ import type {
   Cs2SeriesUnfollowResponse,
   Cs2SeriesListResponse,
   LeaderboardResponse,
+  PlayerLeaderboardMeResponse,
+  PlayerLeaderboardResponse,
   PrepareEntryRequest,
   PrepareEntryResponse,
   PushSubscribeRequest,
@@ -78,6 +80,14 @@ export async function fetchCs2Leaderboard(arenaId: string): Promise<LeaderboardR
 
 export async function fetchCs2ArenaRounds(arenaId: string): Promise<ArenaRoundsResponse> {
   return get<ArenaRoundsResponse>(`/arenas/${arenaId}/rounds`);
+}
+
+export async function fetchPlayerLeaderboard(): Promise<PlayerLeaderboardResponse> {
+  return get<PlayerLeaderboardResponse>("/leaderboard");
+}
+
+export async function fetchPlayerLeaderboardMe(): Promise<PlayerLeaderboardMeResponse> {
+  return get<PlayerLeaderboardMeResponse>("/leaderboard/me", true);
 }
 
 export async function prepareCs2Entry(arenaId: string, walletAddress: string): Promise<PrepareEntryResponse> {

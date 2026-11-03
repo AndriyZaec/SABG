@@ -32,6 +32,9 @@ const Cs2ArenaScreen = lazy(() =>
 const Cs2SeriesScreen = lazy(() =>
   import("./cs2/Cs2SeriesScreen.js").then((module) => ({ default: module.Cs2SeriesScreen })),
 );
+const Cs2PlayerLeaderboardScreen = lazy(() =>
+  import("./cs2/Cs2PlayerLeaderboardScreen.js").then((module) => ({ default: module.Cs2PlayerLeaderboardScreen })),
+);
 const GuideScreen = lazy(() =>
   import("./guide/GuideScreen.js").then((module) => ({ default: module.GuideScreen })),
 );
@@ -60,6 +63,7 @@ export function GameApp() {
                   <Route path="/cs2" element={<Cs2LobbyScreen />} />
                   <Route path="/cs2/series/:seriesId" element={<Cs2SeriesScreen />} />
                   <Route path="/cs2/arena/:arenaId" element={<Cs2ArenaScreen />} />
+                  <Route path="/leaderboard" element={<Cs2PlayerLeaderboardScreen />} />
                   <Route path="/guide" element={<GuideScreen />} />
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>

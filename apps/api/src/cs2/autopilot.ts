@@ -55,6 +55,7 @@ export function createCs2AutopilotDeps(runtime: {
   writeQueue: WriteQueue;
   entryFeeLamports: number;
   rawRecordingEnabled: boolean;
+  onArenaFinished?: () => void;
 }): Cs2AutopilotDeps {
   return {
     startRunner: ({ onEnd, primingDeadline, ...input }) => {
@@ -64,6 +65,7 @@ export function createCs2AutopilotDeps(runtime: {
         writeQueue: runtime.writeQueue,
         entryFeeLamports: runtime.entryFeeLamports,
         rawRecordingEnabled: runtime.rawRecordingEnabled,
+        ...(runtime.onArenaFinished !== undefined ? { onArenaFinished: runtime.onArenaFinished } : {}),
         onEnd,
         ...(primingDeadline !== undefined ? { primingDeadline } : {}),
       };

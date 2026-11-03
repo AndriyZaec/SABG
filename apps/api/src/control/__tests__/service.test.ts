@@ -3,6 +3,25 @@ import { describe, expect, it, vi } from "vitest";
 import type { OperatorControlDependencies } from "../service.js";
 import { OperatorControlService } from "../service.js";
 
+function fakeLeaderboard(overrides: Partial<OperatorControlDependencies["leaderboard"]> = {}): OperatorControlDependencies["leaderboard"] {
+  return {
+    listScopes: vi.fn().mockResolvedValue([]),
+    findScope: vi.fn().mockResolvedValue(undefined),
+    findCurrent: vi.fn().mockResolvedValue(undefined),
+    createScope: vi.fn().mockResolvedValue(undefined),
+    renameScope: vi.fn().mockResolvedValue(true),
+    setCurrent: vi.fn().mockResolvedValue("switched"),
+    closeCurrent: vi.fn().mockResolvedValue(true),
+    addCompetition: vi.fn().mockResolvedValue(true),
+    removeCompetition: vi.fn().mockResolvedValue(true),
+    competitionExists: vi.fn().mockResolvedValue(true),
+    listAdminCompetitions: vi.fn().mockResolvedValue([]),
+    topEntries: vi.fn().mockResolvedValue([]),
+    recomputeScope: vi.fn().mockResolvedValue(true),
+    ...overrides,
+  };
+}
+
 function setup(overrides: Partial<OperatorControlDependencies> = {}) {
   const release = vi.fn().mockResolvedValue(undefined);
   const runWhileIdleCalls = vi.fn();
@@ -42,6 +61,8 @@ function setup(overrides: Partial<OperatorControlDependencies> = {}) {
       scheduledStartTime: new Date("2026-01-01T00:00:00.000Z"),
       syncedSeries: 2,
     }),
+    leaderboard: fakeLeaderboard(),
+    queueLeaderboardRecompute: vi.fn().mockReturnValue(true),
     ...overrides,
   } satisfies OperatorControlDependencies;
   return { service: new OperatorControlService(deps, "test-revision"), deps, release, runWhileIdleCalls };
@@ -115,5 +136,152 @@ describe("operator control safety", () => {
       details: { before: "old-tournament", after: "new-tournament" },
     });
     expect(release).toHaveBeenCalledOnce();
+  });
+});
+
+describe("operator control leaderboard", () => {
+  const scope = (id: string, overrides: Record<string, unknown> = {}) =>
+    ({ id, name: `Scope ${id}`, status: "open" as const, isCurrent: false, closedAt: null, createdAt: new Date("2026-10-27T00:00:00.000Z"), ...overrides });
+
+  it("refuses to make a closed scope current again", async () => {
+    const leaderboard = fakeLeaderboard({ findScope: vi.fn().mockResolvedValue(scope("old", { status: "closed", closedAt: new Date() })) });
+    const { service, deps } = setup({ leaderboard });
+
+    await expect(service.mutate({ type: "leaderboard.scope.current.set", scopeId: "old" }, actor, randomUUID()))
+      .resolves.toEqual({ result: { status: "refused", reason: "Scope is closed" } });
+    expect(leaderboard.setCurrent).not.toHaveBeenCalled();
+    expect(deps.appendAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "leaderboard.scope.current.set", targetId: "old", result: "refused" }));
+  });
+
+  it("recomputes the previous current scope one last time before switching", async () => {
+    const leaderboard = fakeLeaderboard({
+      findScope: vi.fn().mockResolvedValue(scope("next")),
+      findCurrent: vi.fn().mockResolvedValue(scope("prev", { isCurrent: true })),
+    });
+    const { service, deps } = setup({ leaderboard });
+
+    await expect(service.mutate({ type: "leaderboard.scope.current.set", scopeId: "next" }, actor, randomUUID()))
+      .resolves.toEqual({ result: { status: "succeeded" } });
+    expect(leaderboard.recomputeScope).toHaveBeenCalledExactlyOnceWith("prev");
+    expect(vi.mocked(leaderboard.recomputeScope).mock.invocationCallOrder[0]!)
+      .toBeLessThan(vi.mocked(leaderboard.setCurrent).mock.invocationCallOrder[0]!);
+    expect(leaderboard.setCurrent).toHaveBeenCalledWith("next", "prev");
+    expect(deps.appendAudit).toHaveBeenCalledWith(expect.objectContaining({ result: "succeeded", details: { before: "prev", after: "next" } }));
+  });
+
+  it("closes the current scope after its final recompute, and refuses when there is none", async () => {
+    const leaderboard = fakeLeaderboard({ findCurrent: vi.fn().mockResolvedValue(scope("live", { isCurrent: true })) });
+    const { service } = setup({ leaderboard });
+    await expect(service.mutate({ type: "leaderboard.scope.close" }, actor, randomUUID())).resolves.toEqual({ result: { status: "succeeded" } });
+    expect(vi.mocked(leaderboard.recomputeScope).mock.invocationCallOrder[0]!)
+      .toBeLessThan(vi.mocked(leaderboard.closeCurrent).mock.invocationCallOrder[0]!);
+    expect(leaderboard.closeCurrent).toHaveBeenCalledWith("live");
+
+    const empty = setup();
+    await expect(empty.service.mutate({ type: "leaderboard.scope.close" }, actor, randomUUID()))
+      .resolves.toEqual({ result: { status: "refused", reason: "No current scope" } });
+    expect(empty.deps.leaderboard.closeCurrent).not.toHaveBeenCalled();
+  });
+
+  it("refuses a switch or close when another operator changed the current scope meanwhile", async () => {
+    const reason = "Current scope changed; reload and try again";
+    const leaderboard = fakeLeaderboard({
+      findScope: vi.fn().mockResolvedValue(scope("next")),
+      findCurrent: vi.fn().mockResolvedValue(scope("prev", { isCurrent: true })),
+      setCurrent: vi.fn().mockResolvedValue("current_changed"),
+      closeCurrent: vi.fn().mockResolvedValue(false),
+    });
+    const { service, deps } = setup({ leaderboard });
+
+    await expect(service.mutate({ type: "leaderboard.scope.current.set", scopeId: "next" }, actor, randomUUID()))
+      .resolves.toEqual({ result: { status: "refused", reason } });
+    await expect(service.mutate({ type: "leaderboard.scope.close" }, actor, randomUUID()))
+      .resolves.toEqual({ result: { status: "refused", reason } });
+    expect(deps.appendAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "leaderboard.scope.current.set", result: "refused", details: { reason } }));
+    expect(deps.appendAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "leaderboard.scope.close", result: "refused", details: { reason } }));
+  });
+
+  it("refuses to change a closed scope's competitions but still renames it", async () => {
+    const leaderboard = fakeLeaderboard({ findScope: vi.fn().mockResolvedValue(scope("old", { status: "closed", closedAt: new Date() })) });
+    const { service } = setup({ leaderboard });
+
+    for (const type of ["leaderboard.competition.add", "leaderboard.competition.remove"] as const) {
+      await expect(service.mutate({ type, scopeId: "old", competitionId: "c1" }, actor, randomUUID()))
+        .resolves.toEqual({ result: { status: "refused", reason: "Scope is closed" } });
+    }
+    expect(leaderboard.addCompetition).not.toHaveBeenCalled();
+    expect(leaderboard.removeCompetition).not.toHaveBeenCalled();
+
+    await expect(service.mutate({ type: "leaderboard.scope.rename", scopeId: "old", name: "Spring" }, actor, randomUUID()))
+      .resolves.toEqual({ result: { status: "succeeded" } });
+    expect(leaderboard.renameScope).toHaveBeenCalledWith("old", "Spring");
+  });
+
+  it("adds and removes a competition without recomputing, and refuses an unknown one", async () => {
+    const leaderboard = fakeLeaderboard({ findScope: vi.fn().mockResolvedValue(scope("open")) });
+    const { service, deps } = setup({ leaderboard });
+
+    await expect(service.mutate({ type: "leaderboard.competition.add", scopeId: "open", competitionId: "c1" }, actor, randomUUID()))
+      .resolves.toEqual({ result: { status: "succeeded" } });
+    expect(leaderboard.addCompetition).toHaveBeenCalledWith("open", "c1");
+    expect(leaderboard.recomputeScope).not.toHaveBeenCalled();
+    expect(deps.appendAudit).toHaveBeenLastCalledWith(expect.objectContaining({ details: { after: "c1" } }));
+
+    await expect(service.mutate({ type: "leaderboard.competition.remove", scopeId: "open", competitionId: "c1" }, actor, randomUUID()))
+      .resolves.toEqual({ result: { status: "succeeded" } });
+    expect(deps.appendAudit).toHaveBeenLastCalledWith(expect.objectContaining({ details: { before: "c1", after: null } }));
+
+    vi.mocked(leaderboard.competitionExists).mockResolvedValue(false);
+    await expect(service.mutate({ type: "leaderboard.competition.remove", scopeId: "open", competitionId: "nope" }, actor, randomUUID()))
+      .resolves.toEqual({ result: { status: "refused", reason: "Competition not found" } });
+  });
+
+  it("queues a recompute of the current scope, and refuses without one or before the queue runs", async () => {
+    const leaderboard = fakeLeaderboard({ findCurrent: vi.fn().mockResolvedValue(scope("live", { isCurrent: true })) });
+    const { service, deps } = setup({ leaderboard });
+
+    await expect(service.mutate({ type: "leaderboard.recompute" }, actor, randomUUID()))
+      .resolves.toEqual({ result: { status: "requested" } });
+    expect(deps.queueLeaderboardRecompute).toHaveBeenCalledOnce();
+    expect(leaderboard.recomputeScope).not.toHaveBeenCalled();
+    expect(deps.appendAudit).toHaveBeenLastCalledWith(expect.objectContaining({ action: "leaderboard.recompute", result: "requested", details: { after: "live" } }));
+
+    vi.mocked(deps.queueLeaderboardRecompute).mockReturnValue(false);
+    await expect(service.mutate({ type: "leaderboard.recompute" }, actor, randomUUID()))
+      .resolves.toEqual({ result: { status: "refused", reason: "Recompute queue is not running" } });
+
+    const empty = setup();
+    await expect(empty.service.mutate({ type: "leaderboard.recompute" }, actor, randomUUID()))
+      .resolves.toEqual({ result: { status: "refused", reason: "No current scope" } });
+    expect(empty.deps.queueLeaderboardRecompute).not.toHaveBeenCalled();
+  });
+
+  it("reports scopes, competitions with the unfinished flag, and the current top", async () => {
+    const computedAt = new Date("2026-10-27T12:00:00.000Z");
+    const leaderboard = fakeLeaderboard({
+      listScopes: vi.fn().mockResolvedValue([scope("past", { status: "closed", closedAt: computedAt }), scope("live", { isCurrent: true })]),
+      listAdminCompetitions: vi.fn().mockResolvedValue([
+        { id: "c1", name: "Cup", shortName: null, logoUrl: null, scopeIds: ["live"], arenasWithResults: 3, unfinished: true },
+      ]),
+      topEntries: vi.fn().mockResolvedValue([{
+        userId: "u1", username: "ace", avatar: null, rank: 1, points: 12, arenasPlayed: 2, wins: 1, secondPlaces: 1,
+        roundsPlayed: 30, totalScore: 12, totalPayoutLamports: 900, computedAt,
+      }]),
+    });
+    const { service } = setup({ leaderboard });
+
+    expect(await service.leaderboard()).toEqual({
+      scopes: [
+        { id: "past", name: "Scope past", status: "closed", current: false, closedAt: computedAt.toISOString() },
+        { id: "live", name: "Scope live", status: "open", current: true },
+      ],
+      competitions: [{ id: "c1", name: "Cup", scopeIds: ["live"], arenasWithResults: 3, unfinished: true }],
+      current: {
+        scopeId: "live",
+        computedAt: computedAt.toISOString(),
+        entries: [{ userId: "u1", username: "ace", rank: 1, points: 12, wins: 1, secondPlaces: 1, roundsPlayed: 30, arenasPlayed: 2, totalPayoutLamports: 900 }],
+      },
+    });
+    expect(leaderboard.topEntries).toHaveBeenCalledWith("live", 100);
   });
 });

@@ -58,6 +58,7 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
   const seriesIds: string[] = [];
   const userIds: string[] = [];
   const teamIds: string[] = [];
+  const competitionIds: string[] = [];
 
   beforeAll(async () => {
     ({ db } = await import("../../db/client.js"));
@@ -93,12 +94,14 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
       }
       await db.delete(schema.predictionRounds).where(eq(schema.predictionRounds.arenaId, arenaId));
       await db.delete(schema.arenaPlayers).where(eq(schema.arenaPlayers.arenaId, arenaId));
+      await db.delete(schema.arenaResults).where(eq(schema.arenaResults.arenaId, arenaId));
       await db.delete(schema.entryPasses).where(eq(schema.entryPasses.arenaId, arenaId));
       await db.delete(schema.arenas).where(eq(schema.arenas.id, arenaId));
     }
     for (const matchId of matchIds) await db.delete(schema.matches).where(eq(schema.matches.id, matchId));
     for (const seriesId of seriesIds) await db.delete(schema.series).where(eq(schema.series.id, seriesId));
     for (const teamId of teamIds) await db.delete(schema.cs2Teams).where(eq(schema.cs2Teams.id, teamId));
+    for (const competitionId of competitionIds) await db.delete(schema.cs2Competitions).where(eq(schema.cs2Competitions.id, competitionId));
     for (const userId of userIds) await db.delete(schema.users).where(eq(schema.users.id, userId));
   });
 
@@ -412,7 +415,7 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     const orchestrator = await Cs2SeriesOrchestrator.create(series, { writeQueue, entryFeeLamports: 1000 });
 
     await orchestrator.poll(snapshot(matchTeamIds, {}), at(-10));
-    const match1 = (await matchRepository.list()).find((m) => m.discipline === "cs2" && m.seriesId === series.id)!;
+    const match1 = (await matchRepository.listBySeriesId(series.id))[0]!;
     matchIds.push(match1.id);
     const arena1 = await arenaRepository.findByMatchId(match1.id);
     arenaIds.push(arena1!.id);
@@ -704,16 +707,23 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
       scheduledStartTime: new Date(at(0)),
     });
     seriesIds.push(series.id);
+    const [competition] = await db.insert(schema.cs2Competitions)
+      .values({ gridTournamentId: `int-test-${randomUUID()}`, name: "Int Test Cup" })
+      .returning();
+    competitionIds.push(competition!.id);
+    await db.update(schema.series).set({ competitionId: competition!.id }).where(eq(schema.series.id, series.id));
     const matchTeamIds = await synchronizeTestTeams(series.id);
 
     const writeQueue = new WriteQueue();
     let runtime: Cs2ArenaRuntime | undefined;
+    const onArenaFinished = vi.fn();
     const orchestrator = await Cs2SeriesOrchestrator.create(series, {
       writeQueue,
       entryFeeLamports: 1000,
       onArenaOpened: (_arenaId, opened) => {
         runtime = opened;
       },
+      onArenaFinished,
     });
     await orchestrator.poll(snapshot(matchTeamIds, {}), at(-10));
     const match1 = (await matchRepository.listBySeriesId(series.id))[0]!;
@@ -731,8 +741,14 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
       expect((await arenaRepository.findById(arena1.id))?.status).toBe("finished");
       const winnerIds = players.map((player) => player.id).sort();
       expect([...settleSpy.mock.calls[0]![1]].sort()).toEqual(winnerIds);
+      // After the payout, so the triggered recompute sees this arena's payout rows.
+      expect(onArenaFinished).toHaveBeenCalledOnce();
+      expect(onArenaFinished.mock.invocationCallOrder[0]!).toBeGreaterThan(settleSpy.mock.invocationCallOrder[0]!);
       expect((await arenaPlayerRepository.list(arena1.id)).map((player) => [player.userId, player.status]).sort())
         .toEqual(winnerIds.map((id) => [id, "winner"]));
+      const results = await db.select().from(schema.arenaResults).where(eq(schema.arenaResults.arenaId, arena1.id));
+      expect(results.map((row) => [row.userId, row.competitionId, row.won, row.playersCount]).sort())
+        .toEqual(winnerIds.map((id) => [id, competition!.id, true, 2]));
     } finally {
       settleSpy.mockRestore();
     }
@@ -904,6 +920,8 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
       expect(settleSpy).toHaveBeenCalledTimes(1);
       expect(settleSpy.mock.calls[0]![0]).toBe(seeded.arena.id);
       expect([...settleSpy.mock.calls[0]![1]].sort()).toEqual([seeded.users[0]!.id, seeded.users[1]!.id].sort());
+      // Its scores lived only in the crashed process, so it gets no leaderboard results.
+      expect(await db.select().from(schema.arenaResults).where(eq(schema.arenaResults.arenaId, seeded.arena.id))).toEqual([]);
     } finally {
       settleSpy.mockRestore();
     }

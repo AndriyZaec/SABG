@@ -293,6 +293,31 @@ export interface Cs2SeriesUnfollowResponse {
   followed: false;
 }
 
+export interface PlayerLeaderboardEntry {
+  userId: Uuid;
+  username: string;
+  avatar?: string;
+  rank: number;
+  points: number;
+  wins: number;
+  arenasPlayed: number;
+}
+
+/** GET /leaderboard — the current scope's top players; `scope: null` while no scope is current. */
+export type PlayerLeaderboardResponse =
+  | { scope: null }
+  | {
+      scope: { name: string };
+      competitions: Cs2CompetitionSummary[];
+      entries: PlayerLeaderboardEntry[];
+      computedAt?: IsoDateTime;
+    };
+
+/** GET /leaderboard/me — the signed-in player's row in the current scope, if ranked. */
+export interface PlayerLeaderboardMeResponse {
+  entry: PlayerLeaderboardEntry | null;
+}
+
 export interface ApiError {
   error: string;
   message: string;

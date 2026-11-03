@@ -37,6 +37,8 @@ export interface Cs2SeriesRunnerStartOptions {
    * Must not await `stop()`: the poll that reports it is still running.
    */
   onEnd?: (outcome: "complete" | "overtaken") => void;
+  /** Passed to the orchestrator: after a finished arena's results and payout are written. */
+  onArenaFinished?: () => void;
 }
 
 export type Cs2SeriesRunnerStartResult =
@@ -126,6 +128,7 @@ export class Cs2SeriesRunner {
         entryFeeLamports: options.entryFeeLamports,
         broadcaster: wsGateway,
         onArenaOpened: (arenaId, runtime) => wsGateway.registerRuntime(arenaId, runtime),
+        ...(options.onArenaFinished !== undefined ? { onArenaFinished: options.onArenaFinished } : {}),
         ...(startAfterMap1 ? { startAfterMap1: true as const } : {}),
       });
       if (signal.aborted) return { kind: "aborted" };

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type {
   AdminCatalogResponse,
   AdminControlStatus,
+  AdminLeaderboardResponse,
   AdminMutationCommand,
   AdminMutationResult,
   Cs2OperatorDiscoveryPayload,
@@ -29,6 +30,7 @@ export interface AuditFilters {
 export interface AdminControlClient {
   status(): Promise<ControlResponse<AdminControlStatus>>;
   catalog(): Promise<ControlResponse<AdminCatalogResponse>>;
+  leaderboard(): Promise<ControlResponse<AdminLeaderboardResponse>>;
   discovery(): Promise<ControlResponse<Cs2OperatorDiscoveryPayload>>;
   inspect(gridSeriesId: string): Promise<ControlResponse<Cs2OperatorDiscoveryPayload>>;
   audit(filters: AuditFilters): Promise<ControlResponse<OperatorAuditPage>>;
@@ -65,6 +67,7 @@ export function createLiveControlClient(options: {
   return {
     status: () => send("/status"),
     catalog: () => send("/catalog"),
+    leaderboard: () => send("/leaderboard"),
     discovery: () => send("/discovery"),
     inspect: (gridSeriesId) => send(`/series/${encodeURIComponent(gridSeriesId)}`),
     audit: (filters) => {

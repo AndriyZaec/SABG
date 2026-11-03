@@ -146,6 +146,13 @@ export function createAdminApp(options: {
     }
     sendControlResponse(response, await options.control.catalog());
   });
+  app.get("/api/control/leaderboard", async (request, response) => {
+    if (authenticatedSession(request, options.config) === undefined) {
+      response.status(401).json({ error: "unauthorized", message: "Operator session required" });
+      return;
+    }
+    sendControlResponse(response, await options.control.leaderboard());
+  });
   app.get("/api/control/discovery", async (request, response) => {
     if (authenticatedSession(request, options.config) === undefined) {
       response.status(401).json({ error: "unauthorized", message: "Operator session required" });
