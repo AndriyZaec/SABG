@@ -150,6 +150,22 @@ describe.skipIf(!RUN)("leaderboardRepository (integration, requires DATABASE_URL
     expect((await repository.entryFor(scope.id, a!))?.points).toBe(7);
   });
 
+  it("writes a scope with more entries than one statement can bind", async () => {
+    const scope = await createScope("Large");
+    const players = await db.insert(schema.users)
+      .values(Array.from({ length: 6000 }, (_, index) => ({ walletAddress: `leaderboard-large-${index}-${runId}`, username: `large-${index}` })))
+      .returning({ id: schema.users.id });
+    userIds.push(...players.map((player) => player.id));
+    const entries = players.map((player, index) => ({
+      userId: player.id, rank: index + 1, points: 6000 - index, arenasPlayed: 1, wins: 0, secondPlaces: 0, roundsPlayed: 1, totalScore: 6000 - index, totalPayoutLamports: 0,
+    }));
+
+    expect(await repository.replaceEntries(scope.id, async () => entries)).toBe(true);
+    const stored = await repository.topEntries(scope.id, 6000);
+    expect(stored).toHaveLength(6000);
+    expect(stored[0]?.rank).toBe(1);
+  });
+
   it("computes only once it holds the scope lock, and never computes or writes a closed scope", async () => {
     const scope = await createScope("Locked");
     const player = await seedUser("locked-a");

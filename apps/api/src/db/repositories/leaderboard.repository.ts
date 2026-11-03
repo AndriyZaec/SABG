@@ -42,6 +42,9 @@ export interface AdminCompetitionRow {
   unfinished: boolean;
 }
 
+// Postgres binds at most 65 535 parameters per statement; an entry row binds 11.
+const ENTRY_INSERT_CHUNK = 1_000;
+
 const scopeColumns = {
   id: leaderboardScopes.id,
   name: leaderboardScopes.name,
@@ -216,7 +219,10 @@ export const leaderboardRepository = {
       const at = computedAt ?? new Date();
       const entries = await compute();
       await tx.delete(leaderboardEntries).where(eq(leaderboardEntries.scopeId, scopeId));
-      if (entries.length > 0) await tx.insert(leaderboardEntries).values(entries.map((entry) => ({ ...entry, scopeId, computedAt: at })));
+      for (let start = 0; start < entries.length; start += ENTRY_INSERT_CHUNK) {
+        const chunk = entries.slice(start, start + ENTRY_INSERT_CHUNK);
+        await tx.insert(leaderboardEntries).values(chunk.map((entry) => ({ ...entry, scopeId, computedAt: at })));
+      }
       return true;
     });
   },
