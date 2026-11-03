@@ -1,4 +1,4 @@
-import { and, asc, eq, ne, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import type { LeaderboardScopeStatus, Uuid } from "@arena/contracts";
 import { db, type DatabaseTransaction } from "../client.js";
 import { arenaResults, cs2Competitions, leaderboardEntries, leaderboardScopeCompetitions, leaderboardScopes, series, users } from "../schema.js";
@@ -29,6 +29,8 @@ export interface LeaderboardEntryView extends LeaderboardEntryRow {
   username: string;
   avatar: string | null;
 }
+
+export type SetCurrentScopeResult = "switched" | "closed" | "current_changed";
 
 export interface AdminCompetitionRow {
   id: Uuid;
@@ -95,32 +97,45 @@ export const leaderboardRepository = {
     return db.select(scopeColumns).from(leaderboardScopes).orderBy(asc(leaderboardScopes.createdAt));
   },
 
-  /** Closes the current scope (if another one) and makes this open scope current. False when it isn't open. */
-  async setCurrent(scopeId: Uuid): Promise<boolean> {
+  /**
+   * Closes the current scope (if another one) and makes this open scope current, only while the current
+   * scope is still `expectedCurrentId` (null: none). With none expected there is no row to lock: two
+   * concurrent switches are left to the unique index on the current scope.
+   */
+  async setCurrent(scopeId: Uuid, expectedCurrentId: Uuid | null): Promise<SetCurrentScopeResult> {
     return db.transaction(async (tx) => {
       const [target] = await tx
         .select({ status: leaderboardScopes.status })
         .from(leaderboardScopes)
         .where(eq(leaderboardScopes.id, scopeId))
         .for("update");
-      if (target?.status !== "open") return false;
+      if (target?.status !== "open") return "closed";
+      const [current] = await tx
+        .select({ id: leaderboardScopes.id })
+        .from(leaderboardScopes)
+        .where(eq(leaderboardScopes.isCurrent, true))
+        .for("update");
+      if ((current?.id ?? null) !== expectedCurrentId) return "current_changed";
       const now = new Date();
-      await tx
-        .update(leaderboardScopes)
-        .set({ status: "closed", isCurrent: false, closedAt: now, updatedAt: now })
-        .where(and(eq(leaderboardScopes.isCurrent, true), ne(leaderboardScopes.id, scopeId)));
+      // Only the expected scope closes; one made current meanwhile makes the next update hit the index.
+      if (expectedCurrentId !== null && expectedCurrentId !== scopeId) {
+        await tx
+          .update(leaderboardScopes)
+          .set({ status: "closed", isCurrent: false, closedAt: now, updatedAt: now })
+          .where(eq(leaderboardScopes.id, expectedCurrentId));
+      }
       await tx.update(leaderboardScopes).set({ isCurrent: true, updatedAt: now }).where(eq(leaderboardScopes.id, scopeId));
-      return true;
+      return "switched";
     });
   },
 
-  /** Closes the current scope, leaving none current. False when there is none. */
-  async closeCurrent(): Promise<boolean> {
+  /** Closes this scope while it is the current one, leaving none current. False when it isn't current. */
+  async closeCurrent(expectedId: Uuid): Promise<boolean> {
     const now = new Date();
     const rows = await db
       .update(leaderboardScopes)
       .set({ status: "closed", isCurrent: false, closedAt: now, updatedAt: now })
-      .where(eq(leaderboardScopes.isCurrent, true))
+      .where(and(eq(leaderboardScopes.isCurrent, true), eq(leaderboardScopes.id, expectedId)))
       .returning({ id: leaderboardScopes.id });
     return rows.length > 0;
   },

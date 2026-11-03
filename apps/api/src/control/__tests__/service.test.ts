@@ -10,7 +10,7 @@ function fakeLeaderboard(overrides: Partial<OperatorControlDependencies["leaderb
     findCurrent: vi.fn().mockResolvedValue(undefined),
     createScope: vi.fn().mockResolvedValue(undefined),
     renameScope: vi.fn().mockResolvedValue(true),
-    setCurrent: vi.fn().mockResolvedValue(true),
+    setCurrent: vi.fn().mockResolvedValue("switched"),
     closeCurrent: vi.fn().mockResolvedValue(true),
     addCompetition: vi.fn().mockResolvedValue(true),
     removeCompetition: vi.fn().mockResolvedValue(true),
@@ -165,7 +165,7 @@ describe("operator control leaderboard", () => {
     expect(leaderboard.recomputeScope).toHaveBeenCalledExactlyOnceWith("prev");
     expect(vi.mocked(leaderboard.recomputeScope).mock.invocationCallOrder[0]!)
       .toBeLessThan(vi.mocked(leaderboard.setCurrent).mock.invocationCallOrder[0]!);
-    expect(leaderboard.setCurrent).toHaveBeenCalledWith("next");
+    expect(leaderboard.setCurrent).toHaveBeenCalledWith("next", "prev");
     expect(deps.appendAudit).toHaveBeenCalledWith(expect.objectContaining({ result: "succeeded", details: { before: "prev", after: "next" } }));
   });
 
@@ -175,11 +175,30 @@ describe("operator control leaderboard", () => {
     await expect(service.mutate({ type: "leaderboard.scope.close" }, actor, randomUUID())).resolves.toEqual({ result: { status: "succeeded" } });
     expect(vi.mocked(leaderboard.recomputeScope).mock.invocationCallOrder[0]!)
       .toBeLessThan(vi.mocked(leaderboard.closeCurrent).mock.invocationCallOrder[0]!);
+    expect(leaderboard.closeCurrent).toHaveBeenCalledWith("live");
 
     const empty = setup();
     await expect(empty.service.mutate({ type: "leaderboard.scope.close" }, actor, randomUUID()))
       .resolves.toEqual({ result: { status: "refused", reason: "No current scope" } });
     expect(empty.deps.leaderboard.closeCurrent).not.toHaveBeenCalled();
+  });
+
+  it("refuses a switch or close when another operator changed the current scope meanwhile", async () => {
+    const reason = "Current scope changed; reload and try again";
+    const leaderboard = fakeLeaderboard({
+      findScope: vi.fn().mockResolvedValue(scope("next")),
+      findCurrent: vi.fn().mockResolvedValue(scope("prev", { isCurrent: true })),
+      setCurrent: vi.fn().mockResolvedValue("current_changed"),
+      closeCurrent: vi.fn().mockResolvedValue(false),
+    });
+    const { service, deps } = setup({ leaderboard });
+
+    await expect(service.mutate({ type: "leaderboard.scope.current.set", scopeId: "next" }, actor, randomUUID()))
+      .resolves.toEqual({ result: { status: "refused", reason } });
+    await expect(service.mutate({ type: "leaderboard.scope.close" }, actor, randomUUID()))
+      .resolves.toEqual({ result: { status: "refused", reason } });
+    expect(deps.appendAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "leaderboard.scope.current.set", result: "refused", details: { reason } }));
+    expect(deps.appendAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "leaderboard.scope.close", result: "refused", details: { reason } }));
   });
 
   it("refuses to change a closed scope's competitions but still renames it", async () => {

@@ -35,6 +35,8 @@ export interface OperatorMutationExecution {
 }
 
 const ADMIN_LEADERBOARD_TOP = 100;
+// Another operator switched or closed the current scope between this request's read and its write.
+const CURRENT_SCOPE_CHANGED = "Current scope changed; reload and try again";
 
 export type LeaderboardControl = Pick<
   typeof leaderboardRepository,
@@ -359,14 +361,16 @@ export class OperatorControlService {
         const previous = await this.deps.leaderboard.findCurrent();
         // The previous scope's final result, before it closes and stops being recomputed.
         if (previous !== undefined && previous.id !== scope.id) await this.deps.leaderboard.recomputeScope(previous.id);
-        if (!await this.deps.leaderboard.setCurrent(scope.id)) return this.refused("Scope is closed");
+        const switched = await this.deps.leaderboard.setCurrent(scope.id, previous?.id ?? null);
+        if (switched === "closed") return this.refused("Scope is closed");
+        if (switched === "current_changed") return this.refused(CURRENT_SCOPE_CHANGED);
         return { result: { status: "succeeded" }, details: { before: previous?.id ?? null, after: scope.id } };
       }
       case "leaderboard.scope.close": {
         const current = await this.deps.leaderboard.findCurrent();
         if (current === undefined) return this.refused("No current scope");
         await this.deps.leaderboard.recomputeScope(current.id);
-        if (!await this.deps.leaderboard.closeCurrent()) return this.refused("No current scope");
+        if (!await this.deps.leaderboard.closeCurrent(current.id)) return this.refused(CURRENT_SCOPE_CHANGED);
         return { result: { status: "succeeded" }, details: { before: current.id, after: null } };
       }
       case "leaderboard.recompute": {

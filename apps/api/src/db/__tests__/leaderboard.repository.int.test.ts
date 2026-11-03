@@ -73,23 +73,40 @@ describe.skipIf(!RUN)("leaderboardRepository (integration, requires DATABASE_URL
     const second = await createScope("Second");
     expect(first).toMatchObject({ status: "open", isCurrent: false, closedAt: null });
 
-    expect(await repository.setCurrent(first.id)).toBe(true);
+    expect(await repository.setCurrent(first.id, currentBefore ?? null)).toBe("switched");
     expect((await repository.findCurrent())?.id).toBe(first.id);
 
-    expect(await repository.setCurrent(second.id)).toBe(true);
+    expect(await repository.setCurrent(second.id, first.id)).toBe("switched");
     expect((await repository.findCurrent())?.id).toBe(second.id);
     const closed = await repository.findScope(first.id);
     expect(closed).toMatchObject({ status: "closed", isCurrent: false });
     expect(closed?.closedAt).toBeInstanceOf(Date);
 
-    expect(await repository.setCurrent(first.id)).toBe(false);
+    expect(await repository.setCurrent(first.id, second.id)).toBe("closed");
     expect((await repository.findCurrent())?.id).toBe(second.id);
 
     await expect(db.insert(schema.leaderboardScopes).values({ name: `Rogue ${runId}`, isCurrent: true })).rejects.toThrow();
 
-    expect(await repository.closeCurrent()).toBe(true);
+    expect(await repository.closeCurrent(second.id)).toBe(true);
     expect(await repository.findCurrent()).toBeUndefined();
-    expect(await repository.closeCurrent()).toBe(false);
+    expect(await repository.closeCurrent(second.id)).toBe(false);
+  });
+
+  it("switches or closes only the scope the caller expects to be current", async () => {
+    const current = await createScope("Expected");
+    const other = await createScope("Other");
+    const next = await createScope("Next");
+    expect(await repository.setCurrent(current.id, null)).toBe("switched");
+
+    // A stale view: the caller still thinks `other` (or none) is current.
+    expect(await repository.setCurrent(next.id, other.id)).toBe("current_changed");
+    expect(await repository.setCurrent(next.id, null)).toBe("current_changed");
+    expect(await repository.closeCurrent(other.id)).toBe(false);
+    expect((await repository.findCurrent())?.id).toBe(current.id);
+    expect(await repository.findScope(next.id)).toMatchObject({ status: "open", isCurrent: false });
+    expect(await repository.findScope(other.id)).toMatchObject({ status: "open", isCurrent: false });
+
+    expect(await repository.closeCurrent(current.id)).toBe(true);
   });
 
   it("lets a closed scope be renamed but never changes its competitions", async () => {
@@ -103,8 +120,8 @@ describe.skipIf(!RUN)("leaderboardRepository (integration, requires DATABASE_URL
     expect(await repository.removeCompetition(scope.id, later)).toBe(true);
     expect(await repository.listCompetitionIds(scope.id)).toEqual([kept]);
 
-    await repository.setCurrent(scope.id);
-    await repository.closeCurrent();
+    await repository.setCurrent(scope.id, null);
+    await repository.closeCurrent(scope.id);
 
     expect(await repository.addCompetition(scope.id, later)).toBe(false);
     expect(await repository.removeCompetition(scope.id, kept)).toBe(false);
@@ -165,8 +182,8 @@ describe.skipIf(!RUN)("leaderboardRepository (integration, requires DATABASE_URL
     await expect(write).resolves.toBe(true);
     expect((await repository.topEntries(scope.id, 10)).map((row) => row.userId)).toEqual([player]);
 
-    await repository.setCurrent(scope.id);
-    await repository.closeCurrent();
+    await repository.setCurrent(scope.id, null);
+    await repository.closeCurrent(scope.id);
     computed = false;
     expect(await repository.replaceEntries(scope.id, async () => {
       computed = true;
