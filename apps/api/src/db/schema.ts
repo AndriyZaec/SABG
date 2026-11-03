@@ -302,7 +302,7 @@ export const arenaResults = pgTable("arena_result", {
     .notNull()
     .references(() => cs2Competitions.id, { onDelete: "restrict" }),
   score: integer("score").notNull(),
-  /** Final rank in the arena's own leaderboard. */
+  /** Place in the arena by points only: equal points share a place and the next one skips (1, 1, 3). */
   rank: integer("rank").notNull(),
   won: boolean("won").notNull(),
   /** Settled rounds played, up to and including the elimination round; voided rounds don't count. */

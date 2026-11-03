@@ -28,6 +28,7 @@ import type { Cs2QuestionProvider } from "./question-provider.js";
 export interface Cs2ArenaPlayerResult {
   userId: Uuid;
   score: number;
+  /** Place by points only, survivors or not: equal points share a place and the next one skips (1, 1, 3). */
   rank: number;
   won: boolean;
   /** Settled rounds up to and including the player's elimination round; voided rounds don't count. */
@@ -346,10 +347,11 @@ export class Cs2ArenaRuntime implements ArenaRuntimeLike {
     const settledRounds = [...this.roundEngine.roundsByNumber.values()]
       .filter((round) => round.status === "settled")
       .map((round) => round.roundNumber ?? 0);
-    return this.leaderboardService.snapshot().map((entry, index) => ({
+    const entries = this.leaderboardService.snapshot();
+    return entries.map((entry) => ({
       userId: entry.userId,
       score: entry.score,
-      rank: entry.rank ?? index + 1,
+      rank: 1 + entries.filter((other) => other.score > entry.score).length,
       won: won.has(entry.userId),
       roundsPlayed: settledRounds.filter((n) => entry.eliminatedRound === undefined || n <= entry.eliminatedRound).length,
     }));

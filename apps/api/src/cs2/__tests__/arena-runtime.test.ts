@@ -633,4 +633,15 @@ describe("Cs2ArenaRuntime — classic mode", () => {
       { userId: C, score: 2, rank: 3, won: false, roundsPlayed: 8 },
     ]]);
   });
+
+  it("places players by points only, so equal points share a place even when the arena's own order splits them", () => {
+    // A and B both have 2 points, but B missed R2, so the arena's leaderboard shows B below A.
+    const { bus, results } = playClassic([A, B, C], [{ [A]: "yes", [B]: "yes" }, { [A]: "no", [C]: "yes" }]);
+    bus.publish({ kind: "cs2_match_end", timestamp: "t3" });
+    expect(results[0]?.map(({ userId, score, rank }) => ({ userId, score, rank }))).toEqual([
+      { userId: A, score: 2, rank: 1 },
+      { userId: B, score: 2, rank: 1 },
+      { userId: C, score: 1, rank: 3 },
+    ]);
+  });
 });
