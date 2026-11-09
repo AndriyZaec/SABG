@@ -74,12 +74,15 @@ export function LeaderboardPage({ session, onSessionExpired }: {
   const [newName, setNewName] = useState("");
   const [rename, setRename] = useState<{ scope: AdminLeaderboardScope; value: string }>();
   const [editingScopeId, setEditingScopeId] = useState<string>();
+  const [search, setSearch] = useState("");
+  // The applied search, blank for none; a refresh after a mutation keeps it.
+  const [appliedSearch, setAppliedSearch] = useState("");
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
     setLoadError(undefined);
     try {
-      setData(await readLeaderboard());
+      setData(await readLeaderboard(appliedSearch === "" ? undefined : appliedSearch));
     } catch (error) {
       if (error instanceof AdminApiError && error.status === 401) {
         onSessionExpired();
@@ -89,7 +92,7 @@ export function LeaderboardPage({ session, onSessionExpired }: {
     } finally {
       setRefreshing(false);
     }
-  }, [onSessionExpired]);
+  }, [onSessionExpired, appliedSearch]);
 
   useEffect(() => {
     void refresh();
@@ -146,6 +149,16 @@ export function LeaderboardPage({ session, onSessionExpired }: {
     const name = newName.trim();
     if (name.length === 0) return;
     void runMutation({ type: "leaderboard.scope.create", name }, `Scope ${name} created.`);
+  };
+
+  const applySearch = (event: FormEvent) => {
+    event.preventDefault();
+    setAppliedSearch(search.trim());
+  };
+
+  const clearSearch = () => {
+    setSearch("");
+    setAppliedSearch("");
   };
 
   const saveRename = (event: FormEvent) => {
@@ -285,9 +298,15 @@ export function LeaderboardPage({ session, onSessionExpired }: {
               </select>
             </label>
           )}
+          <form className="leaderboard-search" onSubmit={applySearch}>
+            <label className="field"><span>Tournament name</span><input value={search} maxLength={80} onChange={(event) => setSearch(event.target.value)} placeholder="e.g. ESL Pro League" /></label>
+            <div className="leaderboard-search__actions"><button type="button" onClick={clearSearch} disabled={refreshing}>Clear</button><button className="primary-action" type="submit" disabled={refreshing}>Search</button></div>
+          </form>
         </div>
         {data.competitions.length === 0 ? (
-          <div className="empty-state catalog-empty"><strong>No synced tournaments</strong><span>Tournaments appear here once their Series are synced.</span></div>
+          appliedSearch === ""
+            ? <div className="empty-state catalog-empty"><strong>No synced tournaments</strong><span>Tournaments appear here once their Series are synced.</span></div>
+            : <div className="empty-state catalog-empty"><strong>No matching tournaments</strong><span>No tournament name contains “{appliedSearch}”.</span></div>
         ) : (
           <div className="catalog-table-wrap">
             <table className="catalog-table leaderboard-table">
@@ -324,6 +343,13 @@ export function LeaderboardPage({ session, onSessionExpired }: {
               </tbody>
             </table>
           </div>
+        )}
+        {data.competitions.length > 0 && (
+          <p className="leaderboard-search__caption">
+            {appliedSearch === ""
+              ? "Latest 10 synced tournaments. Search to find older ones."
+              : `${data.competitions.length} ${data.competitions.length === 1 ? "match" : "matches"}`}
+          </p>
         )}
       </section>
 
