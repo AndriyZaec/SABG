@@ -51,6 +51,7 @@ export type LeaderboardControl = Pick<
   | "removeCompetition"
   | "competitionExists"
   | "listAdminCompetitions"
+  | "listScopeCompetitionSummaries"
   | "topEntries"
 > & { recomputeScope: typeof recomputeScope };
 
@@ -187,20 +188,29 @@ export class OperatorControlService {
     return { ...(activeTournamentId !== undefined ? { activeTournamentId } : {}), series };
   }
 
-  async leaderboard(): Promise<AdminLeaderboardResponse> {
+  async leaderboard(query?: string): Promise<AdminLeaderboardResponse> {
     const { leaderboard } = this.deps;
-    const [scopes, competitions] = await Promise.all([leaderboard.listScopes(), leaderboard.listAdminCompetitions()]);
+    const [scopes, competitions, summaries] = await Promise.all([
+      leaderboard.listScopes(),
+      leaderboard.listAdminCompetitions(query),
+      leaderboard.listScopeCompetitionSummaries(),
+    ]);
     const current = scopes.find((scope) => scope.isCurrent);
     const entries = current === undefined ? [] : await leaderboard.topEntries(current.id, ADMIN_LEADERBOARD_TOP);
     const computedAt = entries[0]?.computedAt;
     return {
-      scopes: scopes.map((scope) => ({
-        id: scope.id,
-        name: scope.name,
-        status: scope.status,
-        current: scope.isCurrent,
-        ...(scope.closedAt !== null ? { closedAt: scope.closedAt.toISOString() } : {}),
-      })),
+      scopes: scopes.map((scope) => {
+        const summary = summaries.find((row) => row.scopeId === scope.id);
+        return {
+          id: scope.id,
+          name: scope.name,
+          status: scope.status,
+          current: scope.isCurrent,
+          ...(scope.closedAt !== null ? { closedAt: scope.closedAt.toISOString() } : {}),
+          competitionCount: summary?.competitionCount ?? 0,
+          unfinishedCompetitions: summary?.unfinishedCompetitions ?? [],
+        };
+      }),
       competitions: competitions.map(({ shortName, logoUrl, ...competition }) => ({
         ...competition,
         ...(shortName !== null ? { shortName } : {}),

@@ -24,10 +24,6 @@ function formatSol(lamports: number): string {
   return `${new Intl.NumberFormat("en", { maximumFractionDigits: 4 }).format(lamports / LAMPORTS_PER_SOL)} SOL`;
 }
 
-function competitionName(competition: AdminLeaderboardCompetition): string {
-  return competition.shortName ?? competition.name;
-}
-
 function ConfirmDialog({ eyebrow, title, children, confirmLabel, destructive = true, onCancel, onConfirm }: {
   eyebrow: string;
   title: string;
@@ -74,12 +70,15 @@ export function LeaderboardPage({ session, onSessionExpired }: {
   const [newName, setNewName] = useState("");
   const [rename, setRename] = useState<{ scope: AdminLeaderboardScope; value: string }>();
   const [editingScopeId, setEditingScopeId] = useState<string>();
+  const [search, setSearch] = useState("");
+  // The applied search, blank for none; a refresh after a mutation keeps it.
+  const [appliedSearch, setAppliedSearch] = useState("");
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
     setLoadError(undefined);
     try {
-      setData(await readLeaderboard());
+      setData(await readLeaderboard(appliedSearch === "" ? undefined : appliedSearch));
     } catch (error) {
       if (error instanceof AdminApiError && error.status === 401) {
         onSessionExpired();
@@ -89,7 +88,7 @@ export function LeaderboardPage({ session, onSessionExpired }: {
     } finally {
       setRefreshing(false);
     }
-  }, [onSessionExpired]);
+  }, [onSessionExpired, appliedSearch]);
 
   useEffect(() => {
     void refresh();
@@ -139,15 +138,23 @@ export function LeaderboardPage({ session, onSessionExpired }: {
   const editingScope = openScopes.find((scope) => scope.id === editingScopeId)
     ?? (currentScope?.status === "open" ? currentScope : openScopes[0]);
   const scopeName = (scopeId: string) => data.scopes.find((scope) => scope.id === scopeId)?.name ?? scopeId;
-  const unfinishedInCurrent = currentScope === undefined
-    ? []
-    : data.competitions.filter((competition) => competition.unfinished && competition.scopeIds.includes(currentScope.id));
+  const unfinishedInCurrent = currentScope?.unfinishedCompetitions ?? [];
 
   const createScope = (event: FormEvent) => {
     event.preventDefault();
     const name = newName.trim();
     if (name.length === 0) return;
     void runMutation({ type: "leaderboard.scope.create", name }, `Scope ${name} created.`);
+  };
+
+  const applySearch = (event: FormEvent) => {
+    event.preventDefault();
+    setAppliedSearch(search.trim());
+  };
+
+  const clearSearch = () => {
+    setSearch("");
+    setAppliedSearch("");
   };
 
   const saveRename = (event: FormEvent) => {
@@ -162,21 +169,21 @@ export function LeaderboardPage({ session, onSessionExpired }: {
     if (!competition.scopeIds.includes(scope.id)) {
       void runMutation(
         { type: "leaderboard.competition.add", scopeId: scope.id, competitionId: competition.id },
-        `${competitionName(competition)} added to ${scope.name}.`,
+        `${competition.name} added to ${scope.name}.`,
       );
     } else if (scope.current) {
       setConfirmation({ kind: "remove", scopeId: scope.id, competition });
     } else {
       void runMutation(
         { type: "leaderboard.competition.remove", scopeId: scope.id, competitionId: competition.id },
-        `${competitionName(competition)} removed from ${scope.name}.`,
+        `${competition.name} removed from ${scope.name}.`,
       );
     }
   };
 
   const unfinishedWarning = unfinishedInCurrent.length > 0 && currentScope !== undefined && (
     <p className="leaderboard-warning">
-      {currentScope.name} holds an unfinished tournament: {unfinishedInCurrent.map(competitionName).join(", ")}.
+      {currentScope.name} holds an unfinished tournament: {unfinishedInCurrent.join(", ")}.
       Its later arenas will not count unless it is added to another scope.
     </p>
   );
@@ -246,7 +253,7 @@ export function LeaderboardPage({ session, onSessionExpired }: {
                       <span className={`state-chip ${scope.current ? "state-chip--on" : ""}`}>{scope.current ? "Current" : scope.status === "open" ? "Open" : "Closed"}</span>
                       {scope.closedAt !== undefined && <small>Closed {formatDateTime(scope.closedAt)}</small>}
                     </td>
-                    <td>{data.competitions.filter((competition) => competition.scopeIds.includes(scope.id)).length}</td>
+                    <td>{scope.competitionCount}</td>
                     <td>
                       <div className="row-actions">
                         <button type="button" disabled={mutating} onClick={() => setRename({ scope, value: scope.name })}>Rename</button>
@@ -287,9 +294,15 @@ export function LeaderboardPage({ session, onSessionExpired }: {
               </select>
             </label>
           )}
+          <form className="leaderboard-search" onSubmit={applySearch}>
+            <label className="field"><span>Tournament name</span><input value={search} maxLength={80} onChange={(event) => setSearch(event.target.value)} placeholder="e.g. ESL Pro League" /></label>
+            <div className="leaderboard-search__actions"><button type="button" onClick={clearSearch} disabled={refreshing}>Clear</button><button className="primary-action" type="submit" disabled={refreshing}>Search</button></div>
+          </form>
         </div>
         {data.competitions.length === 0 ? (
-          <div className="empty-state catalog-empty"><strong>No synced tournaments</strong><span>Tournaments appear here once their Series are synced.</span></div>
+          appliedSearch === ""
+            ? <div className="empty-state catalog-empty"><strong>No synced tournaments</strong><span>Tournaments appear here once their Series are synced.</span></div>
+            : <div className="empty-state catalog-empty"><strong>No matching tournaments</strong><span>No tournament name contains “{appliedSearch}”.</span></div>
         ) : (
           <div className="catalog-table-wrap">
             <table className="catalog-table leaderboard-table">
@@ -326,6 +339,13 @@ export function LeaderboardPage({ session, onSessionExpired }: {
               </tbody>
             </table>
           </div>
+        )}
+        {data.competitions.length > 0 && (
+          <p className="leaderboard-search__caption">
+            {appliedSearch === ""
+              ? "Latest 10 synced tournaments. Search to find older ones."
+              : `${data.competitions.length} ${data.competitions.length === 1 ? "match" : "matches"}`}
+          </p>
         )}
       </section>
 
@@ -393,12 +413,12 @@ export function LeaderboardPage({ session, onSessionExpired }: {
       {confirmation?.kind === "remove" && (
         <ConfirmDialog
           eyebrow="Change current scope"
-          title={`Remove ${competitionName(confirmation.competition)}?`}
+          title={`Remove ${confirmation.competition.name}?`}
           confirmLabel="Remove"
           onCancel={() => setConfirmation(undefined)}
           onConfirm={() => void runMutation(
             { type: "leaderboard.competition.remove", scopeId: confirmation.scopeId, competitionId: confirmation.competition.id },
-            `${competitionName(confirmation.competition)} removed from ${scopeName(confirmation.scopeId)}.`,
+            `${confirmation.competition.name} removed from ${scopeName(confirmation.scopeId)}.`,
           )}
         >
           <p>Players see this scope now. Points from this tournament disappear from their leaderboard after the next recompute.</p>

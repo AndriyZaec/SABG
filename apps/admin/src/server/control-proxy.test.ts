@@ -113,5 +113,9 @@ describe("admin control proxy", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ scopes: [], competitions: [] });
     expect(control.leaderboard).toHaveBeenCalledOnce();
+    expect(control.leaderboard).toHaveBeenCalledWith(undefined);
+
+    await fetch(`${origin}/api/control/leaderboard?q=Group%20Stage`, { headers: { cookie } });
+    expect(control.leaderboard).toHaveBeenLastCalledWith("Group Stage");
   });
 });

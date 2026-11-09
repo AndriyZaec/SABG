@@ -102,9 +102,13 @@ export function Cs2PlayerLeaderboardScreen() {
         {view.competitions.length > 0 && (
           <ul className="cs2-leaderboard__competitions">
             {view.competitions.map((competition, index) => (
-              <li key={`${competition.name}-${index}`}>
+              <li key={`${competition.name}-${index}`} tabIndex={0}>
                 <TeamLogo name={competition.name} fallback="trophy" {...(competition.logoUrl ? { src: competition.logoUrl } : {})} />
-                <span>{competition.shortName ?? competition.name}</span>
+                <span className="cs2-leaderboard__competition-name">{competition.name}</span>
+                <span className="cs2-leaderboard__competition-full" aria-hidden="true">
+                  <TeamLogo name={competition.name} fallback="trophy" {...(competition.logoUrl ? { src: competition.logoUrl } : {})} />
+                  <span>{competition.name}</span>
+                </span>
               </li>
             ))}
           </ul>

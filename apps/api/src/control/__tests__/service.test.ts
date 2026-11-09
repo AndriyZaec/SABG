@@ -16,6 +16,7 @@ function fakeLeaderboard(overrides: Partial<OperatorControlDependencies["leaderb
     removeCompetition: vi.fn().mockResolvedValue(true),
     competitionExists: vi.fn().mockResolvedValue(true),
     listAdminCompetitions: vi.fn().mockResolvedValue([]),
+    listScopeCompetitionSummaries: vi.fn().mockResolvedValue([]),
     topEntries: vi.fn().mockResolvedValue([]),
     recomputeScope: vi.fn().mockResolvedValue(true),
     ...overrides,
@@ -263,6 +264,7 @@ describe("operator control leaderboard", () => {
       listAdminCompetitions: vi.fn().mockResolvedValue([
         { id: "c1", name: "Cup", shortName: null, logoUrl: null, scopeIds: ["live"], arenasWithResults: 3, unfinished: true },
       ]),
+      listScopeCompetitionSummaries: vi.fn().mockResolvedValue([{ scopeId: "live", competitionCount: 12, unfinishedCompetitions: ["Cup", "Old Cup"] }]),
       topEntries: vi.fn().mockResolvedValue([{
         userId: "u1", username: "ace", avatar: null, rank: 1, points: 12, arenasPlayed: 2, wins: 1, secondPlaces: 1,
         roundsPlayed: 30, totalScore: 12, totalPayoutLamports: 900, computedAt,
@@ -272,8 +274,8 @@ describe("operator control leaderboard", () => {
 
     expect(await service.leaderboard()).toEqual({
       scopes: [
-        { id: "past", name: "Scope past", status: "closed", current: false, closedAt: computedAt.toISOString() },
-        { id: "live", name: "Scope live", status: "open", current: true },
+        { id: "past", name: "Scope past", status: "closed", current: false, closedAt: computedAt.toISOString(), competitionCount: 0, unfinishedCompetitions: [] },
+        { id: "live", name: "Scope live", status: "open", current: true, competitionCount: 12, unfinishedCompetitions: ["Cup", "Old Cup"] },
       ],
       competitions: [{ id: "c1", name: "Cup", scopeIds: ["live"], arenasWithResults: 3, unfinished: true }],
       current: {
@@ -283,5 +285,15 @@ describe("operator control leaderboard", () => {
       },
     });
     expect(leaderboard.topEntries).toHaveBeenCalledWith("live", 100);
+    expect(leaderboard.listAdminCompetitions).toHaveBeenCalledWith(undefined);
+  });
+
+  it("passes the competition search to the repository", async () => {
+    const leaderboard = fakeLeaderboard();
+    const { service } = setup({ leaderboard });
+
+    await service.leaderboard("group stage");
+
+    expect(leaderboard.listAdminCompetitions).toHaveBeenCalledWith("group stage");
   });
 });

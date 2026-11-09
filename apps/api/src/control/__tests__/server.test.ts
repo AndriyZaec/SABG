@@ -19,6 +19,7 @@ function fakeLeaderboard(): OperatorControlDependencies["leaderboard"] {
     removeCompetition: vi.fn(),
     competitionExists: vi.fn(),
     listAdminCompetitions: vi.fn().mockResolvedValue([]),
+    listScopeCompetitionSummaries: vi.fn().mockResolvedValue([]),
     topEntries: vi.fn().mockResolvedValue([]),
     recomputeScope: vi.fn(),
   };
@@ -109,6 +110,25 @@ describe("operator control leaderboard routes", () => {
     const response = await fetch(`${baseUrl}/leaderboard`, { headers });
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual(body);
+  });
+
+  it("trims the competition search and treats a blank one as none", async () => {
+    const leaderboard = vi.fn().mockResolvedValue({ scopes: [], competitions: [] });
+    const baseUrl = await start({ leaderboard });
+
+    expect((await fetch(`${baseUrl}/leaderboard?q=%20Group%20`, { headers })).status).toBe(200);
+    expect((await fetch(`${baseUrl}/leaderboard?q=%20%20`, { headers })).status).toBe(200);
+    expect((await fetch(`${baseUrl}/leaderboard`, { headers })).status).toBe(200);
+    expect(leaderboard.mock.calls).toEqual([["Group"], [undefined], [undefined]]);
+  });
+
+  it("rejects a competition search that is too long or repeated", async () => {
+    const leaderboard = vi.fn();
+    const baseUrl = await start({ leaderboard });
+
+    expect((await fetch(`${baseUrl}/leaderboard?q=${"a".repeat(81)}`, { headers })).status).toBe(400);
+    expect((await fetch(`${baseUrl}/leaderboard?q=a&q=b`, { headers })).status).toBe(400);
+    expect(leaderboard).not.toHaveBeenCalled();
   });
 
   it("validates leaderboard mutations before running them", async () => {
