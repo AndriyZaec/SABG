@@ -20,6 +20,8 @@ const GameTeamSchema = z
 
 const GameSchema = z
   .object({
+    // Map number within the series.
+    sequenceNumber: z.number().optional(),
     teams: z.array(GameTeamSchema).optional(),
   })
   .passthrough();

@@ -2,8 +2,7 @@
 
 import type { Document } from "mongodb";
 import { MongoService } from "../grid/mongo/mongo.service.js";
-import { mintCollectionName } from "../grid/recording-session.js";
-import { SeriesStateResponseSchema, hasGraphQLErrors, hasLiveGame, isFreshStart } from "../grid/series-state.js";
+import { SeriesStateResponseSchema, hasGraphQLErrors } from "../grid/series-state.js";
 import { withRetry } from "../live/retry.js";
 import { logger } from "../grid/logger.js";
 
@@ -20,6 +19,8 @@ export interface Cs2RawPollResult {
 interface Cs2RawPollDoc extends Document {
   seriesId: string;
   sessionKey: string;
+  mapSequenceNumber: number;
+  mapEnded?: true;
   receivedAt: Date;
   updatedAt?: string;
   httpStatus?: number;
@@ -27,13 +28,21 @@ interface Cs2RawPollDoc extends Document {
   payload: unknown;
 }
 
-type RecorderState = "WAITING_FOR_START" | "RECORDING";
+interface Cs2RawSession {
+  key: string;
+  mapSequenceNumber: number;
+}
+
+/** One session per map, so a restart mid-map keeps writing to the same session. */
+function sessionKeyFor(seriesId: string, mapSequenceNumber: number): string {
+  return `cs2_series_${seriesId}_map_${mapSequenceNumber}`;
+}
 
 export class Cs2RawRecorder {
-  private state: RecorderState = "WAITING_FOR_START";
-  private sessionKey: string | undefined;
+  private session: Cs2RawSession | undefined;
   private consecutiveFailures = 0;
   private disabled = false;
+  private warnedMissingSequence = false;
 
   constructor(private readonly seriesId: string) {}
 
@@ -44,39 +53,41 @@ export class Cs2RawRecorder {
     if (!parsed.success || hasGraphQLErrors(parsed.data)) return;
     const res = parsed.data;
 
-    switch (this.state) {
-      case "WAITING_FOR_START": {
-        if (!isFreshStart(res)) return;
-        this.sessionKey = mintCollectionName(this.seriesId);
-        this.state = "RECORDING";
-        logger.info({ seriesId: this.seriesId, sessionKey: this.sessionKey }, "cs2: raw recording session started");
-        if (hasLiveGame(res)) await this.write(res, result);
-        return;
-      }
-      case "RECORDING": {
-        if (!hasLiveGame(res)) {
-          // Preserve the transition frame carrying the final map state.
-          await this.write(res, result);
-          logger.info({ seriesId: this.seriesId, sessionKey: this.sessionKey }, "cs2: raw recording session closed");
-          this.sessionKey = undefined;
-          this.state = "WAITING_FOR_START";
-          return;
-        }
-        await this.write(res, result);
-        return;
-      }
-      default: {
-        const exhaustive: never = this.state;
-        throw new Error(`Unhandled raw-recorder state: ${String(exhaustive)}`);
-      }
+    // Only an explicit empty game list ends a map; a missing one is a bad frame.
+    const games = res.data?.seriesState?.games;
+    if (games === undefined) return;
+
+    if (games.length === 0) {
+      if (this.session === undefined) return;
+      // Preserve the transition frame carrying the final map state.
+      await this.write(this.session, res, result, true);
+      logger.info({ seriesId: this.seriesId, sessionKey: this.session.key }, "cs2: raw recording session closed");
+      this.session = undefined;
+      return;
     }
+
+    const mapSequenceNumber = games[0]?.sequenceNumber;
+    if (mapSequenceNumber === undefined) {
+      if (!this.warnedMissingSequence) {
+        this.warnedMissingSequence = true;
+        logger.warn({ seriesId: this.seriesId }, "cs2: live game without sequenceNumber — not recorded");
+      }
+      return;
+    }
+
+    if (this.session?.mapSequenceNumber !== mapSequenceNumber) {
+      this.session = { key: sessionKeyFor(this.seriesId, mapSequenceNumber), mapSequenceNumber };
+      logger.info({ seriesId: this.seriesId, sessionKey: this.session.key }, "cs2: raw recording session started");
+    }
+    await this.write(this.session, res, result, false);
   }
 
-  private async write(payload: unknown, result: Cs2RawPollResult): Promise<void> {
-    if (this.sessionKey === undefined) return;
+  private async write(session: Cs2RawSession, payload: unknown, result: Cs2RawPollResult, mapEnded: boolean): Promise<void> {
     const doc: Cs2RawPollDoc = {
       seriesId: this.seriesId,
-      sessionKey: this.sessionKey,
+      sessionKey: session.key,
+      mapSequenceNumber: session.mapSequenceNumber,
+      ...(mapEnded && { mapEnded: true as const }),
       receivedAt: new Date(),
       payload,
       ...(result.status !== undefined && { httpStatus: result.status }),
