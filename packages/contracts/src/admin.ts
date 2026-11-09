@@ -82,6 +82,10 @@ export interface AdminLeaderboardScope {
   status: LeaderboardScopeStatus;
   current: boolean;
   closedAt?: IsoDateTime;
+  /** Competitions the scope counts. */
+  competitionCount: number;
+  /** Names of its competitions that still have an upcoming or live series. */
+  unfinishedCompetitions: string[];
 }
 
 export interface AdminLeaderboardCompetition {

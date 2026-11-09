@@ -47,8 +47,9 @@ export async function readControlCatalog(): Promise<AdminCatalogResponse> {
   return response.json() as Promise<AdminCatalogResponse>;
 }
 
-export async function readLeaderboard(): Promise<AdminLeaderboardResponse> {
-  const response = await fetch("/api/control/leaderboard", { headers: { accept: "application/json" } });
+export async function readLeaderboard(query?: string): Promise<AdminLeaderboardResponse> {
+  const suffix = query === undefined ? "" : `?${new URLSearchParams({ q: query }).toString()}`;
+  const response = await fetch(`/api/control/leaderboard${suffix}`, { headers: { accept: "application/json" } });
   if (!response.ok) throw new AdminApiError("Leaderboard is unavailable", response.status);
   return response.json() as Promise<AdminLeaderboardResponse>;
 }

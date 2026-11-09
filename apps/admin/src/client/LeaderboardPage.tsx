@@ -139,9 +139,7 @@ export function LeaderboardPage({ session, onSessionExpired }: {
   const editingScope = openScopes.find((scope) => scope.id === editingScopeId)
     ?? (currentScope?.status === "open" ? currentScope : openScopes[0]);
   const scopeName = (scopeId: string) => data.scopes.find((scope) => scope.id === scopeId)?.name ?? scopeId;
-  const unfinishedInCurrent = currentScope === undefined
-    ? []
-    : data.competitions.filter((competition) => competition.unfinished && competition.scopeIds.includes(currentScope.id));
+  const unfinishedInCurrent = currentScope?.unfinishedCompetitions ?? [];
 
   const createScope = (event: FormEvent) => {
     event.preventDefault();
@@ -176,7 +174,7 @@ export function LeaderboardPage({ session, onSessionExpired }: {
 
   const unfinishedWarning = unfinishedInCurrent.length > 0 && currentScope !== undefined && (
     <p className="leaderboard-warning">
-      {currentScope.name} holds an unfinished tournament: {unfinishedInCurrent.map(competitionName).join(", ")}.
+      {currentScope.name} holds an unfinished tournament: {unfinishedInCurrent.join(", ")}.
       Its later arenas will not count unless it is added to another scope.
     </p>
   );
@@ -246,7 +244,7 @@ export function LeaderboardPage({ session, onSessionExpired }: {
                       <span className={`state-chip ${scope.current ? "state-chip--on" : ""}`}>{scope.current ? "Current" : scope.status === "open" ? "Open" : "Closed"}</span>
                       {scope.closedAt !== undefined && <small>Closed {formatDateTime(scope.closedAt)}</small>}
                     </td>
-                    <td>{data.competitions.filter((competition) => competition.scopeIds.includes(scope.id)).length}</td>
+                    <td>{scope.competitionCount}</td>
                     <td>
                       <div className="row-actions">
                         <button type="button" disabled={mutating} onClick={() => setRename({ scope, value: scope.name })}>Rename</button>

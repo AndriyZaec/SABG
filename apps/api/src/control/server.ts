@@ -8,6 +8,8 @@ import type { OperatorControlService, OperatorIdentity } from "./service.js";
 
 const GridIdSchema = z.string().trim().min(1).max(200).regex(/^[A-Za-z0-9._:-]+$/u);
 const ScopeNameSchema = z.string().trim().min(1).max(80);
+// Blank means no search.
+const LeaderboardQuerySchema = z.string().trim().max(80).optional();
 const MutationSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("autopilot.set"), enabled: z.boolean() }),
   z.object({ type: z.literal("series.priority.set"), gridSeriesId: GridIdSchema, priority: z.boolean() }),
@@ -72,8 +74,13 @@ export function createOperatorControlServer(options: {
   app.get("/catalog", async (_request, response) => {
     response.json(await options.service.catalog());
   });
-  app.get("/leaderboard", async (_request, response) => {
-    response.json(await options.service.leaderboard());
+  app.get("/leaderboard", async (request, response) => {
+    const query = LeaderboardQuerySchema.safeParse(request.query.q);
+    if (!query.success) {
+      response.status(400).json({ error: "bad_request", message: "Leaderboard search is invalid" });
+      return;
+    }
+    response.json(await options.service.leaderboard(query.data === "" ? undefined : query.data));
   });
   app.get("/discovery", async (_request, response) => {
     response.json(await options.service.discover());

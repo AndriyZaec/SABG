@@ -54,9 +54,9 @@ describe.skipIf(!RUN)("leaderboardRepository (integration, requires DATABASE_URL
     return scope;
   }
 
-  async function seedCompetition(name: string): Promise<string> {
+  async function seedCompetition(name: string, createdAt?: Date): Promise<string> {
     const [competition] = await db.insert(schema.cs2Competitions)
-      .values({ gridTournamentId: `leaderboard-${name}-${runId}`, name })
+      .values({ gridTournamentId: `leaderboard-${name}-${runId}`, name, ...(createdAt !== undefined ? { createdAt } : {}) })
       .returning();
     competitionIds.push(competition!.id);
     return competition!.id;
@@ -245,9 +245,65 @@ describe.skipIf(!RUN)("leaderboardRepository (integration, requires DATABASE_URL
       arenaId: arena!.id, userId, competitionId: running, score: 4, rank: 1, won: true, roundsPlayed: 10, playersCount: 1, finishedAt: new Date(),
     });
 
-    const rows = (await repository.listAdminCompetitions()).filter((row) => row.id === running || row.id === done);
+    const rows = await repository.listAdminCompetitions(runId);
     expect(rows.find((row) => row.id === running)).toMatchObject({ scopeIds: [scope.id], arenasWithResults: 1, unfinished: true });
     expect(rows.find((row) => row.id === done)).toMatchObject({ scopeIds: [], arenasWithResults: 0, unfinished: false });
     expect(await repository.listScopeCompetitions(scope.id)).toEqual([{ name: `Running Cup ${runId}`, shortName: null, logoUrl: null }]);
+  });
+
+  describe("admin competition list", () => {
+    // Synced "in the future", so they are the latest whatever else this database holds.
+    const syncedAt = (minutes: number) => new Date(Date.now() + 24 * 60 * 60 * 1000 + minutes * 60 * 1000);
+    const ids: string[] = [];
+    let scopeId: string;
+
+    beforeAll(async () => {
+      for (let index = 0; index < 11; index += 1) {
+        ids.push(await seedCompetition(`Latest Cup ${index} ${runId}`, syncedAt(index)));
+      }
+      scopeId = (await createScope("Summary")).id;
+      await repository.addCompetition(scopeId, ids[0]!);
+      await repository.addCompetition(scopeId, ids[10]!);
+      const [row] = await db.insert(schema.series).values({
+        gridSeriesId: `leaderboard-summary-${runId}`,
+        competitionId: ids[0]!,
+        format: 3,
+        scheduledStartTime: new Date(),
+        status: "active",
+        catalogLifecycle: "live",
+      }).returning();
+      seriesIds.push(row!.id);
+    });
+
+    it("lists the 10 latest synced without a search, newest first", async () => {
+      expect((await repository.listAdminCompetitions()).map((row) => row.id)).toEqual([...ids].reverse().slice(0, 10));
+    });
+
+    it("finds every competition whose name contains the search, in any case", async () => {
+      const rows = await repository.listAdminCompetitions(`latest cup 0 ${runId}`.toUpperCase());
+      expect(rows.map((row) => row.id)).toEqual([ids[0]]);
+      expect((await repository.listAdminCompetitions(runId)).filter((row) => ids.includes(row.id))).toHaveLength(11);
+    });
+
+    it("matches % and _ in the search literally", async () => {
+      const percent = await seedCompetition(`Cup 100% ${runId}`);
+      const underscore = await seedCompetition(`Cup a_b ${runId}`);
+      await seedCompetition(`Cup 1000 ${runId}`);
+      await seedCompetition(`Cup axb ${runId}`);
+
+      expect((await repository.listAdminCompetitions(`100% ${runId}`)).map((row) => row.id)).toEqual([percent]);
+      expect((await repository.listAdminCompetitions(`a_b ${runId}`)).map((row) => row.id)).toEqual([underscore]);
+    });
+
+    it("summarises a scope's competitions beyond the latest 10, and only those with a series to come as unfinished", async () => {
+      const empty = await createScope("Empty summary");
+      const summaries = await repository.listScopeCompetitionSummaries();
+      expect(summaries.find((row) => row.scopeId === scopeId)).toEqual({
+        scopeId,
+        competitionCount: 2,
+        unfinishedCompetitions: [`Latest Cup 0 ${runId}`],
+      });
+      expect(summaries.find((row) => row.scopeId === empty.id)).toBeUndefined();
+    });
   });
 });

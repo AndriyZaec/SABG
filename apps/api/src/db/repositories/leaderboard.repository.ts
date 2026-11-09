@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, sql } from "drizzle-orm";
 import type { LeaderboardScopeStatus, Uuid } from "@arena/contracts";
 import { db, type DatabaseTransaction } from "../client.js";
 import { arenaResults, cs2Competitions, leaderboardEntries, leaderboardScopeCompetitions, leaderboardScopes, series, users } from "../schema.js";
@@ -41,6 +41,15 @@ export interface AdminCompetitionRow {
   arenasWithResults: number;
   unfinished: boolean;
 }
+
+export interface ScopeCompetitionSummary {
+  scopeId: Uuid;
+  competitionCount: number;
+  unfinishedCompetitions: string[];
+}
+
+// The admin list without a search shows only the latest synced competitions.
+const ADMIN_COMPETITIONS_LATEST = 10;
 
 // Postgres binds at most 65 535 parameters per statement; an entry row binds 11.
 const ENTRY_INSERT_CHUNK = 1_000;
@@ -148,11 +157,14 @@ export const leaderboardRepository = {
     return row !== undefined;
   },
 
-  /** Every synced competition with what the admin needs to pick it for a scope. */
-  async listAdminCompetitions(): Promise<AdminCompetitionRow[]> {
+  /**
+   * Synced competitions with what the admin needs to pick one for a scope, latest synced first: the latest
+   * few without a query, every competition whose name contains the query otherwise.
+   */
+  async listAdminCompetitions(query?: string): Promise<AdminCompetitionRow[]> {
     // Qualified by hand: drizzle renders a single-table select's columns unqualified, which a subquery would resolve to its own table.
     const competitionId = sql.raw(`"cs2_competition"."id"`);
-    return db
+    const rows = db
       .select({
         id: cs2Competitions.id,
         name: cs2Competitions.name,
@@ -163,7 +175,23 @@ export const leaderboardRepository = {
         unfinished: sql<boolean>`exists (select 1 from ${series} where ${series.competitionId} = ${competitionId} and ${series.catalogLifecycle} in ('upcoming', 'live'))`,
       })
       .from(cs2Competitions)
-      .orderBy(asc(cs2Competitions.name));
+      .where(query === undefined ? undefined : ilike(cs2Competitions.name, `%${query.replace(/[\\%_]/g, "\\$&")}%`))
+      .orderBy(desc(cs2Competitions.createdAt), desc(cs2Competitions.id))
+      .$dynamic();
+    return query === undefined ? rows.limit(ADMIN_COMPETITIONS_LATEST) : rows;
+  },
+
+  /** Per scope with competitions: how many it counts and which of them still have a series to come. */
+  async listScopeCompetitionSummaries(): Promise<ScopeCompetitionSummary[]> {
+    return db
+      .select({
+        scopeId: leaderboardScopeCompetitions.scopeId,
+        competitionCount: sql<number>`count(*)`.mapWith(Number),
+        unfinishedCompetitions: sql<string[]>`coalesce(array_agg(${cs2Competitions.name} order by ${cs2Competitions.name}) filter (where exists (select 1 from ${series} where ${series.competitionId} = ${cs2Competitions.id} and ${series.catalogLifecycle} in ('upcoming', 'live'))), '{}')`,
+      })
+      .from(leaderboardScopeCompetitions)
+      .innerJoin(cs2Competitions, eq(cs2Competitions.id, leaderboardScopeCompetitions.competitionId))
+      .groupBy(leaderboardScopeCompetitions.scopeId);
   },
 
   async listScopeCompetitions(scopeId: Uuid): Promise<{ name: string; shortName: string | null; logoUrl: string | null }[]> {
