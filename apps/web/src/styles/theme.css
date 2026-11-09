@@ -977,7 +977,7 @@ button.nb-footer__link {
 /* A long name is cut to one line; hover, tap or focus opens the full name over the chip, so no chip moves. */
 .cs2-leaderboard__competition-full {
   position: absolute; top: -2px; left: -2px; z-index: 3; display: none; align-items: center; gap: 8px;
-  width: max-content; max-width: min(320px, calc(100vw - 48px));
+  width: calc(100% + 4px); /* the chip's width, borders included, so it never leaves the screen */
   border: 2px solid var(--ink); padding: 4px 10px 4px 4px; background: var(--yellow); box-shadow: var(--shadow-sm);
 }
 .cs2-leaderboard__competitions li:is(:hover, :focus) { outline: none; z-index: 3; }
