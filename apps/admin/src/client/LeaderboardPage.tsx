@@ -24,10 +24,6 @@ function formatSol(lamports: number): string {
   return `${new Intl.NumberFormat("en", { maximumFractionDigits: 4 }).format(lamports / LAMPORTS_PER_SOL)} SOL`;
 }
 
-function competitionName(competition: AdminLeaderboardCompetition): string {
-  return competition.shortName ?? competition.name;
-}
-
 function ConfirmDialog({ eyebrow, title, children, confirmLabel, destructive = true, onCancel, onConfirm }: {
   eyebrow: string;
   title: string;
@@ -173,14 +169,14 @@ export function LeaderboardPage({ session, onSessionExpired }: {
     if (!competition.scopeIds.includes(scope.id)) {
       void runMutation(
         { type: "leaderboard.competition.add", scopeId: scope.id, competitionId: competition.id },
-        `${competitionName(competition)} added to ${scope.name}.`,
+        `${competition.name} added to ${scope.name}.`,
       );
     } else if (scope.current) {
       setConfirmation({ kind: "remove", scopeId: scope.id, competition });
     } else {
       void runMutation(
         { type: "leaderboard.competition.remove", scopeId: scope.id, competitionId: competition.id },
-        `${competitionName(competition)} removed from ${scope.name}.`,
+        `${competition.name} removed from ${scope.name}.`,
       );
     }
   };
@@ -417,12 +413,12 @@ export function LeaderboardPage({ session, onSessionExpired }: {
       {confirmation?.kind === "remove" && (
         <ConfirmDialog
           eyebrow="Change current scope"
-          title={`Remove ${competitionName(confirmation.competition)}?`}
+          title={`Remove ${confirmation.competition.name}?`}
           confirmLabel="Remove"
           onCancel={() => setConfirmation(undefined)}
           onConfirm={() => void runMutation(
             { type: "leaderboard.competition.remove", scopeId: confirmation.scopeId, competitionId: confirmation.competition.id },
-            `${competitionName(confirmation.competition)} removed from ${scopeName(confirmation.scopeId)}.`,
+            `${confirmation.competition.name} removed from ${scopeName(confirmation.scopeId)}.`,
           )}
         >
           <p>Players see this scope now. Points from this tournament disappear from their leaderboard after the next recompute.</p>

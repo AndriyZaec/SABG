@@ -972,7 +972,16 @@ button.nb-footer__link {
 .nb-board__score { font-family: var(--font-display); font-size: 1.2rem; }
 
 .cs2-leaderboard__competitions { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
-.cs2-leaderboard__competitions li { display: flex; align-items: center; gap: 8px; border: 2px solid var(--ink); padding: 4px 10px 4px 4px; background: var(--white); font-size: 0.8rem; font-weight: 700; }
+.cs2-leaderboard__competitions li { position: relative; display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; border: 2px solid var(--ink); padding: 4px 10px 4px 4px; background: var(--white); font-size: 0.8rem; font-weight: 700; cursor: pointer; }
+.cs2-leaderboard__competition-name { min-width: 0; max-width: 28ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A long name is cut to one line; hover, tap or focus opens the full name over the chip, so no chip moves. */
+.cs2-leaderboard__competition-full {
+  position: absolute; top: -2px; left: -2px; z-index: 3; display: none; align-items: center; gap: 8px;
+  width: max-content; max-width: min(320px, calc(100vw - 48px));
+  border: 2px solid var(--ink); padding: 4px 10px 4px 4px; background: var(--yellow); box-shadow: var(--shadow-sm);
+}
+.cs2-leaderboard__competitions li:is(:hover, :focus) { outline: none; z-index: 3; }
+.cs2-leaderboard__competitions li:is(:hover, :focus) .cs2-leaderboard__competition-full { display: flex; }
 .cs2-leaderboard__competitions .cs2-logo { width: 28px; height: 28px; }
 .cs2-leaderboard__meta { font-size: 0.72rem; font-weight: 700; opacity: 0.7; white-space: nowrap; }
 /* The leader inverts; the viewer's yellow still wins when the viewer leads. */
