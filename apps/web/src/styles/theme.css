@@ -1459,13 +1459,34 @@ button.nb-footer__link {
   .cs2-stage__winner-content .nb-winner__title { font-size: 48px; }
 }
 @media (max-width: 1279px) {
-  .cs2-stage__match-bar > .nb-panel__body { flex-wrap: wrap; }
+  .cs2-stage { --shadow: 3px 3px 0 var(--ink); --shadow-sm: 2px 2px 0 var(--ink); --shadow-lg: 4px 4px 0 var(--ink); }
+  .cs2-stage__rail-panel { padding-right: 0; overflow: visible; }
+  .nb-shell:has(.cs2-stage-playground) > .nb-footer { display: none; }
+  .cs2-stage__match-row { height: 40px; gap: 8px; }
+  .cs2-stage__match-row > .cs2-stage__back { width: 40px; }
+  .cs2-stage__match-bar > .nb-panel__body { flex-wrap: nowrap; gap: 6px; padding: 4px 6px; }
+  .cs2-stage__series-info, .cs2-stage__match-bar .nb-badge { display: none; }
+  .cs2-stage__teams { justify-content: flex-start; gap: 6px; font-size: 16px; }
+  .cs2-stage__team { flex: 0 1 auto; gap: 4px; overflow: hidden; }
+  .cs2-stage__team-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cs2-stage__team .cs2-logo { width: 20px; height: 20px; }
   .cs2-stage__dock--winner, .cs2-stage__dock--finished, .cs2-stage__dock--cancelled { height: 434px; }
+  .cs2-stage__dock--winner { height: 300px; }
   .cs2-stage__winner-content .nb-winner { grid-template-columns: minmax(0, 1fr); justify-items: center; text-align: center; }
   .cs2-stage__winner-content .nb-winner__title { font-size: 84px; }
-  .cs2-stage__cards { grid-template-columns: minmax(0, 1fr); grid-template-rows: 128px 252px; }
-  .cs2-stage__next-card > .nb-panel__body { grid-template-columns: minmax(0, 1fr); grid-template-rows: 92px 72px; gap: 6px; padding: 6px; }
-  .cs2-stage__question-content { grid-template-rows: 64px 22px; gap: 6px; }
+  .cs2-stage__cards { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto; gap: 16px; }
+  .cs2-stage__next-card { order: -1; height: auto; }
+  .cs2-stage__now-card { height: auto; }
+  .cs2-stage__now-card > .nb-panel__bar { display: flex; align-items: center; padding: 0 8px; }
+  .cs2-stage__now-heading { flex: 1; }
+  .cs2-stage__now-card > .nb-panel__body { height: auto; }
+  .cs2-stage__next-card > .nb-panel__bar { height: 40px; padding: 2px 8px; }
+  .cs2-stage__round-plate { flex-direction: row; gap: 6px; width: auto; height: 32px; padding: 0; border: 0; background: transparent; color: inherit; }
+  .cs2-stage__round-plate > b { font-size: 24px; }
+  .cs2-stage__next-card > .nb-panel__body { height: auto; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 104px; gap: 10px; padding: 8px; }
+  .cs2-stage__question-content { display: block; }
+  .cs2-stage__notice-slot:empty { display: none; }
+  .cs2-stage__rejection { margin-top: 6px !important; }
   .cs2-stage__question--long { font-size: 20px; line-height: 1.05; }
   .cs2-stage-playground__tools { left: 110px; top: 14px; }
   .cs2-stage-playground__tools > summary { font-size: 11px; width: 36px; overflow: hidden; white-space: nowrap; text-indent: -999px; }
@@ -1476,7 +1497,6 @@ button.nb-footer__link {
   .cs2-stage__question-content { grid-template-rows: auto 18px; gap: 6px; }
   .cs2-stage__action-slot { height: 104px; }
   .cs2-stage__recent { min-height: 36px; }
-  .cs2-stage__teams { flex-basis: 100%; justify-content: flex-start; flex-wrap: wrap; }
   .cs2-stage__question { font-size: 24px; }
   .cs2-stage__question--long { font-size: 21px; }
   .cs2-stage__question--compact { font-size: 16px; }
