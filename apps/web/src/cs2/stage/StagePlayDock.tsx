@@ -73,7 +73,7 @@ export function StagePlayDock({ view, connected, answerSubmission, submitAnswer,
                   <div className={`cs2-stage__round-plate cs2-stage__round-plate--${plateTone}`}>
                     <span>ROUND</span><b>{round?.roundNumber ?? "—"}</b>
                   </div>
-                  <button type="button" className={`nb-btn nb-btn--plain cs2-stage__mute${muted ? "" : " cs2-stage__mute--on"}`} onClick={onToggleMute} title={muted ? "New question sound: off" : "New question sound: on"} aria-label={muted ? "Enable new question sound" : "Disable new question sound"} aria-pressed={!muted}>
+                  <button type="button" className={`nb-btn nb-btn--plain cs2-stage__mute${muted ? "" : " cs2-stage__mute--on"}`} onClick={onToggleMute} title={muted ? "Game sounds: off" : "Game sounds: on"} aria-label={muted ? "Enable game sounds" : "Disable game sounds"} aria-pressed={!muted}>
                     <span aria-hidden="true">{muted ? "🔇" : "🔊"}</span>
                   </button>
                 </div>

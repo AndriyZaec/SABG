@@ -29,7 +29,7 @@ export function stageRoundState(view: Cs2ArenaView, connected: boolean, submissi
     };
     return { kind: "result", title: state.survived ? "SURVIVED" : "OUT", detail, tone: state.survived ? "green" : "red" };
   }
-  if (view.myStatus === "eliminated") return { kind: "status", title: "YOU'RE OUT", detail: "Stay and watch how it ends", tone: "red" };
+  if (view.myStatus === "eliminated") return { kind: "status", title: "YOU'RE OUT", detail: "There's still plenty of action to test your game sense.", tone: "red" };
   if (round.status === "locked") return { kind: "answers", title: "", detail: "", tone: "blue" };
   if (state.currentSubmission?.status === "rejected") return { kind: "answers", title: "", detail: "", tone: "red", rejection: state.currentSubmission.reason };
   return { kind: "answers", title: "", detail: "", tone: state.picked ? "blue" : "yellow" };

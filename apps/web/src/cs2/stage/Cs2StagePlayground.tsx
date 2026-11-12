@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { Answer } from "@arena/contracts";
 import type { Cs2AnswerSubmission } from "../cs2View.js";
+import { playEliminationSound } from "../live/playEliminationSound.js";
+import { playVictorySound } from "../live/playVictorySound.js";
+import { useCs2SoundMuted } from "../live/useCs2SoundMuted.js";
 import { streamEmbed } from "../stream/streamEmbed.js";
 import { Cs2StageLayout } from "./Cs2StageLayout.js";
 import { stageFixtures, type StageFixtureName } from "./stageFixtures.js";
@@ -8,7 +11,7 @@ import { stageSequence } from "./stageSequence.js";
 
 export function Cs2StagePlayground() {
   const [selected, setSelected] = useState<StageFixtureName>("3 players");
-  const [muted, setMuted] = useState(true);
+  const [muted, toggleMuted] = useCs2SoundMuted();
   const [streamUrl, setStreamUrl] = useState("");
   const [answer, setAnswer] = useState<Answer | undefined>(undefined);
   const [submission, setSubmission] = useState<Cs2AnswerSubmission | undefined>(undefined);
@@ -26,6 +29,14 @@ export function Cs2StagePlayground() {
   const view = answer && fixture.view.round
     ? { ...fixture.view, round: { ...fixture.view.round, myAnswer: answer } }
     : fixture.view;
+  const previousStatus = useRef(view.myStatus);
+  useEffect(() => {
+    const previous = previousStatus.current;
+    previousStatus.current = view.myStatus;
+    if (previous === view.myStatus || muted || !fixture.connected || view.cancelled) return;
+    if (view.myStatus === "winner") playVictorySound();
+    else if (view.myStatus === "eliminated") playEliminationSound();
+  }, [view.myStatus, muted, fixture.connected, view.cancelled]);
 
   return (
     <div className="cs2-stage-playground">
@@ -78,7 +89,7 @@ export function Cs2StagePlayground() {
           setSubmission({ status: "accepted", roundId: view.round.roundId, answer: next });
         }}
         muted={muted}
-        onToggleMute={() => setMuted((current) => !current)}
+        onToggleMute={toggleMuted}
         seriesId={fixture.seriesId}
         embed={embed}
         teams={fixture.teams}
