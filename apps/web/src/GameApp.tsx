@@ -38,6 +38,9 @@ const Cs2PlayerLeaderboardScreen = lazy(() =>
 const GuideScreen = lazy(() =>
   import("./guide/GuideScreen.js").then((module) => ({ default: module.GuideScreen })),
 );
+const Cs2StagePlayground = lazy(() =>
+  import("./cs2/stage/Cs2StagePlayground.js").then((module) => ({ default: module.Cs2StagePlayground })),
+);
 
 export function GameApp() {
   useEffect(() => {
@@ -55,6 +58,7 @@ export function GameApp() {
                 <Routes>
                   <Route path="/" element={<Cs2LobbyScreen />} />
                   <Route path="/style" element={<StyleScreen />} />
+                  <Route path="/style/stage" element={<Cs2StagePlayground />} />
                   <Route path="/arena/:arenaId" element={<ArenaScreen />} />
                   <Route path="/arena/:arenaId/leaderboard" element={<LeaderboardScreen />} />
                   <Route path="/arena/:arenaId/spectate" element={<SpectatorScreen />} />

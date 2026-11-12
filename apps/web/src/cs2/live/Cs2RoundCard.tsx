@@ -1,5 +1,6 @@
 import { cs2ClassicRoundPoints, type Answer } from "@arena/contracts";
 import type { Cs2AnswerSubmission, Cs2RoundView } from "../cs2View.js";
+import { roundAnswerState } from "../roundAnswerState.js";
 import { Panel } from "../../ui/Panel.js";
 import { Button } from "../../ui/Button.js";
 import { Badge } from "../../ui/Badge.js";
@@ -27,12 +28,7 @@ export function Cs2RoundCard({
   classic?: { double: boolean };
 }) {
   const isOpen = round.status === "open";
-  const currentSubmission = "roundId" in submission && submission.roundId === round.roundId ? submission : undefined;
-  const picked = currentSubmission?.status === "submitting" ? currentSubmission.answer : round.myAnswer;
-  const survived = !eliminated && picked !== undefined &&
-    (picked === round.correctAnswer || round.survivalRuleApplied === "no_correct_answers");
-  const correct = picked !== undefined && picked === round.correctAnswer;
-  const submitting = currentSubmission?.status === "submitting";
+  const { currentSubmission, picked, survived, correct, submitting } = roundAnswerState(round, submission, eliminated);
   const pressed = { transform: "translate(4px, 4px)", boxShadow: "0 0 0 var(--ink)" } as const;
 
   const answer = (a: Answer) => {
