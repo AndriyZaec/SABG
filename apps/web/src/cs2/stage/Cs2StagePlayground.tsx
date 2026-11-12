@@ -7,7 +7,7 @@ import { useCs2SoundMuted } from "../live/useCs2SoundMuted.js";
 import { streamEmbed } from "../stream/streamEmbed.js";
 import { Cs2StageLayout } from "./Cs2StageLayout.js";
 import { stageFixtures, type StageFixtureName } from "./stageFixtures.js";
-import { stageSequence } from "./stageSequence.js";
+import { stageSequence, stageZoneSequence } from "./stageSequence.js";
 
 export function Cs2StagePlayground() {
   const [selected, setSelected] = useState<StageFixtureName>("3 players");
@@ -18,10 +18,11 @@ export function Cs2StagePlayground() {
   const [scene, setScene] = useState<(typeof stageFixtures)[StageFixtureName] | undefined>(undefined);
   const [sequenceLabel, setSequenceLabel] = useState("");
   const run = useRef(0);
+  const zonePreview = useRef<{ frames: ReturnType<typeof stageZoneSequence>; index: number }>();
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const toolsRef = useRef<HTMLDetailsElement>(null);
   const closeTools = () => { if (toolsRef.current) toolsRef.current.open = false; };
-  const stop = () => { timers.current.forEach(clearTimeout); timers.current = []; setSequenceLabel(""); };
+  const stop = () => { timers.current.forEach(clearTimeout); timers.current = []; zonePreview.current = undefined; setSequenceLabel(""); };
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
   const fixture = scene ?? stageFixtures[selected];
   const normalizedStreamUrl = streamUrl.trim().replace(/^https:\/\/www\.twitch\.tv\//iu, "https://twitch.tv/");
@@ -72,6 +73,19 @@ export function Cs2StagePlayground() {
               if (i === 0) show(); else timers.current.push(setTimeout(show, i * 1100));
             });
           }}>Play sequence</button>
+          <button type="button" className="nb-btn nb-btn--plain cs2-stage-playground__sequence" onClick={() => {
+            closeTools();
+            const frames = zonePreview.current?.frames ?? stageZoneSequence(++run.current);
+            const index = zonePreview.current?.index ?? 0;
+            const frame = frames[index];
+            if (!frame) return;
+            stop();
+            zonePreview.current = { frames, index: (index + 1) % frames.length };
+            setAnswer(undefined);
+            setSubmission(undefined);
+            setScene(frame.fixture);
+            setSequenceLabel(frame.label);
+          }}>{zonePreview.current ? "Next zone" : "Preview zone"}</button>
           <button type="button" className="nb-btn nb-btn--plain cs2-stage-playground__sequence" onClick={() => { closeTools(); stop(); setAnswer(undefined); setSubmission(undefined); setScene(stageFixtures.Eliminated); }}>Eliminate</button>
           <button type="button" className="nb-btn nb-btn--plain cs2-stage-playground__sequence" onClick={() => { closeTools(); stop(); setAnswer(undefined); setSubmission(undefined); setScene(stageFixtures.Winner); }}>Winner</button>
           <span id="cs2-stage-stream-help" role="status" aria-live="polite">

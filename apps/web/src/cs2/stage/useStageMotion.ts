@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import type { RefObject } from "react";
 import type { Cs2AnswerSubmission, Cs2ArenaView } from "../cs2View.js";
 import { cs2FeedForView } from "../live/cs2Feed.js";
+import type { SurvivorsBoard } from "../survivorsBoard.js";
 
 const EASE = "cubic-bezier(.2, .8, .2, 1)";
 
@@ -138,13 +139,16 @@ export function useDockMotion(root: RefObject<HTMLDivElement>, view: Cs2ArenaVie
   }, [animate, root, view, submission]);
 }
 
-export function useBoardMotion(root: RefObject<HTMLElement>, view: Cs2ArenaView, tab: string) {
+export function useBoardMotion(root: RefObject<HTMLElement>, view: Cs2ArenaView, tab: string, board: SurvivorsBoard) {
   const animate = useStageAnimator(root);
   const previous = useRef(new Map<string, { top: number; score: string; out: boolean }>());
-  useLayoutEffect(() => {
+  const previousZone = useRef<{ zone: number; height: number; bottom: number; width: number; viewport: number }>();
+  const update = useCallback(() => {
     const panel = root.current?.querySelector<HTMLElement>(".cs2-stage__survivors-panel");
-    if (!panel || panel.getClientRects().length === 0) { previous.current.clear(); return; }
-    const origin = panel.getBoundingClientRect().top - panel.scrollTop;
+    if (!panel || panel.getClientRects().length === 0) { previous.current.clear(); previousZone.current = undefined; return; }
+    const body = panel.querySelector<HTMLElement>(".cs2-board__body");
+    if (!body) return;
+    const origin = body.getBoundingClientRect().top - body.scrollTop;
     // Read the entire visible board before any animation writes.
     const rows = [...panel.querySelectorAll<HTMLElement>(".nb-board__row")].map((element) => ({
       element,
@@ -153,14 +157,24 @@ export function useBoardMotion(root: RefObject<HTMLElement>, view: Cs2ArenaView,
       score: element.querySelector<HTMLElement>(".nb-board__score"),
       out: element.classList.contains("nb-board__row--eliminated"),
     }));
-    const lines = [...panel.querySelectorAll<HTMLElement>(".cs2-board__line")].map((element) => ({ element, key: element.classList.contains("cs2-board__line--zone") ? "__zone" : "__next", top: element.getBoundingClientRect().top - origin }));
+    const lines = [...panel.querySelectorAll<HTMLElement>(".cs2-board__line")].map((element) => {
+      const rect = element.getBoundingClientRect();
+      return { element, key: element.classList.contains("cs2-board__line--zone") ? "__zone" : "__next", top: rect.top + rect.height / 2 - origin };
+    });
+    const outBand = panel.querySelector<HTMLElement>(".cs2-board__band--out");
+    const outBounds = outBand?.getBoundingClientRect();
+    const oldZone = previousZone.current;
+    const zone = view.mode === "classic" && view.zone.stage === "zone" && !view.finished ? view.zone.zone : undefined;
+    const zoneAdvanced = zone !== undefined && oldZone !== undefined && zone > oldZone.zone && Math.abs(body.clientWidth - oldZone.width) < 1 && Math.abs(body.clientHeight - oldZone.viewport) < 1;
+    previousZone.current = zone !== undefined && outBounds ? { zone, height: outBounds.height, bottom: outBounds.bottom - origin, width: body.clientWidth, viewport: body.clientHeight } : undefined;
+    const duration = zoneAdvanced ? 420 : 340;
     const next = new Map<string, { top: number; score: string; out: boolean }>();
     for (const row of rows) {
       const score = row.score?.textContent ?? "";
       next.set(row.key, { top: row.top, score, out: row.out });
       const old = previous.current.get(row.key);
       if (!old) continue;
-      if (Math.abs(old.top - row.top) > 1) animate(row.element, [{ transform: `translateY(${old.top - row.top}px)` }, { transform: "none" }], { duration: 340 });
+      if (Math.abs(old.top - row.top) > 1) animate(row.element, [{ transform: `translateY(${old.top - row.top}px)` }, { transform: "none" }], { duration });
       if (row.key === "__you" && score && old.score !== score) animate(row.score, [{ transform: "scale(1.2)" }, { transform: "none" }], { duration: 300 });
       if (!old.out && row.out && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
         const overlay = layer(row.element);
@@ -173,8 +187,16 @@ export function useBoardMotion(root: RefObject<HTMLElement>, view: Cs2ArenaView,
     for (const line of lines) {
       next.set(line.key, { top: line.top, score: "", out: false });
       const old = previous.current.get(line.key);
-      if (old && Math.abs(old.top - line.top) > 1) animate(line.element, [{ transform: `translateY(${old.top - line.top}px)` }, { transform: "none" }], { duration: 340 });
+      if (old && Math.abs(old.top - line.top) > 1) animate(line.element, [{ transform: `translateY(${old.top - line.top}px)` }, { transform: "none" }], { duration });
+    }
+    if (zoneAdvanced && outBand && outBounds && outBounds.height > 0 && oldZone && (Math.abs(oldZone.height - outBounds.height) > 1 || Math.abs(oldZone.bottom - (outBounds.bottom - origin)) > 1)) {
+      animate(outBand, [{ transform: `translateY(${oldZone.bottom - (outBounds.bottom - origin)}px) scaleY(${oldZone.height / outBounds.height})` }, { transform: "none" }], { duration, pseudoElement: "::before" });
     }
     previous.current = next;
-  }, [animate, root, view.leaderboard, view.zone, tab]);
+  }, [animate, root, view.leaderboard, view.zone, view.mode, view.finished, tab, board]);
+  useLayoutEffect(() => {
+    // Fit rows and distribute their spacing before taking the animation snapshot.
+    const frame = requestAnimationFrame(update);
+    return () => cancelAnimationFrame(frame);
+  }, [update]);
 }

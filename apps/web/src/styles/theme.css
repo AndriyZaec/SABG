@@ -1353,6 +1353,8 @@ button.nb-footer__link {
 .cs2-stage__rail-panel > .nb-panel > .nb-panel__bar { flex: none; }
 .cs2-stage__rail-panel > .nb-panel > .nb-panel__body, .cs2-stage__rail-panel .cs2-board__body { min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-color: var(--ink) var(--cs2-stage-surface); scrollbar-width: thin; }
 .cs2-stage__rail-panel .nb-board__row { padding-block: calc(7px + var(--cs2-stage-row-padding, 0px)); }
+.cs2-stage__rail-panel .cs2-board__band--out { position: relative; isolation: isolate; background: transparent; }
+.cs2-stage__rail-panel .cs2-board__band--out::before { content: ""; position: absolute; inset: 0; z-index: -1; background: var(--eliminate-soft); transform-origin: center bottom; pointer-events: none; }
 @keyframes cs2-stage-panel-in { from { opacity: .65; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 .cs2-stage__feed-panel { display: none; }
 .cs2-stage[data-rail-tab="feed"] .cs2-stage__survivors-panel { display: none; }

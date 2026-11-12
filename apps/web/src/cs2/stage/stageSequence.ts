@@ -57,3 +57,34 @@ export function stageSequence(run: number, outcome: "correct" | "wrong"): Frame[
     } } },
   ];
 }
+
+export function stageZoneSequence(run: number): Frame[] {
+  const base = stageFixtures["Round open"];
+  // The viewer is always visible, so this row makes the boundary crossing clear even in a short rail.
+  const scores = [6, 5, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
+  return [5, 6, 7, 8, 9].map((settledRound) => {
+    const zone = cs2ClassicZoneAfter(settledRound);
+    const leaderboard = base.view.leaderboard.map((row, i) => {
+      const score = scores[i] ?? 0;
+      const eliminatedRound = [6, 7, 8, 9].find((round) => round <= settledRound && score < cs2ClassicZoneAfter(round));
+      return { ...row, score, status: eliminatedRound !== undefined ? "eliminated" as const : "active" as const, eliminatedRound };
+    });
+    const round: Cs2RoundView = { roundId: `zone-${run}-${settledRound + 2}`, roundNumber: settledRound + 2, question: "Will Team Falcons win this round?", status: "open" };
+    const pending = { roundId: `zone-${run}-${settledRound + 1}`, roundNumber: settledRound + 1, question: "Will Team Falcons win this round?", answer: "yes" as const };
+    const rounds: Cs2ArenaView["rounds"] = [
+      ...base.view.rounds.filter((entry) => entry.status === "settled"),
+      ...Array.from({ length: settledRound - 5 }, (_, i) => ({
+        id: `zone-${run}-${i + 6}`, roundNumber: i + 6, question: round.question, status: "settled" as const,
+        correctAnswer: "no" as const, mine: { answer: "yes" as const, result: "incorrect" as const },
+      })),
+      { id: pending.roundId, roundNumber: pending.roundNumber, question: pending.question, status: "locked" },
+      { id: round.roundId, roundNumber: round.roundNumber, question: round.question, status: "open" },
+    ];
+    const eliminated = leaderboard.some((row) => row.you && row.status === "eliminated");
+    return { label: `Zone ${zone}`, fixture: { ...base, view: {
+      ...base.view, leaderboard, survivors: leaderboard.filter((row) => row.status === "active").length,
+      zone: { type: "arena.zone", stage: "zone", zone, nextZone: cs2ClassicZoneAfter(settledRound + 1) },
+      round, rounds, myStatus: eliminated ? "eliminated" : "active", pendingPredictions: eliminated ? [] : [pending], liveResults: {},
+    } } };
+  });
+}

@@ -35,7 +35,7 @@ export function Cs2StageLayout({
   const railRef = useRef<HTMLElement>(null);
   const survivorsRef = useRef<HTMLDivElement>(null);
   const board = useStageSurvivorsBoard(view, survivorsRef);
-  useBoardMotion(railRef, view, tab);
+  useBoardMotion(railRef, view, tab, board);
   const displayTeams = teams ?? view.teams?.map((name) => ({ name, logoUrl: undefined }));
   const feed = cs2FeedForView(view);
 
