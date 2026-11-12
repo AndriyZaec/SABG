@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import type { Answer, Cs2SeriesMapSummary, Cs2SeriesSummary, Cs2TeamSummary } from "@arena/contracts";
 import { Panel } from "../../ui/Panel.js";
 import type { Cs2AnswerSubmission, Cs2ArenaView } from "../cs2View.js";
@@ -37,60 +37,60 @@ export function Cs2StageLayout({
   const board = useStageSurvivorsBoard(view, survivorsRef);
   useBoardMotion(railRef, view, tab, board);
   const displayTeams = teams ?? view.teams?.map((name) => ({ name, logoUrl: undefined }));
-  const feed = cs2FeedForView(view);
+  const feed = useMemo(() => cs2FeedForView(view), [view]);
+  const recentResults = useMemo(() => feed.flatMap((item) => item.kind === "result" ? [item] : []), [feed]);
 
   return (
     <section className="cs2-stage" aria-label="Live CS2 arena" data-rail-tab={tab}>
-      <div className="cs2-stage__size">
-        <div className="cs2-stage__grid">
-          <StageMatchBar seriesId={seriesId} teams={displayTeams} embed={embed} competition={competition} format={format} map={map} />
-          <Panel className="cs2-stage__broadcast">
-            <StageStream embed={embed} />
-          </Panel>
-          <StagePlayDock
-            view={view}
-            connected={connected}
-            answerSubmission={answerSubmission}
-            submitAnswer={submitAnswer}
-            muted={muted}
-            onToggleMute={onToggleMute}
-          />
+      <div className="cs2-stage__grid">
+        <StageMatchBar seriesId={seriesId} teams={displayTeams} embed={embed} competition={competition} format={format} map={map} />
+        <Panel className="cs2-stage__broadcast">
+          <StageStream embed={embed} />
+        </Panel>
+        <StagePlayDock
+          view={view}
+          connected={connected}
+          answerSubmission={answerSubmission}
+          submitAnswer={submitAnswer}
+          muted={muted}
+          onToggleMute={onToggleMute}
+          feed={feed}
+        />
 
-          <aside className="cs2-stage__rail" aria-label="Arena details" ref={railRef} data-dense={view.leaderboard.length > SURVIVORS_VISIBLE || undefined}>
-            <div className="cs2-stage__tabs" role="tablist" aria-label="Arena details" onKeyDown={(event) => {
-              const next = event.key === "Home" ? "survivors" : event.key === "End" ? "feed"
-                : event.key === "ArrowLeft" || event.key === "ArrowRight" ? tab === "survivors" ? "feed" : "survivors" : undefined;
-              if (next === undefined) return;
-              event.preventDefault();
-              setTab(next);
-              document.getElementById(`${id}-${next}`)?.focus();
-            }}>
-              {(["survivors", "feed"] as const).map((name) => (
-                <button
-                  key={name}
-                  type="button"
-                  role="tab"
-                  id={`${id}-${name}`}
-                  aria-selected={tab === name}
-                  aria-controls={`${id}-${name}-panel`}
-                  tabIndex={tab === name ? 0 : -1}
-                  className="cs2-stage__tab"
-                  onClick={() => setTab(name)}
-                >{name === "survivors" ? "Survivors" : "Feed"}</button>
-              ))}
-            </div>
-            <div className="cs2-stage__rail-panel cs2-stage__survivors-panel" role="tabpanel" id={`${id}-survivors-panel`} aria-labelledby={`${id}-survivors`} tabIndex={0} ref={survivorsRef}>
-              <Cs2Survivors board={board} active={view.survivors} total={view.totalPlayers} />
-            </div>
-            <div className="cs2-stage__rail-panel cs2-stage__feed-panel" role="tabpanel" id={`${id}-feed-panel`} aria-labelledby={`${id}-feed`} tabIndex={0}>
-              <Cs2MatchFeed items={feed} />
-            </div>
-            <StageRecentRounds view={view} connected={connected} onShowFeed={() => {
-              setTab("feed");
-              document.getElementById(`${id}-feed`)?.focus({ preventScroll: true });
-            }} />
-          </aside>
-        </div>
+        <aside className="cs2-stage__rail" aria-label="Arena details" ref={railRef} data-dense={view.leaderboard.length > SURVIVORS_VISIBLE || undefined}>
+          <div className="cs2-stage__tabs" role="tablist" aria-label="Arena details" onKeyDown={(event) => {
+            const next = event.key === "Home" ? "survivors" : event.key === "End" ? "feed"
+              : event.key === "ArrowLeft" || event.key === "ArrowRight" ? tab === "survivors" ? "feed" : "survivors" : undefined;
+            if (next === undefined) return;
+            event.preventDefault();
+            setTab(next);
+            document.getElementById(`${id}-${next}`)?.focus();
+          }}>
+            {(["survivors", "feed"] as const).map((name) => (
+              <button
+                key={name}
+                type="button"
+                role="tab"
+                id={`${id}-${name}`}
+                aria-selected={tab === name}
+                aria-controls={`${id}-${name}-panel`}
+                tabIndex={tab === name ? 0 : -1}
+                className="cs2-stage__tab"
+                onClick={() => setTab(name)}
+              >{name === "survivors" ? "Survivors" : "Feed"}</button>
+            ))}
+          </div>
+          <div className="cs2-stage__rail-panel cs2-stage__survivors-panel" role="tabpanel" id={`${id}-survivors-panel`} aria-labelledby={`${id}-survivors`} tabIndex={0} ref={survivorsRef}>
+            <Cs2Survivors board={board} active={view.survivors} total={view.totalPlayers} />
+          </div>
+          <div className="cs2-stage__rail-panel cs2-stage__feed-panel" role="tabpanel" id={`${id}-feed-panel`} aria-labelledby={`${id}-feed`} tabIndex={0}>
+            <Cs2MatchFeed items={feed} />
+          </div>
+          {connected && view.myStatus !== undefined && <StageRecentRounds results={recentResults} onShowFeed={() => {
+            setTab("feed");
+            document.getElementById(`${id}-feed`)?.focus({ preventScroll: true });
+          }} />}
+        </aside>
       </div>
     </section>
   );

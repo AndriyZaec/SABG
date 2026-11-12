@@ -11,6 +11,7 @@ import { streamEmbed } from "./stream/streamEmbed.js";
 import { useCs2ArenaEntry } from "./useCs2ArenaEntry.js";
 import { useCs2RoundAlerts, type Cs2NewRoundSignal } from "./live/useCs2RoundAlerts.js";
 import { useCs2VictoryAlert } from "./live/useCs2VictoryAlert.js";
+import { useCs2EliminationAlert } from "./live/useCs2EliminationAlert.js";
 import type { Cs2AnswerSubmission, Cs2ArenaView } from "./cs2View.js";
 import { classicRoundScoring, classicZoneHud } from "./classicZone.js";
 import { Cs2Survivors } from "./live/Cs2Survivors.js";
@@ -146,7 +147,7 @@ function Cs2SeriesStream({ seriesId }: { seriesId: string }) {
 
 export function Cs2ArenaScreen() {
   const { arenaId = "" } = useParams();
-  const { detail, loadError, retry, view, connected, answerSubmission, submitAnswer, newRoundSignal, victorySignal } =
+  const { detail, loadError, retry, view, connected, answerSubmission, submitAnswer, newRoundSignal, victorySignal, eliminationSignal } =
     useCs2ArenaSocket(arenaId);
 
   if (!arenaId) {
@@ -215,6 +216,7 @@ export function Cs2ArenaScreen() {
       submitAnswer={submitAnswer}
       newRoundSignal={newRoundSignal}
       victorySignal={victorySignal}
+      eliminationSignal={eliminationSignal}
     />,
   );
 }
@@ -227,6 +229,7 @@ function Cs2ArenaLive({
   submitAnswer,
   newRoundSignal,
   victorySignal,
+  eliminationSignal,
 }: {
   seriesId: string;
   view: Cs2ArenaView;
@@ -235,11 +238,13 @@ function Cs2ArenaLive({
   submitAnswer: (answer: Answer) => void;
   newRoundSignal: Cs2NewRoundSignal | null;
   victorySignal: number;
+  eliminationSignal: number;
 }) {
   const isParticipant = view.myStatus !== undefined;
   const pending = (view.pendingPredictions ?? []).filter((prediction) => prediction.roundId !== view.round?.roundId);
   const [muted, toggleMuted] = useCs2RoundAlerts(newRoundSignal, isParticipant);
   useCs2VictoryAlert(victorySignal, muted);
+  useCs2EliminationAlert(eliminationSignal, muted);
   const zoneHud = classicZoneHud(view);
 
   return (

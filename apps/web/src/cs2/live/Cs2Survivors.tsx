@@ -10,7 +10,7 @@ function Row({ row }: { row: LeaderRow }) {
     row.status === "eliminated" ? "nb-board__row--eliminated" : "",
   ].filter(Boolean).join(" ");
   return (
-    <li className={className}>
+    <li className={className} data-player-key={row.userId ?? `${row.rank}-${row.name}`}>
       <span className="nb-board__rank">{row.rank}</span>
       <span className="nb-board__name">{row.name}</span>
       {row.status === "eliminated" ? <Badge tone="eliminated">Out</Badge> : <span className="nb-board__score">{row.score}</span>}
@@ -23,7 +23,7 @@ function Entries({ entries }: { entries: BoardEntry[] }) {
     <>
       {entries.map((entry, i) =>
         entry.kind === "row"
-          ? <Row key={`${entry.row.rank}-${entry.row.name}`} row={entry.row} />
+          ? <Row key={entry.row.userId ?? `${entry.row.rank}-${entry.row.name}`} row={entry.row} />
           : <li key={`more-${i}`} className="cs2-board__more">{entry.count} more</li>,
       )}
     </>

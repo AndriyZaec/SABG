@@ -8,6 +8,7 @@ const HANDLES = ["fan_GypN2M", "fan_582281", "fan_7Lx", "fan_roundhouse", "fan_8
 
 function players(total: number, active: number): LeaderRow[] {
   return Array.from({ length: total }, (_, i) => ({
+    userId: `stage-player-${i}`,
     rank: i + 1,
     name: HANDLES[i] ?? `fan_${582281 + i * 73}`,
     score: i === 2 ? 3 : i < active ? Math.max(3, 5 - i) : Math.max(0, 2 - Math.floor((i - active) / 10)),
@@ -104,7 +105,7 @@ export const stageFixtures = {
   "Reconnect · classic double wrong": reconnectFixture({ mode: "classic", round: { ...ROUND, roundNumber: 12, question: "Will a player on Team Falcons get 3 kills this round?", status: "settled", myAnswer: "no", correctAnswer: "yes" } }),
   "Final circle": fixture({ mode: "classic", zone: { type: "arena.zone", stage: "final_circle", fromRound: 7 }, finalCircleFromRound: 7, survivors: 3, leaderboard: players(24, 3) }),
   "Winner": fixture({ myStatus: "winner", finished: true, round: undefined, survivors: 1, pendingPredictions: [], leaderboard: [
-    { rank: 1, name: HANDLES[2], score: 6, status: "winner", you: true },
+    { userId: "stage-player-2", rank: 1, name: HANDLES[2], score: 6, status: "winner", you: true },
     ...BASE.leaderboard.filter((row) => !row.you).map((row, i) => ({ ...row, rank: i + 2, status: "eliminated" as const })),
   ] }),
   "Finished": fixture({ finished: true, myStatus: "eliminated", survivors: 1, pendingPredictions: [], round: { ...ROUND, status: "settled", myAnswer: "no", correctAnswer: "yes" }, leaderboard: BASE.leaderboard.map((row, i) => ({ ...row, status: i === 0 ? "winner" : "eliminated" })) }),

@@ -15,7 +15,7 @@ export function StageStream({ embed }: { embed?: StreamEmbed }) {
         <div className="cs2-stage__stream-placeholder">
           <span className="cs2-stage__stream-mark" aria-hidden="true">▶</span>
           <p>Match stream</p>
-          <span>Fixture preview · no network</span>
+          <span>Waiting for the match broadcast.</span>
         </div>
       )}
     </div>

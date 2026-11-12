@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import type { RefObject } from "react";
 import type { Cs2AnswerSubmission, Cs2ArenaView } from "../cs2View.js";
-import { cs2FeedForView } from "../live/cs2Feed.js";
+import type { Cs2FeedItem } from "../live/cs2Feed.js";
 import type { SurvivorsBoard } from "../survivorsBoard.js";
 
 const EASE = "cubic-bezier(.2, .8, .2, 1)";
@@ -45,11 +45,12 @@ function layer(root: HTMLElement) {
   return element;
 }
 
-export function useDockMotion(root: RefObject<HTMLDivElement>, view: Cs2ArenaView, submission: Cs2AnswerSubmission) {
+export function useDockMotion(root: RefObject<HTMLDivElement>, view: Cs2ArenaView, submission: Cs2AnswerSubmission, feed: readonly Cs2FeedItem[]) {
   const animate = useStageAnimator(root);
+  const feedRef = useRef(feed);
+  feedRef.current = feed;
   const previous = useRef<{
     roundId: string | undefined;
-    status: string | undefined;
     tile: string;
     myStatus: Cs2ArenaView["myStatus"];
     width: number;
@@ -76,7 +77,7 @@ export function useDockMotion(root: RefObject<HTMLDivElement>, view: Cs2ArenaVie
     });
     const tile = `${view.round?.roundId ?? ""}:${view.round?.status ?? ""}:${view.myStatus ?? ""}:${view.finished ?? ""}:${view.cancelled?.reason ?? ""}`;
     const old = previous.current;
-    previous.current = { roundId: view.round?.roundId, status: view.round?.status, tile, myStatus: view.myStatus, width: bounds.width, height: bounds.height, now, chips };
+    previous.current = { roundId: view.round?.roundId, tile, myStatus: view.myStatus, width: bounds.width, height: bounds.height, now, chips };
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     if (old && (Math.abs(old.width - bounds.width) > 1 || Math.abs(old.height - bounds.height) > 1)) return;
 
@@ -86,7 +87,6 @@ export function useDockMotion(root: RefObject<HTMLDivElement>, view: Cs2ArenaVie
       if (plate?.classList.contains("cs2-stage__round-plate--yellow")) animate(plate, [{ opacity: 1 }, { opacity: .4 }, { opacity: 1 }, { opacity: .4 }, { opacity: 1 }], { duration: 300, easing: "steps(1, end)" });
       animate(element.querySelector(".cs2-stage__question"), [{ transform: "translateY(5px)", opacity: .5 }, { transform: "none", opacity: 1 }], { duration: 280 });
     }
-    if ((!old || old.status !== "locked") && view.round?.status === "locked") animate(element.querySelector(".cs2-stage__locked-tag"), [{ transform: "scale(1.12) rotate(-4deg)", opacity: 0 }, { transform: "none", opacity: 1 }], { duration: 260 });
     if (!old || old.tile !== tile) {
       const result = element.querySelector(".cs2-stage__action-tile");
       if (result?.classList.contains("cs2-stage__action-tile--red")) {
@@ -104,10 +104,10 @@ export function useDockMotion(root: RefObject<HTMLDivElement>, view: Cs2ArenaVie
       removeAfter(animate(wipe, [{ transform: "scaleX(0)", opacity: .85 }, { transform: "scaleX(1)", opacity: .85, offset: .65 }, { transform: "scaleX(1)", opacity: 0 }], { duration: 360 }), overlay);
     }
     if (!old) return;
-    const results = cs2FeedForView(view);
+    const results = feedRef.current;
     for (const [id, card] of old.now) {
       if (now.has(id)) continue;
-      const result = results.find((item) => item.kind === "result" && item.id === `result-${id}`);
+      const result = results.find((item) => item.kind === "result" && item.roundId === id);
       if (!result || result.kind !== "result") continue;
       const overlay = layer(stage);
       const ghost = card.node;
@@ -136,7 +136,7 @@ export function useDockMotion(root: RefObject<HTMLDivElement>, view: Cs2ArenaVie
       const current = chips.get(id);
       if (before && current && (before.x !== current.x || before.y !== current.y)) animate(chip.element, [{ transform: `translate(${before.x - current.x}px, ${before.y - current.y}px)` }, { transform: "none" }], { duration: 320 });
     }
-  }, [animate, root, view, submission]);
+  }, [animate, root, view.round, view.pendingPredictions, view.myStatus, view.liveResults, view.rounds, view.mode, view.finalCircleFromRound, view.finished, view.cancelled, submission]);
 }
 
 export function useBoardMotion(root: RefObject<HTMLElement>, view: Cs2ArenaView, tab: string, board: SurvivorsBoard) {
@@ -152,7 +152,8 @@ export function useBoardMotion(root: RefObject<HTMLElement>, view: Cs2ArenaView,
     // Read the entire visible board before any animation writes.
     const rows = [...panel.querySelectorAll<HTMLElement>(".nb-board__row")].map((element) => ({
       element,
-      key: element.classList.contains("nb-board__row--you") ? "__you" : `player:${element.querySelector(".nb-board__name")?.textContent ?? ""}`,
+      key: element.dataset.playerKey!,
+      you: element.classList.contains("nb-board__row--you"),
       top: element.getBoundingClientRect().top - origin,
       score: element.querySelector<HTMLElement>(".nb-board__score"),
       out: element.classList.contains("nb-board__row--eliminated"),
@@ -175,7 +176,7 @@ export function useBoardMotion(root: RefObject<HTMLElement>, view: Cs2ArenaView,
       const old = previous.current.get(row.key);
       if (!old) continue;
       if (Math.abs(old.top - row.top) > 1) animate(row.element, [{ transform: `translateY(${old.top - row.top}px)` }, { transform: "none" }], { duration });
-      if (row.key === "__you" && score && old.score !== score) animate(row.score, [{ transform: "scale(1.2)" }, { transform: "none" }], { duration: 300 });
+      if (row.you && score && old.score !== score) animate(row.score, [{ transform: "scale(1.2)" }, { transform: "none" }], { duration: 300 });
       if (!old.out && row.out && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
         const overlay = layer(row.element);
         const wipe = document.createElement("span");

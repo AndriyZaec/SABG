@@ -1,18 +1,11 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import type { Cs2ArenaView } from "../cs2View.js";
-import { cs2FeedForView } from "../live/cs2Feed.js";
+import type { Cs2FeedItem } from "../live/cs2Feed.js";
 
-export function StageRecentRounds({ view, connected, onShowFeed }: {
-  view: Cs2ArenaView;
-  connected: boolean;
+export function StageRecentRounds({ results, onShowFeed }: {
+  results: readonly Extract<Cs2FeedItem, { kind: "result" }>[];
   onShowFeed: () => void;
 }) {
-  const results = cs2FeedForView(view).flatMap((item) => {
-    if (item.kind !== "result") return [];
-    const history = view.rounds.find((candidate) => item.id === `result-${candidate.id}`);
-    return history?.status === "settled" ? [{ id: item.id, roundId: history.id, roundNumber: history.roundNumber, outcome: item.outcome }] : [];
-  });
-  const showRecent = connected && view.myStatus !== undefined && results.length > 0;
+  const showRecent = results.length > 0;
   const recentRef = useRef<HTMLDivElement>(null);
   const [recentCount, setRecentCount] = useState(1);
   useLayoutEffect(() => {

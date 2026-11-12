@@ -20,18 +20,18 @@ export function StageMatchBar({ seriesId, teams, embed, competition, format, map
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M19 12H5m7-7-7 7 7 7" /></svg>
       </Link>
       <Panel className="cs2-stage__match-bar">
-      <div className="cs2-stage__teams">
-        {teams ? teams.map((team, i) => (
-          <div className="cs2-stage__team" key={i}>
-            {i === 0 && <TeamLogo name={team.name} src={team.logoUrl} />}
-            {i > 0 && <span className="cs2-stage__versus">vs</span>}
-            <span className="cs2-stage__team-name">{team.name}</span>
-            {i > 0 && <TeamLogo name={team.name} src={team.logoUrl} />}
-          </div>
-        )) : <span>Waiting for teams…</span>}
-      </div>
-      {info && <span className="cs2-stage__series-info" title={info}>{info}</span>}
-      {embed && <Badge tone="live">LIVE · {embed.label}</Badge>}
+        <div className="cs2-stage__teams">
+          {teams ? teams.map((team, i) => (
+            <div className="cs2-stage__team" key={i}>
+              {i === 0 && <TeamLogo name={team.name} src={team.logoUrl} />}
+              {i > 0 && <span className="cs2-stage__versus">vs</span>}
+              <span className="cs2-stage__team-name">{team.name}</span>
+              {i > 0 && <TeamLogo name={team.name} src={team.logoUrl} />}
+            </div>
+          )) : <span>Waiting for teams…</span>}
+        </div>
+        {info && <span className="cs2-stage__series-info" title={info}>{info}</span>}
+        {embed && <Badge tone="live">LIVE · {embed.label}</Badge>}
       </Panel>
     </div>
   );
