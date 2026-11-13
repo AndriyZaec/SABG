@@ -14,12 +14,27 @@ function rawBody(games: unknown[] | undefined, errors?: unknown[]) {
   };
 }
 
-const FRESH_LIVE = rawBody([{ teams: [{ name: "A", score: 0 }, { name: "B", score: 0 }] }]);
-const CONTINUING_LIVE = rawBody([{ teams: [{ name: "A", score: 5 }, { name: "B", score: 3 }] }]);
+function liveMap(sequenceNumber: number | undefined, scores: [number, number]) {
+  return rawBody([
+    {
+      ...(sequenceNumber !== undefined && { sequenceNumber }),
+      teams: [{ name: "A", score: scores[0] }, { name: "B", score: scores[1] }],
+    },
+  ]);
+}
+
+const FRESH_LIVE = liveMap(1, [0, 0]);
+const CONTINUING_LIVE = liveMap(1, [5, 3]);
 const MAP_ENDED = rawBody([]);
+const NO_GAMES = rawBody(undefined);
+const NULL_SERIES_STATE = { data: { seriesState: null } };
 
 function fakeDb(insertOne: Mock) {
   return { collection: vi.fn().mockReturnValue({ insertOne }) };
+}
+
+function writtenDocs(insertOne: Mock) {
+  return insertOne.mock.calls.map((call) => call[0]);
 }
 
 describe("Cs2RawRecorder", () => {
@@ -30,57 +45,90 @@ describe("Cs2RawRecorder", () => {
     (MongoService.getDb as Mock).mockReset().mockResolvedValue(fakeDb(insertOne));
   });
 
-  it("does not write before a fresh 0-0 start", async () => {
+  it("writes a map picked up mid-way, not only from 0-0", async () => {
+    const recorder = new Cs2RawRecorder("2991032");
+    await recorder.handlePoll({ data: CONTINUING_LIVE, status: 200 });
+
+    expect(writtenDocs(insertOne)).toEqual([
+      expect.objectContaining({
+        seriesId: "2991032",
+        sessionKey: "cs2_series_2991032_map_1",
+        mapSequenceNumber: 1,
+        httpStatus: 200,
+        payload: CONTINUING_LIVE,
+      }),
+    ]);
+    expect(writtenDocs(insertOne)[0]).not.toHaveProperty("mapEnded");
+  });
+
+  it("keys the session by series and map, so a new recorder on the same map continues it", async () => {
+    const first = new Cs2RawRecorder("2991032");
+    await first.handlePoll({ data: FRESH_LIVE });
+    const restarted = new Cs2RawRecorder("2991032");
+    await restarted.handlePoll({ data: CONTINUING_LIVE });
+
+    expect(writtenDocs(insertOne).map((doc) => doc.sessionKey)).toEqual([
+      "cs2_series_2991032_map_1",
+      "cs2_series_2991032_map_1",
+    ]);
+  });
+
+  it("writes the map-end frame once with mapEnded, skips later empty frames, and keys the next map on its own", async () => {
     const recorder = new Cs2RawRecorder("2991032");
     await recorder.handlePoll({ data: CONTINUING_LIVE });
+    await recorder.handlePoll({ data: MAP_ENDED });
+    await recorder.handlePoll({ data: MAP_ENDED });
+    await recorder.handlePoll({ data: liveMap(2, [0, 0]) });
+
+    const docs = writtenDocs(insertOne);
+    expect(docs.map((doc) => [doc.sessionKey, doc.mapEnded])).toEqual([
+      ["cs2_series_2991032_map_1", undefined],
+      ["cs2_series_2991032_map_1", true],
+      ["cs2_series_2991032_map_2", undefined],
+    ]);
+    expect(docs[1]).toMatchObject({ mapSequenceNumber: 1, payload: MAP_ENDED });
+  });
+
+  it("does not write an empty game list without an open session", async () => {
+    const recorder = new Cs2RawRecorder("2991032");
+    await recorder.handlePoll({ data: MAP_ENDED });
     expect(insertOne).not.toHaveBeenCalled();
   });
 
-  it("starts a session on 0-0 and writes immediately when that frame already has a live game", async () => {
+  it("does not write a live game without sequenceNumber", async () => {
     const recorder = new Cs2RawRecorder("2991032");
-    await recorder.handlePoll({ data: FRESH_LIVE, status: 200 });
-
-    expect(insertOne).toHaveBeenCalledTimes(1);
-    const doc = insertOne.mock.calls[0]![0];
-    expect(doc).toMatchObject({ seriesId: "2991032", httpStatus: 200 });
-    expect(typeof doc.sessionKey).toBe("string");
+    await recorder.handlePoll({ data: liveMap(undefined, [5, 3]) });
+    expect(insertOne).not.toHaveBeenCalled();
   });
 
-  it("keeps writing on the same sessionKey while the map continues", async () => {
+  it.each([
+    ["without games", NO_GAMES],
+    ["with a null seriesState", NULL_SERIES_STATE],
+  ])("treats a frame %s as a bad frame, not a map end", async (_label, badFrame) => {
     const recorder = new Cs2RawRecorder("2991032");
     await recorder.handlePoll({ data: FRESH_LIVE });
+    await recorder.handlePoll({ data: badFrame });
     await recorder.handlePoll({ data: CONTINUING_LIVE });
+    await recorder.handlePoll({ data: MAP_ENDED });
 
-    expect(insertOne).toHaveBeenCalledTimes(2);
-    const [firstDoc, secondDoc] = insertOne.mock.calls.map((c) => c[0]);
-    expect(secondDoc.sessionKey).toBe(firstDoc.sessionKey);
+    const docs = writtenDocs(insertOne);
+    expect(docs.map((doc) => [doc.sessionKey, doc.mapEnded])).toEqual([
+      ["cs2_series_2991032_map_1", undefined],
+      ["cs2_series_2991032_map_1", undefined],
+      ["cs2_series_2991032_map_1", true],
+    ]);
+    expect(docs.map((doc) => doc.payload)).not.toContainEqual(badFrame);
   });
 
-  it("writes the transition frame (games == []) before closing the session, then mints a new key on the next 0-0", async () => {
-    vi.useFakeTimers();
-    try {
-      vi.setSystemTime(new Date("2026-08-12T10:00:00.000Z"));
-      const recorder = new Cs2RawRecorder("2991032");
-      await recorder.handlePoll({ data: FRESH_LIVE });
-      await recorder.handlePoll({ data: MAP_ENDED });
-
-      expect(insertOne).toHaveBeenCalledTimes(2);
-      const firstSessionKey = insertOne.mock.calls[0]![0].sessionKey;
-      expect(insertOne.mock.calls[1]![0].sessionKey).toBe(firstSessionKey);
-
-      vi.setSystemTime(new Date("2026-08-12T10:05:00.000Z"));
-      await recorder.handlePoll({ data: FRESH_LIVE });
-
-      expect(insertOne).toHaveBeenCalledTimes(3);
-      expect(insertOne.mock.calls[2]![0].sessionKey).not.toBe(firstSessionKey);
-    } finally {
-      vi.useRealTimers();
-    }
+  it("skips frames that fail the response schema", async () => {
+    const recorder = new Cs2RawRecorder("2991032");
+    await recorder.handlePoll({ data: { data: { seriesState: { games: "not-a-list" } } } });
+    expect(insertOne).not.toHaveBeenCalled();
   });
 
   it("skips frames carrying GraphQL-level errors", async () => {
     const recorder = new Cs2RawRecorder("2991032");
-    await recorder.handlePoll({ data: rawBody(undefined, [{ message: "boom" }]) });
+    await recorder.handlePoll({ data: rawBody([{ sequenceNumber: 1, teams: [] }], [{ message: "boom" }]) });
     expect(insertOne).not.toHaveBeenCalled();
   });
 
