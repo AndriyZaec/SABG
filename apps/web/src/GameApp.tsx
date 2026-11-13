@@ -58,7 +58,7 @@ export function GameApp() {
                 <Routes>
                   <Route path="/" element={<Cs2LobbyScreen />} />
                   <Route path="/style" element={<StyleScreen />} />
-                  <Route path="/style/stage" element={<Cs2StagePlayground />} />
+                  {import.meta.env.DEV && <Route path="/style/stage" element={<Cs2StagePlayground />} />}
                   <Route path="/arena/:arenaId" element={<ArenaScreen />} />
                   <Route path="/arena/:arenaId/leaderboard" element={<LeaderboardScreen />} />
                   <Route path="/arena/:arenaId/spectate" element={<SpectatorScreen />} />

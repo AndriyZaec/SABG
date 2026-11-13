@@ -32,7 +32,7 @@ export function Cs2StageLayout({
   map?: Pick<Cs2SeriesMapSummary, "seriesMatchIndex" | "mapName">;
   /** A persistent player supplied by the live route; the playground uses StageStream. */
   stream?: ReactNode;
-  /** Lobby, refund or no-stream live content keeps the same broadcast owner mounted across layout changes. */
+  /** Lobby/refund content or the previous live screen without a stream; keeps the broadcast owner mounted. */
   standbyContent?: ReactNode;
 }) {
   const standby = standbyContent !== undefined;
