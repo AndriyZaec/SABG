@@ -19,6 +19,7 @@ function reconcileArenaStatus(view: Cs2ArenaView, detail: ArenaDetailResponse): 
 
 function leaderRows(entries: LeaderboardEntry[], myUserId: string | undefined): LeaderRow[] {
   return entries.map((e, i) => ({
+    userId: e.userId,
     rank: e.rank ?? i + 1,
     name: e.username,
     score: e.score,
@@ -181,6 +182,8 @@ export interface Cs2ArenaSocket {
   newRoundSignal: Cs2NewRoundSignal | null;
   /** Increments once, the first time this player's status genuinely becomes "winner". */
   victorySignal: number;
+  /** Increments only for a live elimination, never a restored personal snapshot. */
+  eliminationSignal: number;
 }
 
 export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
@@ -193,6 +196,7 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
   const [answerSubmission, setAnswerSubmission] = useState<Cs2AnswerSubmission>({ status: "idle" });
   const [newRoundSignal, setNewRoundSignal] = useState<Cs2NewRoundSignal | null>(null);
   const [victorySignal, setVictorySignal] = useState(0);
+  const [eliminationSignal, setEliminationSignal] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
   // WS replays can beat the first REST load; hold them until there is a view to apply them to.
   const viewReady = useRef(false);
@@ -202,7 +206,16 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
   // Tracks whether we've already counted this player's win, so a duplicate signal for the same
   // win (player.status AND arena.finished both arrive for one finish) doesn't double-fire.
   const wasWinner = useRef(false);
+  const wasEliminated = useRef(false);
   myUserId.current = user?.id;
+
+  useEffect(() => {
+    wasWinner.current = false;
+    wasEliminated.current = false;
+    setVictorySignal(0);
+    setEliminationSignal(0);
+    earlyMessages.current = [];
+  }, [arenaId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -210,9 +223,8 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
     setLoadError(false);
     setView(null);
     viewReady.current = false;
-    earlyMessages.current = [];
+    // Keep personal snapshots queued during a failed REST load until a retry can apply them.
     lastRoundId.current = undefined;
-    wasWinner.current = false;
     const applyEarlyMessages = (view: Cs2ArenaView): Cs2ArenaView => {
       const queued = earlyMessages.current;
       earlyMessages.current = [];
@@ -340,9 +352,13 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
               if (!restoredStatus) {
                 restoredStatus = true;
                 if (msg.status === "winner") wasWinner.current = true;
+                if (msg.status === "eliminated") wasEliminated.current = true;
               } else if (msg.status === "winner" && !wasWinner.current) {
                 wasWinner.current = true;
                 setVictorySignal((n) => n + 1);
+              } else if (msg.status === "eliminated" && !wasEliminated.current) {
+                wasEliminated.current = true;
+                setEliminationSignal((n) => n + 1);
               }
               break;
             case "arena.finished": {
@@ -407,5 +423,6 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
     retry: () => setLoadAttempt((current) => current + 1),
     newRoundSignal,
     victorySignal,
+    eliminationSignal,
   };
 }

@@ -73,8 +73,9 @@ function clampPosition(position: Position, width: number, height: number): Posit
 /**
  * A muted live stream that floats over the arena page: drag it by its bar, resize it by its bottom-left corner,
  * collapse it to a button that always sits in the bottom-right corner.
+ * Inline mode keeps the same iframe mounted while the Stage takes over its placement.
  */
-export function StreamPip({ embed }: { embed: StreamEmbed }) {
+export function StreamPip({ embed, inline = false }: { embed: StreamEmbed; inline?: boolean }) {
   const [state, setState] = useState<PipState>(loadState);
   const [gesturing, setGesturing] = useState(false);
   const elementRef = useRef<HTMLDivElement>(null);
@@ -87,7 +88,7 @@ export function StreamPip({ embed }: { embed: StreamEmbed }) {
 
   // A rotation or a smaller window must not leave it off screen or oversized.
   useEffect(() => {
-    if (state.collapsed) return;
+    if (state.collapsed || inline) return;
     const reclamp = () => {
       const element = elementRef.current;
       if (element === null) return;
@@ -111,7 +112,7 @@ export function StreamPip({ embed }: { embed: StreamEmbed }) {
       window.removeEventListener("resize", reclamp);
       window.removeEventListener("orientationchange", reclamp);
     };
-  }, [state.collapsed]);
+  }, [state.collapsed, inline]);
 
   const startGesture = (event: React.PointerEvent<HTMLDivElement>, kind: Gesture["kind"]) => {
     const element = elementRef.current;
@@ -156,7 +157,7 @@ export function StreamPip({ embed }: { embed: StreamEmbed }) {
     setGesturing(false);
   };
 
-  if (state.collapsed) {
+  if (state.collapsed && !inline) {
     return (
       <button
         className="cs2-stream-pip__expand"
@@ -177,7 +178,7 @@ export function StreamPip({ embed }: { embed: StreamEmbed }) {
   };
 
   return (
-    <div className={`cs2-stream-pip${gesturing ? " cs2-stream-pip--gesturing" : ""}`} ref={elementRef} style={style}>
+    <div className={`cs2-stream-pip${inline ? " cs2-stream-pip--inline" : ""}${gesturing && !inline ? " cs2-stream-pip--gesturing" : ""}`} ref={elementRef} style={inline ? undefined : style}>
       <div
         className="cs2-stream-pip__bar"
         onPointerDown={(event) => {

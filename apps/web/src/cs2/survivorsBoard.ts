@@ -41,8 +41,8 @@ function collapse(rows: readonly LeaderRow[], visible: ReadonlySet<LeaderRow>): 
  * Lays out the Survivors panel from the server-ranked rows. Zone lines need the classic zone readout;
  * without one (hardcore, finished, released runtime) it is a plain limited list.
  */
-export function survivorsBoard(rows: readonly LeaderRow[], zone: ClassicZoneHud | undefined): SurvivorsBoard {
-  const visible = new Set(rows.filter((row, i) => i < SURVIVORS_VISIBLE || row.you));
+export function survivorsBoard(rows: readonly LeaderRow[], zone: ClassicZoneHud | undefined, visibleCount = SURVIVORS_VISIBLE): SurvivorsBoard {
+  const visible = new Set(rows.filter((row, i) => i < visibleCount || row.you));
   if (zone === undefined || rows.length === 0) return { kind: "list", entries: collapse(rows, visible) };
 
   const active = rows.filter((row) => row.status !== "eliminated");

@@ -28,6 +28,7 @@ export interface FeedItem {
 }
 
 export interface LeaderRow {
+  userId?: Uuid;
   rank: number;
   name: string;
   score: number;

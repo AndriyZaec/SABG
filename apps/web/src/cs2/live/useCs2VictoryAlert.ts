@@ -7,6 +7,6 @@ export function useCs2VictoryAlert(victorySignal: number, muted: boolean): void 
   useEffect(() => {
     if (victorySignal === lastSignal.current) return;
     lastSignal.current = victorySignal;
-    if (!muted) playVictorySound();
+    if (victorySignal > 0 && !muted) playVictorySound();
   }, [victorySignal, muted]);
 }

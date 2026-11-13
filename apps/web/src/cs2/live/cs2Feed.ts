@@ -53,7 +53,7 @@ export interface Cs2FeedInput {
 }
 
 export type Cs2FeedItem =
-  | { kind: "result"; id: string; outcome: "correct" | "wrong" | "missed"; points?: number; detail: string }
+  | { kind: "result"; id: string; roundId: Uuid; roundNumber: number; outcome: "correct" | "wrong" | "missed"; points?: number; detail: string }
   | { kind: "round" | "out"; id: string; text: string }
   /** Laid out like a result: a big title, an optional value on the right, a small detail line. */
   | { kind: "event"; id: string; tone: "void" | "won" | "lost" | "neutral" | "final_circle"; title: string; value?: string; detail?: string };
@@ -145,6 +145,8 @@ function resultItem(input: Cs2FeedInput, round: Cs2FeedRound, correctAnswer: Ans
   return {
     kind: "result",
     id: `result-${round.id}`,
+    roundId: round.id,
+    roundNumber: round.roundNumber,
     outcome,
     ...(input.mode === "classic" ? { points: result.points } : {}),
     detail: `R${round.roundNumber} · ${shortQuestion(round, input.teams)} · answer ${correctAnswer.toUpperCase()}${yours}`,

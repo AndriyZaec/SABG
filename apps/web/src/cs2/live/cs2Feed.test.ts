@@ -28,9 +28,9 @@ describe("buildCs2Feed", () => {
   it("shows a classic player's result with points, newest first, double round included", () => {
     const items = buildCs2Feed(input({ rounds: [round(1, "no"), round(2, "yes"), round(3)], me: { score: 2, rank: 1 } }));
     expect(items).toEqual([
-      { kind: "result", id: "result-r3", outcome: "missed", points: 0, detail: "R3 · Tec-9 kill? · answer NO" },
-      { kind: "result", id: "result-r2", outcome: "wrong", points: 0, detail: "R2 · Tec-9 kill? · answer NO, you YES" },
-      { kind: "result", id: "result-r1", outcome: "correct", points: 2, detail: "R1 · Tec-9 kill? · answer NO" },
+      { kind: "result", id: "result-r3", roundId: "r3", roundNumber: 3, outcome: "missed", points: 0, detail: "R3 · Tec-9 kill? · answer NO" },
+      { kind: "result", id: "result-r2", roundId: "r2", roundNumber: 2, outcome: "wrong", points: 0, detail: "R2 · Tec-9 kill? · answer NO, you YES" },
+      { kind: "result", id: "result-r1", roundId: "r1", roundNumber: 1, outcome: "correct", points: 2, detail: "R1 · Tec-9 kill? · answer NO" },
     ]);
   });
 
