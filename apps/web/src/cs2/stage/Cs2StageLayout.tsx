@@ -1,4 +1,5 @@
 import { useId, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import type { Answer, Cs2SeriesMapSummary, Cs2SeriesSummary, Cs2TeamSummary } from "@arena/contracts";
 import { Panel } from "../../ui/Panel.js";
 import type { Cs2AnswerSubmission, Cs2ArenaView } from "../cs2View.js";
@@ -15,7 +16,7 @@ import { useBoardMotion } from "./useStageMotion.js";
 import { useStageSurvivorsBoard } from "./useStageSurvivorsBoard.js";
 
 export function Cs2StageLayout({
-  view, connected, answerSubmission, submitAnswer, muted, onToggleMute, seriesId, embed, teams, competition, format, map,
+  view, connected, answerSubmission, submitAnswer, muted, onToggleMute, seriesId, embed, teams, competition, format, map, stream, standbyContent,
 }: {
   view: Cs2ArenaView;
   connected: boolean;
@@ -29,25 +30,30 @@ export function Cs2StageLayout({
   competition?: Cs2SeriesSummary["competition"];
   format?: Cs2SeriesSummary["format"];
   map?: Pick<Cs2SeriesMapSummary, "seriesMatchIndex" | "mapName">;
+  /** A persistent player supplied by the live route; the playground uses StageStream. */
+  stream?: ReactNode;
+  /** Lobby, refund or no-stream live content keeps the same broadcast owner mounted across layout changes. */
+  standbyContent?: ReactNode;
 }) {
+  const standby = standbyContent !== undefined;
   const [tab, setTab] = useState<"survivors" | "feed">("survivors");
   const id = useId();
   const railRef = useRef<HTMLElement>(null);
   const survivorsRef = useRef<HTMLDivElement>(null);
-  const board = useStageSurvivorsBoard(view, survivorsRef);
-  useBoardMotion(railRef, view, tab, board);
+  const board = useStageSurvivorsBoard(view, survivorsRef, !standby);
+  useBoardMotion(railRef, view, standby ? "standby" : tab, board);
   const displayTeams = teams ?? view.teams?.map((name) => ({ name, logoUrl: undefined }));
-  const feed = useMemo(() => cs2FeedForView(view), [view]);
+  const feed = useMemo(() => standby ? [] : cs2FeedForView(view), [view, standby]);
   const recentResults = useMemo(() => feed.flatMap((item) => item.kind === "result" ? [item] : []), [feed]);
 
   return (
-    <section className="cs2-stage" aria-label="Live CS2 arena" data-rail-tab={tab}>
+    <section className={standby ? "cs2-stage-standby" : "cs2-stage"} aria-label={standby ? "CS2 arena" : "Live CS2 arena"} data-rail-tab={tab}>
       <div className="cs2-stage__grid">
-        <StageMatchBar seriesId={seriesId} teams={displayTeams} embed={embed} competition={competition} format={format} map={map} />
-        <Panel className="cs2-stage__broadcast">
-          <StageStream embed={embed} />
+        {!standby && <StageMatchBar seriesId={seriesId} teams={displayTeams} embed={embed} competition={competition} format={format} map={map} />}
+        <Panel key="broadcast" className="cs2-stage__broadcast">
+          {stream ?? (standby ? null : <StageStream embed={embed} />)}
         </Panel>
-        <StagePlayDock
+        {standby ? standbyContent : <StagePlayDock
           view={view}
           connected={connected}
           answerSubmission={answerSubmission}
@@ -55,9 +61,9 @@ export function Cs2StageLayout({
           muted={muted}
           onToggleMute={onToggleMute}
           feed={feed}
-        />
+        />}
 
-        <aside className="cs2-stage__rail" aria-label="Arena details" ref={railRef} data-dense={view.leaderboard.length > SURVIVORS_VISIBLE || undefined}>
+        {!standby && <aside className="cs2-stage__rail" aria-label="Arena details" ref={railRef} data-dense={view.leaderboard.length > SURVIVORS_VISIBLE || undefined}>
           <div className="cs2-stage__tabs" role="tablist" aria-label="Arena details" onKeyDown={(event) => {
             const next = event.key === "Home" ? "survivors" : event.key === "End" ? "feed"
               : event.key === "ArrowLeft" || event.key === "ArrowRight" ? tab === "survivors" ? "feed" : "survivors" : undefined;
@@ -90,7 +96,7 @@ export function Cs2StageLayout({
             setTab("feed");
             document.getElementById(`${id}-feed`)?.focus({ preventScroll: true });
           }} />}
-        </aside>
+        </aside>}
       </div>
     </section>
   );

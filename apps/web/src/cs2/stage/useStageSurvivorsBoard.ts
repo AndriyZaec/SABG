@@ -5,7 +5,7 @@ import type { Cs2ArenaView } from "../cs2View.js";
 import { SURVIVORS_VISIBLE, survivorsBoard } from "../survivorsBoard.js";
 
 /** Fit real rendered rows, zone bands and the viewer's row into the desktop rail. */
-export function useStageSurvivorsBoard(view: Cs2ArenaView, panelRef: RefObject<HTMLDivElement>) {
+export function useStageSurvivorsBoard(view: Cs2ArenaView, panelRef: RefObject<HTMLDivElement>, active = true) {
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [visibleCount, setVisibleCount] = useState(SURVIVORS_VISIBLE);
   const zone = useMemo(() => classicZoneHud(view), [view.mode, view.zone, view.finished]);
@@ -15,6 +15,7 @@ export function useStageSurvivorsBoard(view: Cs2ArenaView, panelRef: RefObject<H
   const search = useRef<{ input: typeof input; width: number; height: number; low: number; high: number; best: number; done: boolean; phase: "search" | "check" | "higher" | "lower" }>();
 
   useLayoutEffect(() => {
+    if (!active) return;
     const panel = panelRef.current;
     if (!panel) return;
     const observer = new ResizeObserver(([entry]) => {
@@ -23,18 +24,18 @@ export function useStageSurvivorsBoard(view: Cs2ArenaView, panelRef: RefObject<H
       setSize(previous => Math.abs(previous.width - width) < .5 && Math.abs(previous.height - height) < .5 ? previous : { width, height });
     });
     observer.observe(panel);
-    let active = true;
+    let observing = true;
     void document.fonts.ready.then(() => {
-      if (!active) return;
+      if (!observing) return;
       search.current = undefined;
       setSize(previous => ({ ...previous }));
     });
-    return () => { active = false; observer.disconnect(); };
-  }, [panelRef]);
+    return () => { observing = false; observer.disconnect(); };
+  }, [panelRef, active]);
 
   useLayoutEffect(() => {
     // Compact boards size themselves from their rows, so their own height cannot be a fit budget.
-    if (!window.matchMedia("(min-width: 1280px)").matches || view.leaderboard.length <= SURVIVORS_VISIBLE) {
+    if (!active || !window.matchMedia("(min-width: 1280px)").matches || view.leaderboard.length <= SURVIVORS_VISIBLE) {
       search.current = undefined;
       const body = panelRef.current?.querySelector<HTMLElement>(".cs2-board__body");
       body?.style.removeProperty("--cs2-stage-row-padding");
@@ -104,7 +105,7 @@ export function useStageSurvivorsBoard(view: Cs2ArenaView, panelRef: RefObject<H
     if (current.low > current.high) {
       finish();
     } else setVisibleCount(Math.floor((current.low + current.high) / 2));
-  }, [input, panelRef, shape, size, view.leaderboard.length, visibleCount]);
+  }, [input, panelRef, active, shape, size, view.leaderboard.length, visibleCount]);
 
   return useMemo(() => survivorsBoard(view.leaderboard, zone, visibleCount), [view.leaderboard, zone, visibleCount]);
 }

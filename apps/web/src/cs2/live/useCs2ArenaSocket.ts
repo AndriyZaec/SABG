@@ -210,8 +210,11 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
   myUserId.current = user?.id;
 
   useEffect(() => {
+    wasWinner.current = false;
     wasEliminated.current = false;
+    setVictorySignal(0);
     setEliminationSignal(0);
+    earlyMessages.current = [];
   }, [arenaId]);
 
   useEffect(() => {
@@ -220,9 +223,8 @@ export function useCs2ArenaSocket(arenaId: string): Cs2ArenaSocket {
     setLoadError(false);
     setView(null);
     viewReady.current = false;
-    earlyMessages.current = [];
+    // Keep personal snapshots queued during a failed REST load until a retry can apply them.
     lastRoundId.current = undefined;
-    wasWinner.current = false;
     const applyEarlyMessages = (view: Cs2ArenaView): Cs2ArenaView => {
       const queued = earlyMessages.current;
       earlyMessages.current = [];

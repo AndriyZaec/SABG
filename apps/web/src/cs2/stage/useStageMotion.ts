@@ -139,7 +139,7 @@ export function useDockMotion(root: RefObject<HTMLDivElement>, view: Cs2ArenaVie
   }, [animate, root, view.round, view.pendingPredictions, view.myStatus, view.liveResults, view.rounds, view.mode, view.finalCircleFromRound, view.finished, view.cancelled, submission]);
 }
 
-export function useBoardMotion(root: RefObject<HTMLElement>, view: Cs2ArenaView, tab: string, board: SurvivorsBoard) {
+export function useBoardMotion(root: RefObject<HTMLElement>, view: Cs2ArenaView, panelState: "standby" | "survivors" | "feed", board: SurvivorsBoard) {
   const animate = useStageAnimator(root);
   const previous = useRef(new Map<string, { top: number; score: string; out: boolean }>());
   const previousZone = useRef<{ zone: number; height: number; bottom: number; width: number; viewport: number }>();
@@ -194,7 +194,7 @@ export function useBoardMotion(root: RefObject<HTMLElement>, view: Cs2ArenaView,
       animate(outBand, [{ transform: `translateY(${oldZone.bottom - (outBounds.bottom - origin)}px) scaleY(${oldZone.height / outBounds.height})` }, { transform: "none" }], { duration, pseudoElement: "::before" });
     }
     previous.current = next;
-  }, [animate, root, view.leaderboard, view.zone, view.mode, view.finished, tab, board]);
+  }, [animate, root, view.leaderboard, view.zone, view.mode, view.finished, panelState, board]);
   useLayoutEffect(() => {
     // Fit rows and distribute their spacing before taking the animation snapshot.
     const frame = requestAnimationFrame(update);

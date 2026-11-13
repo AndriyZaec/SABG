@@ -1,4 +1,5 @@
 import type { Answer, Arena, ArenaCancelledReason, Cs2Match, Cs2SeriesDetail } from "@arena/contracts";
+import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useCs2ArenaSocket } from "./live/useCs2ArenaSocket.js";
 import { SeriesHeader } from "./live/SeriesHeader.js";
@@ -18,6 +19,7 @@ import { Cs2Survivors } from "./live/Cs2Survivors.js";
 import { survivorsBoard } from "./survivorsBoard.js";
 import { Cs2MatchFeed } from "./live/Cs2MatchFeed.js";
 import { cs2FeedForView } from "./live/cs2Feed.js";
+import { Cs2StageLayout } from "./stage/Cs2StageLayout.js";
 import { PendingPredictionsList } from "../arena/live/PendingPredictionsList.js";
 import { WinnerBanner } from "../arena/live/WinnerBanner.js";
 import { Loading } from "../ui/Loading.js";
@@ -65,7 +67,10 @@ function Cs2ArenaLobby({
   connected,
   answerSubmission,
   submitAnswer,
-  newRoundSignal,
+  series,
+  muted,
+  onToggleMute,
+  onEntryChange,
 }: {
   arena: Arena;
   match: Cs2Match;
@@ -73,17 +78,18 @@ function Cs2ArenaLobby({
   connected: boolean;
   answerSubmission: Cs2AnswerSubmission;
   submitAnswer: (answer: Answer) => void;
-  newRoundSignal: Cs2NewRoundSignal | null;
+  series?: Cs2SeriesDetail;
+  muted: boolean;
+  onToggleMute: () => void;
+  onEntryChange: (hasEntry: boolean) => void;
 }) {
-  const [seriesResult] = useCs2Series(match.seriesId);
-  const series = seriesResult.state === "ready" ? seriesResult.value : undefined;
   const teams = match.teamScores.map((team) => teamPresentation(team, series));
   const entry = useCs2ArenaEntry({
     ...(arena?.onchainArenaId != null ? { onchainArenaId: arena.onchainArenaId } : {}),
     backendArenaId: arena.id,
   });
-  const [muted, toggleMuted] = useCs2RoundAlerts(newRoundSignal, entry.hasEntry);
   const zoneHud = view?.round ? classicZoneHud(view) : undefined;
+  useEffect(() => { onEntryChange(entry.hasEntry); }, [entry.hasEntry, onEntryChange]);
 
   if (entry.hasEntry) {
     return (
@@ -101,7 +107,7 @@ function Cs2ArenaLobby({
                 eliminated={view?.myStatus === "eliminated"}
                 participant
                 muted={muted}
-                onToggleMute={toggleMuted}
+                onToggleMute={onToggleMute}
                 classic={classicRoundScoring(view, view.round.roundNumber)}
               />
             )}
@@ -136,13 +142,6 @@ function Cs2ArenaLobby({
       </Panel>
     </div>
   );
-}
-
-function Cs2SeriesStream({ seriesId }: { seriesId: string }) {
-  const [seriesResult] = useCs2Series(seriesId);
-  const streamUrl = seriesResult.state === "ready" ? seriesResult.value.streamUrl : undefined;
-  const embed = streamUrl === undefined ? undefined : streamEmbed(streamUrl, window.location.hostname);
-  return embed === undefined ? null : <StreamPip embed={embed} />;
 }
 
 export function Cs2ArenaScreen() {
@@ -180,36 +179,10 @@ export function Cs2ArenaScreen() {
     return <div className="nb-container"><Panel accent="red">This is not a CS2 arena.</Panel></div>;
   }
 
-  // Always the second child, so moving from lobby to live keeps the same player instead of reloading it.
-  const withStream = (body: React.JSX.Element) => <>{body}<Cs2SeriesStream seriesId={match.seriesId} /></>;
-
-  if (arena.status === "cancelled" || view?.cancelled) {
-    return withStream(
-      <Cs2ArenaCancelled arena={arena} match={match} reason={arena.cancelledReason ?? view?.cancelled?.reason} />,
-    );
-  }
-
-  if (arena.status === "lobby") {
-    return withStream(
-      <Cs2ArenaLobby
-        arena={arena}
-        match={match}
-        view={view}
-        connected={connected}
-        answerSubmission={answerSubmission}
-        submitAnswer={submitAnswer}
-        newRoundSignal={newRoundSignal}
-      />,
-    );
-  }
-
-  if (!view) {
-    return withStream(<div className="nb-container"><Loading label="Loading arena…" /></div>);
-  }
-
-  return withStream(
-    <Cs2ArenaLive
-      seriesId={match.seriesId}
+  return (
+    <Cs2ArenaSession
+      arena={arena}
+      match={match}
       view={view}
       connected={connected}
       answerSubmission={answerSubmission}
@@ -217,12 +190,14 @@ export function Cs2ArenaScreen() {
       newRoundSignal={newRoundSignal}
       victorySignal={victorySignal}
       eliminationSignal={eliminationSignal}
-    />,
+    />
   );
 }
 
-function Cs2ArenaLive({
-  seriesId,
+/** One owner for series data, sounds and the player throughout lobby → live → finish. */
+function Cs2ArenaSession({
+  arena,
+  match,
   view,
   connected,
   answerSubmission,
@@ -231,8 +206,9 @@ function Cs2ArenaLive({
   victorySignal,
   eliminationSignal,
 }: {
-  seriesId: string;
-  view: Cs2ArenaView;
+  arena: Arena;
+  match: Cs2Match;
+  view: Cs2ArenaView | null;
   connected: boolean;
   answerSubmission: Cs2AnswerSubmission;
   submitAnswer: (answer: Answer) => void;
@@ -240,11 +216,62 @@ function Cs2ArenaLive({
   victorySignal: number;
   eliminationSignal: number;
 }) {
-  const isParticipant = view.myStatus !== undefined;
-  const pending = (view.pendingPredictions ?? []).filter((prediction) => prediction.roundId !== view.round?.roundId);
-  const [muted, toggleMuted] = useCs2RoundAlerts(newRoundSignal, isParticipant);
+  // Refresh live metadata so a stream URL set after the arena opened appears without a reload.
+  const [seriesResult] = useCs2Series(match.seriesId, true);
+  const series = seriesResult.state === "ready" ? seriesResult.value : undefined;
+  const embed = series?.streamUrl === undefined ? undefined : streamEmbed(series.streamUrl, window.location.hostname);
+  const [lobbyHasEntry, setLobbyHasEntry] = useState(false);
+  const [muted, toggleMuted] = useCs2RoundAlerts(newRoundSignal, lobbyHasEntry || view?.myStatus !== undefined);
   useCs2VictoryAlert(victorySignal, muted);
   useCs2EliminationAlert(eliminationSignal, muted);
+
+  if (!view) return <div className="nb-container"><Loading label="Loading arena…" /></div>;
+
+  const standbyContent = arena.status === "cancelled" || view.cancelled
+    ? <Cs2ArenaCancelled arena={arena} match={match} reason={arena.cancelledReason ?? view.cancelled?.reason} />
+    : arena.status === "lobby"
+      ? <Cs2ArenaLobby arena={arena} match={match} view={view} connected={connected} answerSubmission={answerSubmission} submitAnswer={submitAnswer} series={series} muted={muted} onToggleMute={toggleMuted} onEntryChange={setLobbyHasEntry} />
+      : seriesResult.state === "loading"
+        ? <div className="nb-container"><Loading label="Loading broadcast…" /></div>
+        : !embed
+          ? <Cs2ArenaLive seriesId={match.seriesId} view={view} connected={connected} answerSubmission={answerSubmission} submitAnswer={submitAnswer} muted={muted} onToggleMute={toggleMuted} />
+          : undefined;
+  const map = series?.maps.find((candidate) => candidate.seriesMatchIndex === match.seriesMatchIndex);
+
+  return (
+    <Cs2StageLayout
+      view={view}
+      connected={connected}
+      answerSubmission={answerSubmission}
+      submitAnswer={submitAnswer}
+      muted={muted}
+      onToggleMute={toggleMuted}
+      seriesId={match.seriesId}
+      embed={embed}
+      teams={[teamPresentation(match.teamScores[0], series), teamPresentation(match.teamScores[1], series)]}
+      competition={series?.competition}
+      format={series?.format ?? view.seriesFormat}
+      map={{ seriesMatchIndex: match.seriesMatchIndex, ...(map?.mapName !== undefined ? { mapName: map.mapName } : {}) }}
+      stream={embed ? <StreamPip embed={embed} inline={standbyContent === undefined} /> : undefined}
+      standbyContent={standbyContent}
+    />
+  );
+}
+
+/** Previous live presentation, retained for arenas without a playable stream. */
+function Cs2ArenaLive({
+  seriesId, view, connected, answerSubmission, submitAnswer, muted, onToggleMute,
+}: {
+  seriesId: string;
+  view: Cs2ArenaView;
+  connected: boolean;
+  answerSubmission: Cs2AnswerSubmission;
+  submitAnswer: (answer: Answer) => void;
+  muted: boolean;
+  onToggleMute: () => void;
+}) {
+  const isParticipant = view.myStatus !== undefined;
+  const pending = (view.pendingPredictions ?? []).filter((prediction) => prediction.roundId !== view.round?.roundId);
   const zoneHud = classicZoneHud(view);
 
   return (
@@ -280,7 +307,7 @@ function Cs2ArenaLive({
               eliminated={view.myStatus === "eliminated"}
               participant={isParticipant}
               muted={muted}
-              onToggleMute={toggleMuted}
+              onToggleMute={onToggleMute}
               classic={classicRoundScoring(view, view.round.roundNumber)}
             />
           )}
