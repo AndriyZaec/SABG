@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import { STEAM_TRADE_URL_PATTERN, type PlayerLeaderboardPrize, type PlayerLeaderboardPrizeClaim } from "@arena/contracts";
 import { useAuth } from "../auth/AuthContext.js";
 import { Loading } from "../ui/Loading.js";
-import { TradeUrlRejectedError, fetchPlayerLeaderboard, fetchPlayerLeaderboardMe, submitPrizeTradeUrl } from "./api/cs2Client.js";
+import { Cs2ApiError, fetchPlayerLeaderboard, fetchPlayerLeaderboardMe, submitPrizeTradeUrl } from "./api/cs2Client.js";
 import { playerLeaderboardView, type PlayerBoardRow, type PlayerLeaderboardView } from "./playerLeaderboard.js";
 import { TeamLogo } from "./TeamLogo.js";
 
@@ -32,7 +32,7 @@ function Row({ row }: { row: PlayerBoardRow }) {
         ? <span className="cs2-leaderboard__disqualified">Disqualified</span>
         : <span className="cs2-leaderboard__meta">{row.wins} W · {row.arenasPlayed} {row.arenasPlayed === 1 ? "arena" : "arenas"}</span>}
       {row.prize !== undefined && (
-        <img className="cs2-leaderboard__prize-badge" src={row.prize.imageUrl} alt={`Prize for place ${row.prize.place}`} title={`Prize for place ${row.prize.place}`} loading="lazy" />
+        <img className="cs2-leaderboard__prize-badge" src={row.prize.imageUrl} referrerPolicy="no-referrer" alt={`Prize for place ${row.prize.place}`} title={`Prize for place ${row.prize.place}`} loading="lazy" />
       )}
       <span className="nb-board__score">{row.points}</span>
     </li>
@@ -46,7 +46,7 @@ function Prizes({ prizes }: { prizes: PlayerLeaderboardPrize[] }) {
       <ul className="cs2-leaderboard__prizes">
         {prizes.map((prize) => (
           <li key={prize.place}>
-            <img src={prize.imageUrl} alt={`Prize for place ${prize.place}`} loading="lazy" />
+            <img src={prize.imageUrl} referrerPolicy="no-referrer" alt={`Prize for place ${prize.place}`} loading="lazy" />
             <span>#{prize.place}</span>
           </li>
         ))}
@@ -86,7 +86,7 @@ function WinnerBanner({ claim, onClaimChange, onStale }: {
       onClaimChange(prize);
       setMessage({ tone: "success", text: "Trade link saved. You can change it until the prize is sent." });
     } catch (error) {
-      const status = error instanceof TradeUrlRejectedError ? error.status : undefined;
+      const status = error instanceof Cs2ApiError ? error.status : undefined;
       setMessage({ tone: "error", text: (status !== undefined ? TRADE_URL_ERRORS[status] : undefined) ?? "The trade link could not be saved. Try again." });
       if (status === 404 || status === 409) onStale();
     } finally {
@@ -96,7 +96,7 @@ function WinnerBanner({ claim, onClaimChange, onStale }: {
 
   return (
     <section className="cs2-leaderboard__winner" aria-label="Your prize">
-      <img src={claim.imageUrl} alt={`Prize for place ${claim.place}`} />
+      <img src={claim.imageUrl} referrerPolicy="no-referrer" alt={`Prize for place ${claim.place}`} />
       <div className="cs2-leaderboard__winner-body">
         <span className="nb-label">You won place {claim.place}</span>
         {claim.sent ? (

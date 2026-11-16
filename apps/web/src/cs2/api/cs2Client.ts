@@ -31,13 +31,20 @@ async function get<TRes>(path: string, authed = false): Promise<TRes> {
   return (await res.json()) as TRes;
 }
 
+/** A failed request, with the HTTP status for a caller that tells refusals apart. */
+export class Cs2ApiError extends Error {
+  constructor(path: string, readonly status: number) {
+    super(`${path} failed (${status})`);
+  }
+}
+
 async function post<TReq, TRes>(path: string, body: TReq, authed = false): Promise<TRes> {
   const headers: Record<string, string> = { "content-type": "application/json" };
   const token = getAuthToken();
   if (authed && token) headers["authorization"] = `Bearer ${token}`;
   const res = await fetch(`/cs2-api${path}`, { method: "POST", headers, body: JSON.stringify(body) });
   await reportEventAccessFailure(res);
-  if (!res.ok) throw new Error(`${path} failed (${res.status})`);
+  if (!res.ok) throw new Cs2ApiError(path, res.status);
   return (await res.json()) as TRes;
 }
 
@@ -92,26 +99,8 @@ export async function fetchPlayerLeaderboardMe(): Promise<PlayerLeaderboardMeRes
   return get<PlayerLeaderboardMeResponse>("/leaderboard/me", true);
 }
 
-/** A refused trade URL: 400 malformed, 404 no prize to claim, 409 the prize is already sent. */
-export class TradeUrlRejectedError extends Error {
-  constructor(readonly status: number) {
-    super(`/leaderboard/prize/trade-url failed (${status})`);
-  }
-}
-
 export async function submitPrizeTradeUrl(tradeUrl: string): Promise<PlayerTradeUrlResponse> {
-  const headers: Record<string, string> = { "content-type": "application/json" };
-  const token = getAuthToken();
-  if (token) headers["authorization"] = `Bearer ${token}`;
-  const res = await fetch("/cs2-api/leaderboard/prize/trade-url", {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ tradeUrl } satisfies PlayerTradeUrlRequest),
-  });
-  await reportEventAccessFailure(res);
-  if (res.status === 400 || res.status === 404 || res.status === 409) throw new TradeUrlRejectedError(res.status);
-  if (!res.ok) throw new Error(`/leaderboard/prize/trade-url failed (${res.status})`);
-  return (await res.json()) as PlayerTradeUrlResponse;
+  return post<PlayerTradeUrlRequest, PlayerTradeUrlResponse>("/leaderboard/prize/trade-url", { tradeUrl }, true);
 }
 
 export async function prepareCs2Entry(arenaId: string, walletAddress: string): Promise<PrepareEntryResponse> {
