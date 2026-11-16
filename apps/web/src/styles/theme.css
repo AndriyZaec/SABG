@@ -987,8 +987,12 @@ button.nb-footer__link {
 .cs2-leaderboard__competitions li:is(:hover, :focus) .cs2-leaderboard__competition-full { display: flex; }
 .cs2-leaderboard__competitions .cs2-logo { width: 28px; height: 28px; }
 .cs2-leaderboard__meta { font-size: 0.72rem; font-weight: 700; opacity: 0.7; white-space: nowrap; }
-/* The leader inverts; the viewer's yellow still wins when the viewer leads. */
-.cs2-leaderboard__row--first { background: var(--ink); color: var(--white); padding: 11px 10px; }
+/* The leader is pink; the viewer's yellow still wins when the viewer leads. */
+/* Columns never grow past the screen: a long name shrinks with an ellipsis instead of widening the board. */
+.cs2-leaderboard__group, .cs2-leaderboard .nb-board { grid-template-columns: minmax(0, 1fr); }
+.cs2-leaderboard .nb-board__name { min-width: min(10ch, 100%); }
+.cs2-leaderboard .cs2-leaderboard__meta { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.cs2-leaderboard__row--first { background: var(--pink); color: var(--ink); padding: 11px 10px; }
 .cs2-leaderboard__row--first.nb-board__row--you { background: var(--yellow); color: var(--ink); }
 .cs2-leaderboard__row--first .nb-board__score { font-size: 1.5rem; }
 .cs2-leaderboard__row--first .cs2-leaderboard__meta { opacity: 0.85; }

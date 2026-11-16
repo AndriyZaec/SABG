@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import type {
   AdminLeaderboardCompetition,
@@ -14,6 +14,7 @@ import { ConfirmDialog } from "./ConfirmDialog.js";
 import { EndScopePanel, WinnersTable, formatDateTime } from "./LeaderboardEnd.js";
 import { MAX_MARK_REASON_LENGTH, MarkDraftsPanel, PlayerMark, PlayerMarkActions, draftLabel } from "./LeaderboardMarks.js";
 import { PrizeEditor } from "./LeaderboardPrizes.js";
+import { pageOf } from "./paging.js";
 
 type Confirmation =
   | { kind: "current"; scope: AdminLeaderboardScope }
@@ -23,11 +24,9 @@ type Confirmation =
   | { kind: "end"; scope: AdminLeaderboardScope }
   | { kind: "sent"; scope: AdminLeaderboardScope; winner: AdminLeaderboardWinner };
 
-const LAMPORTS_PER_SOL = 1_000_000_000;
+type Tab = "setup" | "players" | "winners";
 
-function formatSol(lamports: number): string {
-  return `${new Intl.NumberFormat("en", { maximumFractionDigits: 4 }).format(lamports / LAMPORTS_PER_SOL)} SOL`;
-}
+const TOP_PLAYERS_PAGE_SIZE = 25;
 
 export function LeaderboardPage({ session, onSessionExpired }: {
   session: AdminSessionResponse;
@@ -47,6 +46,9 @@ export function LeaderboardPage({ session, onSessionExpired }: {
   const [appliedSearch, setAppliedSearch] = useState("");
   const [prizeScopeId, setPrizeScopeId] = useState<string>();
   const [disqualify, setDisqualify] = useState<{ userId: string; username: string; reason: string; editing: boolean }>();
+  const [tab, setTab] = useState<Tab>("setup");
+  const [playersPage, setPlayersPage] = useState(0);
+  const playersRef = useRef<HTMLElement>(null);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -193,6 +195,18 @@ export function LeaderboardPage({ session, onSessionExpired }: {
   const finalizedScopes = data.scopes
     .filter((scope) => scope.winners !== undefined)
     .sort((a, b) => (b.finalizedAt ?? "").localeCompare(a.finalizedAt ?? ""));
+  const tabs: { id: Tab; label: string }[] = [
+    { id: "setup", label: "Setup" },
+    { id: "players", label: "Players" },
+    ...(finalizedScopes.length > 0 ? [{ id: "winners" as const, label: "Winners" }] : []),
+  ];
+  const shownTab = tabs.some((item) => item.id === tab) ? tab : "setup";
+  const playersShown = pageOf(current?.entries ?? [], playersPage, TOP_PLAYERS_PAGE_SIZE);
+  // The pager sits under the rows, so a new page starts from the table's heading.
+  const showPlayersPage = (page: number) => {
+    setPlayersPage(page);
+    playersRef.current?.scrollIntoView({ block: "start" });
+  };
 
   const unfinishedWarning = unfinishedInCurrent.length > 0 && currentScope !== undefined && (
     <p className="leaderboard-warning">
@@ -248,154 +262,172 @@ export function LeaderboardPage({ session, onSessionExpired }: {
         )}
       </section>
 
-      <section className="catalog-table-section">
-        <div className="catalog-table-heading">
-          <div><span className="eyebrow">Open and closed</span><h2>Scopes</h2></div>
-          <form className="leaderboard-new-scope" onSubmit={createScope}>
-            <label className="field"><span>New scope name</span><input value={newName} maxLength={80} onChange={(event) => setNewName(event.target.value)} placeholder="e.g. November 2026" /></label>
-            <button className="primary-action" type="submit" disabled={mutating || newName.trim().length === 0}>Create scope</button>
-          </form>
-        </div>
-        {switchBlocked && (
-          <p className="leaderboard-warning">
-            End {currentScope.name} first: it has prizes to award. Making another scope current is blocked until then.
-          </p>
-        )}
-        {data.scopes.length === 0 ? (
-          <div className="empty-state catalog-empty"><strong>No scopes yet</strong><span>Create a scope, add tournaments to it, then make it current.</span></div>
-        ) : (
-          <div className="catalog-table-wrap">
-            <table className="catalog-table leaderboard-table">
-              <thead><tr><th>Scope</th><th>State</th><th>Tournaments</th><th><span className="sr-only">Actions</span></th></tr></thead>
-              <tbody>
-                {data.scopes.map((scope) => (
-                  <tr key={scope.id}>
-                    <td><strong>{scope.name}</strong><small>{scope.id}</small></td>
-                    <td>
-                      <span className={`state-chip ${scope.current ? "state-chip--on" : ""}`}>{scope.current ? "Current" : scope.status === "open" ? "Open" : scope.finalizedAt !== undefined ? "Finalized" : "Closed"}</span>
-                      {scope.closedAt !== undefined && <small>Closed {formatDateTime(scope.closedAt)}</small>}
-                    </td>
-                    <td>{scope.competitionCount}</td>
-                    <td>
-                      <div className="row-actions">
-                        <button type="button" disabled={mutating} onClick={() => setRename({ scope, value: scope.name })}>Rename</button>
-                        {scope.status === "open" && !scope.current && (
-                          <button
-                            type="button"
-                            disabled={mutating || switchBlocked}
-                            onClick={() => setConfirmation({ kind: "current", scope })}
-                          >
-                            Make current
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+      <div className="leaderboard-tabs" role="group" aria-label="Leaderboard sections">
+        {tabs.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            aria-pressed={shownTab === item.id}
+            onClick={() => setTab(item.id)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
 
-      {rename && (
-        <section className="stream-editor">
-          <div><span className="eyebrow">Rename scope</span><h2>{rename.scope.name}</h2></div>
-          <form onSubmit={saveRename}>
-            <label className="field"><span>Scope name</span><input autoFocus value={rename.value} maxLength={80} onChange={(event) => setRename({ ...rename, value: event.target.value })} /></label>
-            <div className="stream-editor__actions">
-              <button className="secondary-action" type="button" onClick={() => setRename(undefined)}>Cancel</button>
-              <button className="primary-action" type="submit" disabled={mutating || rename.value.trim().length === 0}>Save name</button>
-            </div>
-          </form>
-        </section>
-      )}
-
-      {prizeScope !== undefined && (
-        <PrizeEditor
-          scopes={openScopes}
-          scope={prizeScope}
-          disabled={mutating}
-          onSelectScope={setPrizeScopeId}
-          onSet={(place, imageUrl) => runMutation(
-            { type: "leaderboard.prize.set", scopeId: prizeScope.id, place, imageUrl },
-            `Prize for place ${place} of ${prizeScope.name} set.`,
-          )}
-          onRemove={(prize) => setConfirmation({ kind: "prize-remove", scope: prizeScope, prize })}
-        />
-      )}
-
-      <section className="catalog-table-section">
-        <div className="catalog-table-heading">
-          <div><span className="eyebrow">Synced tournaments</span><h2>Tournaments</h2></div>
-          {openScopes.length > 0 && editingScope !== undefined && (
-            <label className="field leaderboard-scope-picker">
-              <span>Edit tournaments of</span>
-              <select value={editingScope.id} onChange={(event) => setEditingScopeId(event.target.value)}>
-                {openScopes.map((scope) => <option key={scope.id} value={scope.id}>{scope.name}{scope.current ? " (current)" : ""}</option>)}
-              </select>
-            </label>
-          )}
-          <form className="leaderboard-search" onSubmit={applySearch}>
-            <label className="field"><span>Tournament name</span><input value={search} maxLength={80} onChange={(event) => setSearch(event.target.value)} placeholder="e.g. ESL Pro League" /></label>
-            <div className="leaderboard-search__actions"><button type="button" onClick={clearSearch} disabled={refreshing}>Clear</button><button className="primary-action" type="submit" disabled={refreshing}>Search</button></div>
-          </form>
-        </div>
-        {data.competitions.length === 0 ? (
-          appliedSearch === ""
-            ? <div className="empty-state catalog-empty"><strong>No synced tournaments</strong><span>Tournaments appear here once their Series are synced.</span></div>
-            : <div className="empty-state catalog-empty"><strong>No matching tournaments</strong><span>No tournament name contains “{appliedSearch}”.</span></div>
-        ) : (
-          <div className="catalog-table-wrap">
-            <table className="catalog-table leaderboard-table">
-              <thead><tr><th>Tournament</th><th>Arenas with results</th><th>In scopes</th><th><span className="sr-only">Actions</span></th></tr></thead>
-              <tbody>
-                {data.competitions.map((competition) => {
-                  const included = editingScope !== undefined && competition.scopeIds.includes(editingScope.id);
-                  return (
-                    <tr key={competition.id}>
-                      <td>
-                        <strong>{competition.name}</strong>
-                        {competition.unfinished && <small className="priority-marker">Unfinished</small>}
-                      </td>
-                      <td>{competition.arenasWithResults}</td>
-                      <td>{competition.scopeIds.length === 0 ? <span className="muted-value">None</span> : competition.scopeIds.map(scopeName).join(", ")}</td>
-                      <td>
-                        {editingScope !== undefined && (
-                          <div className="row-actions">
-                            <button
-                              type="button"
-                              disabled={mutating}
-                              aria-pressed={included}
-                              className={included ? "is-active" : ""}
-                              onClick={() => toggleCompetition(editingScope, competition)}
-                            >
-                              {included ? "In scope" : "Add to scope"}
-                            </button>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-        {data.competitions.length > 0 && (
-          <p className="leaderboard-search__caption">
-            {appliedSearch === ""
-              ? "Latest 10 synced tournaments. Search to find older ones."
-              : `${data.competitions.length} ${data.competitions.length === 1 ? "match" : "matches"}`}
-          </p>
-        )}
-      </section>
-
-      {currentScope !== undefined && (
+      {shownTab === "setup" && (<>
         <section className="catalog-table-section">
           <div className="catalog-table-heading">
+            <div><span className="eyebrow">Open and closed</span><h2>Scopes</h2></div>
+            <form className="leaderboard-new-scope" onSubmit={createScope}>
+              <label className="field"><span>New scope name</span><input value={newName} maxLength={80} onChange={(event) => setNewName(event.target.value)} placeholder="e.g. November 2026" /></label>
+              <button className="primary-action" type="submit" disabled={mutating || newName.trim().length === 0}>Create scope</button>
+            </form>
+          </div>
+          {switchBlocked && (
+            <p className="leaderboard-warning leaderboard-warning--section">
+              End {currentScope.name} first: it has prizes to award. Making another scope current is blocked until then.
+            </p>
+          )}
+          {data.scopes.length === 0 ? (
+            <div className="empty-state catalog-empty"><strong>No scopes yet</strong><span>Create a scope, add tournaments to it, then make it current.</span></div>
+          ) : (
+            <div className="catalog-table-wrap">
+              <table className="catalog-table leaderboard-table">
+                <thead><tr><th>Scope</th><th>State</th><th>Tournaments</th><th><span className="sr-only">Actions</span></th></tr></thead>
+                <tbody>
+                  {data.scopes.map((scope) => (
+                    <tr key={scope.id}>
+                      <td><strong>{scope.name}</strong></td>
+                      <td>
+                        <span className={`state-chip ${scope.current ? "state-chip--on" : ""}`}>{scope.current ? "Current" : scope.status === "open" ? "Open" : scope.finalizedAt !== undefined ? "Finalized" : "Closed"}</span>
+                        {scope.closedAt !== undefined && <small>Closed {formatDateTime(scope.closedAt)}</small>}
+                      </td>
+                      <td>{scope.competitionCount}</td>
+                      <td>
+                        <div className="row-actions">
+                          <button type="button" disabled={mutating} onClick={() => setRename({ scope, value: scope.name })}>Rename</button>
+                          {scope.status === "open" && !scope.current && (
+                            <button
+                              type="button"
+                              disabled={mutating || switchBlocked}
+                              onClick={() => setConfirmation({ kind: "current", scope })}
+                            >
+                              Make current
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+
+        {rename && (
+          <section className="stream-editor">
+            <div><span className="eyebrow">Rename scope</span><h2>{rename.scope.name}</h2></div>
+            <form onSubmit={saveRename}>
+              <label className="field"><span>Scope name</span><input autoFocus value={rename.value} maxLength={80} onChange={(event) => setRename({ ...rename, value: event.target.value })} /></label>
+              <div className="stream-editor__actions">
+                <button className="secondary-action" type="button" onClick={() => setRename(undefined)}>Cancel</button>
+                <button className="primary-action" type="submit" disabled={mutating || rename.value.trim().length === 0}>Save name</button>
+              </div>
+            </form>
+          </section>
+        )}
+
+        {prizeScope !== undefined && (
+          <PrizeEditor
+            scopes={openScopes}
+            scope={prizeScope}
+            disabled={mutating}
+            onSelectScope={setPrizeScopeId}
+            onSet={(place, imageUrl) => runMutation(
+              { type: "leaderboard.prize.set", scopeId: prizeScope.id, place, imageUrl },
+              `Prize for place ${place} of ${prizeScope.name} set.`,
+            )}
+            onRemove={(prize) => setConfirmation({ kind: "prize-remove", scope: prizeScope, prize })}
+          />
+        )}
+
+        <section className="catalog-table-section">
+          <div className="catalog-table-heading">
+            <div><span className="eyebrow">Synced tournaments</span><h2>Tournaments</h2></div>
+            {openScopes.length > 0 && editingScope !== undefined && (
+              <label className="field leaderboard-scope-picker">
+                <span>Edit tournaments of</span>
+                <select value={editingScope.id} onChange={(event) => setEditingScopeId(event.target.value)}>
+                  {openScopes.map((scope) => <option key={scope.id} value={scope.id}>{scope.name}{scope.current ? " (current)" : ""}</option>)}
+                </select>
+              </label>
+            )}
+            <form className="leaderboard-search" onSubmit={applySearch}>
+              <label className="field"><span>Tournament name</span><input value={search} maxLength={80} onChange={(event) => setSearch(event.target.value)} placeholder="e.g. ESL Pro League" /></label>
+              <div className="leaderboard-search__actions"><button type="button" onClick={clearSearch} disabled={refreshing}>Clear</button><button className="primary-action" type="submit" disabled={refreshing}>Search</button></div>
+            </form>
+          </div>
+          {data.competitions.length === 0 ? (
+            appliedSearch === ""
+              ? <div className="empty-state catalog-empty"><strong>No synced tournaments</strong><span>Tournaments appear here once their Series are synced.</span></div>
+              : <div className="empty-state catalog-empty"><strong>No matching tournaments</strong><span>No tournament name contains “{appliedSearch}”.</span></div>
+          ) : (
+            <div className="catalog-table-wrap">
+              <table className="catalog-table leaderboard-table">
+                <thead><tr><th>Tournament</th><th>Arenas with results</th><th>In scopes</th><th><span className="sr-only">Actions</span></th></tr></thead>
+                <tbody>
+                  {data.competitions.map((competition) => {
+                    const included = editingScope !== undefined && competition.scopeIds.includes(editingScope.id);
+                    return (
+                      <tr key={competition.id}>
+                        <td>
+                          <strong>{competition.name}</strong>
+                          {competition.unfinished && <small className="priority-marker">Unfinished</small>}
+                        </td>
+                        <td>{competition.arenasWithResults}</td>
+                        <td>{competition.scopeIds.length === 0 ? <span className="muted-value">None</span> : competition.scopeIds.map(scopeName).join(", ")}</td>
+                        <td>
+                          {editingScope !== undefined && (
+                            <div className="row-actions">
+                              <button
+                                type="button"
+                                disabled={mutating}
+                                aria-pressed={included}
+                                className={included ? "is-active" : ""}
+                                onClick={() => toggleCompetition(editingScope, competition)}
+                              >
+                                {included ? "In scope" : "Add to scope"}
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {data.competitions.length > 0 && (
+            <p className="leaderboard-search__caption">
+              {appliedSearch === ""
+                ? "Latest 10 synced tournaments. Search to find older ones."
+                : `${data.competitions.length} ${data.competitions.length === 1 ? "match" : "matches"}`}
+            </p>
+          )}
+        </section>
+      </>)}
+
+      {shownTab === "players" && currentScope === undefined && (
+        <div className="empty-state catalog-empty"><strong>No current scope</strong><span>Make a scope current in Setup to verify its players.</span></div>
+      )}
+      {shownTab === "players" && currentScope !== undefined && (
+        <section className="catalog-table-section" ref={playersRef}>
+          <div className="catalog-table-heading">
             <div><span className="eyebrow">{currentScope.name}</span><h2>Top players</h2></div>
-            <span>{current?.entries.length ?? 0} shown · marks are set on these rows</span>
+            <span>Top {current?.entries.length ?? 0} · marks are set on these rows</span>
           </div>
           {current !== undefined && (
             <MarkDraftsPanel
@@ -425,9 +457,9 @@ export function LeaderboardPage({ session, onSessionExpired }: {
           ) : (
             <div className="catalog-table-wrap">
               <table className="catalog-table leaderboard-table leaderboard-players">
-                <thead><tr><th>Rank</th><th>Prize</th><th>Player</th><th>Mark</th><th>Points</th><th>Wins</th><th>2nd places</th><th>Rounds</th><th>Arenas</th><th>Paid</th><th><span className="sr-only">Actions</span></th></tr></thead>
+                <thead><tr><th>Rank</th><th>Prize</th><th>Player</th><th>Mark</th><th>Points</th><th>Wins</th><th>Arenas</th><th><span className="sr-only">Actions</span></th></tr></thead>
                 <tbody>
-                  {current.entries.map((entry) => {
+                  {playersShown.rows.map((entry) => {
                     const mark = markOf(entry.userId);
                     const draft = draftOf(entry.userId);
                     const rowClass = entry.disqualified ? "leaderboard-row--disqualified" : entry.prizePlace !== undefined ? "leaderboard-row--prize" : undefined;
@@ -435,14 +467,11 @@ export function LeaderboardPage({ session, onSessionExpired }: {
                       <tr key={entry.userId} className={rowClass}>
                         <td><strong>{entry.rank}</strong>{entry.disqualified && <small>Virtual rank</small>}</td>
                         <td>{entry.prizePlace !== undefined ? <strong className="leaderboard-prize-place">#{entry.prizePlace}</strong> : <span className="muted-value">—</span>}</td>
-                        <td><strong>{entry.username}</strong><small>{entry.userId}</small></td>
+                        <td><strong>{entry.username}</strong><small title={entry.userId}>{entry.userId.slice(0, 8)}</small></td>
                         <td><PlayerMark mark={mark} draft={draft} /></td>
                         <td>{entry.points}</td>
                         <td>{entry.wins}</td>
-                        <td>{entry.secondPlaces}</td>
-                        <td>{entry.roundsPlayed}</td>
                         <td>{entry.arenasPlayed}</td>
-                        <td>{formatSol(entry.totalPayoutLamports)}</td>
                         <td>
                           <PlayerMarkActions
                             mark={mark}
@@ -463,11 +492,18 @@ export function LeaderboardPage({ session, onSessionExpired }: {
               </table>
             </div>
           )}
+          {playersShown.pageCount > 1 && (
+            <div className="leaderboard-pager">
+              <button type="button" disabled={playersShown.page === 0} onClick={() => showPlayersPage(playersShown.page - 1)}>Prev</button>
+              <span>{playersShown.first}–{playersShown.last} of {playersShown.total}</span>
+              <button type="button" disabled={playersShown.page === playersShown.pageCount - 1} onClick={() => showPlayersPage(playersShown.page + 1)}>Next</button>
+            </div>
+          )}
         </section>
       )}
 
 
-      {finalizedScopes.map((scope) => (
+      {shownTab === "winners" && finalizedScopes.map((scope) => (
         <WinnersTable
           key={scope.id}
           scope={scope}
@@ -548,12 +584,16 @@ export function LeaderboardPage({ session, onSessionExpired }: {
           title={`End ${confirmation.scope.name}?`}
           confirmLabel="End scope"
           onCancel={() => setConfirmation(undefined)}
-          onConfirm={() => void runMutation(
-            { type: "leaderboard.scope.close", scopeId: confirmation.scope.id },
-            confirmation.scope.prizes.length > 0
-              ? `${confirmation.scope.name} ended. Winners can now send their trade URLs.`
-              : `${confirmation.scope.name} ended.`,
-          )}
+          onConfirm={() => {
+            const awarded = confirmation.scope.prizes.length > 0;
+            void runMutation(
+              { type: "leaderboard.scope.close", scopeId: confirmation.scope.id },
+              awarded ? `${confirmation.scope.name} ended. Winners can now send their trade URLs.` : `${confirmation.scope.name} ended.`,
+            ).then((ended) => {
+              // The new winners table is the next thing to act on.
+              if (ended && awarded) setTab("winners");
+            });
+          }}
         >
           <p>
             {confirmation.scope.prizes.length > 0
