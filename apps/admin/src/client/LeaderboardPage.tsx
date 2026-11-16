@@ -1,18 +1,24 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { FormEvent, ReactNode } from "react";
+import { useCallback, useEffect, useState } from "react";
+import type { FormEvent } from "react";
 import type {
   AdminLeaderboardCompetition,
+  AdminLeaderboardPrize,
   AdminLeaderboardResponse,
   AdminLeaderboardScope,
   AdminMutationCommand,
 } from "@arena/contracts";
 import type { AdminSessionResponse } from "../shared/session.js";
 import { AdminApiError, mutateControl, readLeaderboard } from "./api.js";
+import { ConfirmDialog } from "./ConfirmDialog.js";
+import { MAX_MARK_REASON_LENGTH, MarkDraftsPanel, PlayerMark, PlayerMarkActions, draftLabel } from "./LeaderboardMarks.js";
+import { PrizeEditor } from "./LeaderboardPrizes.js";
 
 type Confirmation =
   | { kind: "current"; scope: AdminLeaderboardScope }
   | { kind: "close" }
-  | { kind: "remove"; scopeId: string; competition: AdminLeaderboardCompetition };
+  | { kind: "remove"; scopeId: string; competition: AdminLeaderboardCompetition }
+  | { kind: "prize-remove"; scope: AdminLeaderboardScope; prize: AdminLeaderboardPrize }
+  | { kind: "apply"; scope: AdminLeaderboardScope };
 
 const LAMPORTS_PER_SOL = 1_000_000_000;
 
@@ -22,39 +28,6 @@ function formatDateTime(value: string): string {
 
 function formatSol(lamports: number): string {
   return `${new Intl.NumberFormat("en", { maximumFractionDigits: 4 }).format(lamports / LAMPORTS_PER_SOL)} SOL`;
-}
-
-function ConfirmDialog({ eyebrow, title, children, confirmLabel, destructive = true, onCancel, onConfirm }: {
-  eyebrow: string;
-  title: string;
-  children: ReactNode;
-  confirmLabel: string;
-  destructive?: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    dialog?.showModal();
-    return () => dialog?.close();
-  }, []);
-
-  return (
-    <dialog className="confirm-modal" ref={dialogRef} aria-labelledby="leaderboard-confirm-title" onCancel={(event) => {
-      event.preventDefault();
-      onCancel();
-    }}>
-      <span className="eyebrow">{eyebrow}</span>
-      <h2 id="leaderboard-confirm-title">{title}</h2>
-      {children}
-      <div className="confirm-modal__actions">
-        <button className="secondary-action" type="button" autoFocus onClick={onCancel}>Cancel</button>
-        <button className={destructive ? "danger-action" : "primary-action"} type="button" onClick={onConfirm}>{confirmLabel}</button>
-      </div>
-    </dialog>
-  );
 }
 
 export function LeaderboardPage({ session, onSessionExpired }: {
@@ -73,6 +46,8 @@ export function LeaderboardPage({ session, onSessionExpired }: {
   const [search, setSearch] = useState("");
   // The applied search, blank for none; a refresh after a mutation keeps it.
   const [appliedSearch, setAppliedSearch] = useState("");
+  const [prizeScopeId, setPrizeScopeId] = useState<string>();
+  const [disqualify, setDisqualify] = useState<{ userId: string; username: string; reason: string; editing: boolean }>();
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -94,7 +69,8 @@ export function LeaderboardPage({ session, onSessionExpired }: {
     void refresh();
   }, [refresh]);
 
-  const runMutation = async (command: AdminMutationCommand, successMessage: string) => {
+  /** Resolves true when the command succeeded. */
+  const runMutation = async (command: AdminMutationCommand, successMessage: string): Promise<boolean> => {
     setConfirmation(undefined);
     setMutating(true);
     setNotice(undefined);
@@ -102,17 +78,20 @@ export function LeaderboardPage({ session, onSessionExpired }: {
       const response = await mutateControl(session, command);
       if (response.result.status === "refused") {
         setNotice({ tone: "danger", message: response.result.reason });
-      } else {
-        setNotice({ tone: "success", message: successMessage });
-        setRename(undefined);
-        if (command.type === "leaderboard.scope.create") setNewName("");
+        return false;
       }
+      setNotice({ tone: "success", message: successMessage });
+      setRename(undefined);
+      setDisqualify(undefined);
+      if (command.type === "leaderboard.scope.create") setNewName("");
+      return true;
     } catch (error) {
       if (error instanceof AdminApiError && error.status === 401) {
         onSessionExpired();
-        return;
+        return false;
       }
       setNotice({ tone: "danger", message: "The leaderboard command could not be completed." });
+      return false;
     } finally {
       await refresh();
       setMutating(false);
@@ -139,6 +118,12 @@ export function LeaderboardPage({ session, onSessionExpired }: {
     ?? (currentScope?.status === "open" ? currentScope : openScopes[0]);
   const scopeName = (scopeId: string) => data.scopes.find((scope) => scope.id === scopeId)?.name ?? scopeId;
   const unfinishedInCurrent = currentScope?.unfinishedCompetitions ?? [];
+  const prizeScope = openScopes.find((scope) => scope.id === prizeScopeId)
+    ?? (currentScope?.status === "open" ? currentScope : openScopes[0]);
+  const current = data.current;
+  const markOf = (userId: string) => current?.marks.find((mark) => mark.userId === userId);
+  const draftOf = (userId: string) => current?.drafts.find((draft) => draft.userId === userId);
+  const playerName = (userId: string) => current?.entries.find((entry) => entry.userId === userId)?.username ?? userId;
 
   const createScope = (event: FormEvent) => {
     event.preventDefault();
@@ -179,6 +164,25 @@ export function LeaderboardPage({ session, onSessionExpired }: {
         `${competition.name} removed from ${scope.name}.`,
       );
     }
+  };
+
+  const stageMark = (userId: string, action: "approve" | "clear") => {
+    if (currentScope === undefined) return;
+    void runMutation(
+      { type: "leaderboard.mark.draft.set", scopeId: currentScope.id, userId, action },
+      `Staged: ${action === "approve" ? "approve" : "lift the disqualification of"} ${playerName(userId)}.`,
+    );
+  };
+
+  const saveDisqualify = (event: FormEvent) => {
+    event.preventDefault();
+    if (disqualify === undefined || currentScope === undefined) return;
+    const reason = disqualify.reason.trim();
+    if (reason.length === 0) return;
+    void runMutation(
+      { type: "leaderboard.mark.draft.set", scopeId: currentScope.id, userId: disqualify.userId, action: "disqualify", reason },
+      `Staged: disqualify ${disqualify.username}.`,
+    );
   };
 
   const unfinishedWarning = unfinishedInCurrent.length > 0 && currentScope !== undefined && (
@@ -283,6 +287,20 @@ export function LeaderboardPage({ session, onSessionExpired }: {
         </section>
       )}
 
+      {prizeScope !== undefined && (
+        <PrizeEditor
+          scopes={openScopes}
+          scope={prizeScope}
+          disabled={mutating}
+          onSelectScope={setPrizeScopeId}
+          onSet={(place, imageUrl) => runMutation(
+            { type: "leaderboard.prize.set", scopeId: prizeScope.id, place, imageUrl },
+            `Prize for place ${place} of ${prizeScope.name} set.`,
+          )}
+          onRemove={(prize) => setConfirmation({ kind: "prize-remove", scope: prizeScope, prize })}
+        />
+      )}
+
       <section className="catalog-table-section">
         <div className="catalog-table-heading">
           <div><span className="eyebrow">Synced tournaments</span><h2>Tournaments</h2></div>
@@ -353,33 +371,77 @@ export function LeaderboardPage({ session, onSessionExpired }: {
         <section className="catalog-table-section">
           <div className="catalog-table-heading">
             <div><span className="eyebrow">{currentScope.name}</span><h2>Top players</h2></div>
-            <span>{data.current?.entries.length ?? 0} shown</span>
+            <span>{current?.entries.length ?? 0} shown · marks are set on these rows</span>
           </div>
-          {data.current === undefined || data.current.entries.length === 0 ? (
+          {current !== undefined && (
+            <MarkDraftsPanel
+              drafts={current.drafts}
+              nameOf={playerName}
+              disabled={mutating}
+              onApply={() => setConfirmation({ kind: "apply", scope: currentScope })}
+            />
+          )}
+          {disqualify && (
+            <section className="stream-editor">
+              <div><span className="eyebrow">{disqualify.editing ? "Edit the disqualification reason" : "Stage a disqualification"}</span><h2>{disqualify.username}</h2><p>Only this player sees the reason. The row stays on the board with a virtual rank and takes no prize.</p></div>
+              <form onSubmit={saveDisqualify}>
+                <label className="field">
+                  <span>Reason ({disqualify.reason.trim().length}/{MAX_MARK_REASON_LENGTH})</span>
+                  <input autoFocus value={disqualify.reason} maxLength={MAX_MARK_REASON_LENGTH} onChange={(event) => setDisqualify({ ...disqualify, reason: event.target.value })} />
+                </label>
+                <div className="stream-editor__actions">
+                  <button className="secondary-action" type="button" onClick={() => setDisqualify(undefined)}>Cancel</button>
+                  <button className="danger-action" type="submit" disabled={mutating || disqualify.reason.trim().length === 0}>{disqualify.editing ? "Stage new reason" : "Stage disqualification"}</button>
+                </div>
+              </form>
+            </section>
+          )}
+          {current === undefined || current.entries.length === 0 ? (
             <div className="empty-state catalog-empty"><strong>No results yet</strong><span>Players appear after an arena of a counted tournament finishes.</span></div>
           ) : (
             <div className="catalog-table-wrap">
-              <table className="catalog-table leaderboard-table">
-                <thead><tr><th>Rank</th><th>Player</th><th>Points</th><th>Wins</th><th>2nd places</th><th>Rounds</th><th>Arenas</th><th>Paid</th></tr></thead>
+              <table className="catalog-table leaderboard-table leaderboard-players">
+                <thead><tr><th>Rank</th><th>Prize</th><th>Player</th><th>Mark</th><th>Points</th><th>Wins</th><th>2nd places</th><th>Rounds</th><th>Arenas</th><th>Paid</th><th><span className="sr-only">Actions</span></th></tr></thead>
                 <tbody>
-                  {data.current.entries.map((entry) => (
-                    <tr key={entry.userId}>
-                      <td><strong>{entry.rank}</strong></td>
-                      <td><strong>{entry.username}</strong><small>{entry.userId}</small></td>
-                      <td>{entry.points}</td>
-                      <td>{entry.wins}</td>
-                      <td>{entry.secondPlaces}</td>
-                      <td>{entry.roundsPlayed}</td>
-                      <td>{entry.arenasPlayed}</td>
-                      <td>{formatSol(entry.totalPayoutLamports)}</td>
-                    </tr>
-                  ))}
+                  {current.entries.map((entry) => {
+                    const mark = markOf(entry.userId);
+                    const draft = draftOf(entry.userId);
+                    const rowClass = entry.disqualified ? "leaderboard-row--disqualified" : entry.prizePlace !== undefined ? "leaderboard-row--prize" : undefined;
+                    return (
+                      <tr key={entry.userId} className={rowClass}>
+                        <td><strong>{entry.rank}</strong>{entry.disqualified && <small>Virtual rank</small>}</td>
+                        <td>{entry.prizePlace !== undefined ? <strong className="leaderboard-prize-place">#{entry.prizePlace}</strong> : <span className="muted-value">—</span>}</td>
+                        <td><strong>{entry.username}</strong><small>{entry.userId}</small></td>
+                        <td><PlayerMark mark={mark} draft={draft} /></td>
+                        <td>{entry.points}</td>
+                        <td>{entry.wins}</td>
+                        <td>{entry.secondPlaces}</td>
+                        <td>{entry.roundsPlayed}</td>
+                        <td>{entry.arenasPlayed}</td>
+                        <td>{formatSol(entry.totalPayoutLamports)}</td>
+                        <td>
+                          <PlayerMarkActions
+                            mark={mark}
+                            draft={draft}
+                            disabled={mutating}
+                            onStage={(action) => stageMark(entry.userId, action)}
+                            onDisqualify={(reason) => setDisqualify({ userId: entry.userId, username: entry.username, reason: reason ?? "", editing: reason !== undefined })}
+                            onRemoveDraft={() => void runMutation(
+                              { type: "leaderboard.mark.draft.remove", scopeId: currentScope.id, userId: entry.userId },
+                              `Draft for ${entry.username} removed.`,
+                            )}
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           )}
         </section>
       )}
+
 
       {confirmation?.kind === "current" && (
         <ConfirmDialog
@@ -422,6 +484,39 @@ export function LeaderboardPage({ session, onSessionExpired }: {
           )}
         >
           <p>Players see this scope now. Points from this tournament disappear from their leaderboard after the next recompute.</p>
+        </ConfirmDialog>
+      )}
+
+      {confirmation?.kind === "prize-remove" && (
+        <ConfirmDialog
+          eyebrow="Remove prize"
+          title={`Remove the prize for place ${confirmation.prize.place}?`}
+          confirmLabel="Remove prize"
+          onCancel={() => setConfirmation(undefined)}
+          onConfirm={() => void runMutation(
+            { type: "leaderboard.prize.remove", scopeId: confirmation.scope.id, place: confirmation.prize.place },
+            `Prize for place ${confirmation.prize.place} of ${confirmation.scope.name} removed.`,
+          )}
+        >
+          <p>Players of {confirmation.scope.name} no longer see this prize.</p>
+        </ConfirmDialog>
+      )}
+      {confirmation?.kind === "apply" && current !== undefined && (
+        <ConfirmDialog
+          eyebrow="Apply mark changes"
+          title={`Apply ${current.drafts.length} ${current.drafts.length === 1 ? "change" : "changes"} to ${confirmation.scope.name}?`}
+          confirmLabel="Apply changes"
+          destructive={false}
+          onCancel={() => setConfirmation(undefined)}
+          onConfirm={() => void runMutation(
+            { type: "leaderboard.marks.apply", scopeId: confirmation.scope.id },
+            "Mark changes applied. The board updates after the queued recompute.",
+          )}
+        >
+          <ul className="leaderboard-drafts__list">
+            {current.drafts.map((draft) => <li key={draft.userId}><strong>{playerName(draft.userId)}</strong> {draftLabel(draft)}</li>)}
+          </ul>
+          <p>Players see the changes after the recompute that runs next.</p>
         </ConfirmDialog>
       )}
 
