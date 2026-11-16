@@ -84,7 +84,7 @@ export function WinnersTable({ scope, winners, disabled, onMarkSent }: {
   return (
     <section className="catalog-table-section">
       <div className="catalog-table-heading">
-        <div><span className="eyebrow">{scope.name} · finalized {scope.finalizedAt !== undefined ? formatDateTime(scope.finalizedAt) : ""}</span><h2>Winners</h2></div>
+        <div><span className="eyebrow">Winners · finalized {scope.finalizedAt !== undefined ? formatDateTime(scope.finalizedAt) : ""}</span><h2>{scope.name}</h2></div>
         <span>{winners.filter((winner) => winner.sentAt !== undefined).length} of {winners.length} sent</span>
       </div>
       {winners.length === 0 ? (
