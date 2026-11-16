@@ -1,12 +1,14 @@
 import { and, asc, desc, eq, ilike, inArray, sql } from "drizzle-orm";
 import type { LeaderboardMarkAction, LeaderboardMarkStatus, LeaderboardScopeStatus, Uuid } from "@arena/contracts";
 import { db, type DatabaseTransaction } from "../client.js";
+import { assignPrizePlaces } from "../../leaderboard/player-ranking.js";
 import {
   arenaResults,
   cs2Competitions,
   leaderboardEntries,
   leaderboardMarkDrafts,
   leaderboardMarks,
+  leaderboardPrizeClaims,
   leaderboardPrizes,
   leaderboardScopeCompetitions,
   leaderboardScopes,
@@ -20,6 +22,7 @@ export interface LeaderboardScope {
   status: LeaderboardScopeStatus;
   isCurrent: boolean;
   closedAt: Date | null;
+  finalizedAt: Date | null;
   createdAt: Date;
 }
 
@@ -68,6 +71,14 @@ export interface LeaderboardMarkDraft {
 
 export type SetCurrentScopeResult = "switched" | "closed" | "current_changed";
 
+export type FinalizeScopeResult =
+  | { kind: "finalized"; claims: number }
+  | { kind: "current_changed" }
+  | { kind: "no_prizes" }
+  | { kind: "drafts_pending" }
+  /** Players on prize places without an applied approval, by username. */
+  | { kind: "unapproved"; usernames: string[] };
+
 export interface AdminCompetitionRow {
   id: Uuid;
   name: string;
@@ -96,6 +107,7 @@ const scopeColumns = {
   status: leaderboardScopes.status,
   isCurrent: leaderboardScopes.isCurrent,
   closedAt: leaderboardScopes.closedAt,
+  finalizedAt: leaderboardScopes.finalizedAt,
   createdAt: leaderboardScopes.createdAt,
 };
 
@@ -390,6 +402,59 @@ export const leaderboardRepository = {
   },
 
   /**
+   * One step under the scope row lock, while the scope is still open and current: computes and writes the
+   * final entries (as `replaceEntries` does), gives the prize places out by position over them, refuses
+   * unless every player on one has an applied approval, then stores the claims, sets `finalized_at` and
+   * closes the scope. Marks are applied under the same lock, so they can't change between the final
+   * ranking and the places given out.
+   */
+  async finalizeCurrent(
+    scopeId: Uuid,
+    compute: () => Promise<readonly Omit<LeaderboardEntryRow, "computedAt">[]>,
+    computedAt?: Date,
+  ): Promise<FinalizeScopeResult> {
+    return db.transaction(async (tx) => {
+      const [scope] = await tx
+        .select({ status: leaderboardScopes.status, isCurrent: leaderboardScopes.isCurrent })
+        .from(leaderboardScopes)
+        .where(eq(leaderboardScopes.id, scopeId))
+        .for("update");
+      if (scope?.status !== "open" || !scope.isCurrent) return { kind: "current_changed" };
+      const [draft] = await tx.select({ userId: leaderboardMarkDrafts.userId }).from(leaderboardMarkDrafts)
+        .where(eq(leaderboardMarkDrafts.scopeId, scopeId)).limit(1);
+      if (draft !== undefined) return { kind: "drafts_pending" };
+      const prizes = await tx.select({ place: leaderboardPrizes.place }).from(leaderboardPrizes).where(eq(leaderboardPrizes.scopeId, scopeId));
+      if (prizes.length === 0) return { kind: "no_prizes" };
+
+      await writeEntries(tx, scopeId, await compute(), computedAt ?? new Date());
+      const entries = await tx
+        .select({ userId: leaderboardEntries.userId, disqualified: leaderboardEntries.disqualified, username: users.username })
+        .from(leaderboardEntries)
+        .innerJoin(users, eq(users.id, leaderboardEntries.userId))
+        .where(eq(leaderboardEntries.scopeId, scopeId))
+        .orderBy(asc(leaderboardEntries.rank), desc(leaderboardEntries.disqualified), asc(leaderboardEntries.userId));
+      const places = assignPrizePlaces(entries, prizes.map((prize) => prize.place));
+      const approved = new Set((await tx
+        .select({ userId: leaderboardMarks.userId })
+        .from(leaderboardMarks)
+        .where(and(eq(leaderboardMarks.scopeId, scopeId), eq(leaderboardMarks.status, "approved")))).map((mark) => mark.userId));
+      const unapproved = entries.filter((entry) => places.has(entry.userId) && !approved.has(entry.userId)).map((entry) => entry.username);
+      // A refusal still commits the fresh entries, so the admin preview shows the ranking it was checked against.
+      if (unapproved.length > 0) return { kind: "unapproved", usernames: unapproved };
+
+      if (places.size > 0) {
+        await tx.insert(leaderboardPrizeClaims).values([...places].map(([userId, place]) => ({ scopeId, place, userId })));
+      }
+      const now = new Date();
+      await tx
+        .update(leaderboardScopes)
+        .set({ status: "closed", isCurrent: false, closedAt: now, finalizedAt: now, updatedAt: now })
+        .where(eq(leaderboardScopes.id, scopeId));
+      return { kind: "finalized", claims: places.size };
+    });
+  },
+
+  /**
    * Locks the scope row, then computes and writes its entries while holding it. Recomputes of one scope
    * run one after another, and each reads only after the previous one committed, so an older result
    * never overwrites a newer one. False, computing and writing nothing, when the scope is missing or
@@ -404,12 +469,7 @@ export const leaderboardRepository = {
     return db.transaction(async (tx) => {
       if (!(await lockOpenScope(tx, scopeId))) return false;
       const at = computedAt ?? new Date();
-      const entries = await compute();
-      await tx.delete(leaderboardEntries).where(eq(leaderboardEntries.scopeId, scopeId));
-      for (let start = 0; start < entries.length; start += ENTRY_INSERT_CHUNK) {
-        const chunk = entries.slice(start, start + ENTRY_INSERT_CHUNK);
-        await tx.insert(leaderboardEntries).values(chunk.map((entry) => ({ ...entry, scopeId, computedAt: at })));
-      }
+      await writeEntries(tx, scopeId, await compute(), at);
       return true;
     });
   },
@@ -434,6 +494,19 @@ export const leaderboardRepository = {
     return row;
   },
 };
+
+async function writeEntries(
+  tx: DatabaseTransaction,
+  scopeId: Uuid,
+  entries: readonly Omit<LeaderboardEntryRow, "computedAt">[],
+  computedAt: Date,
+): Promise<void> {
+  await tx.delete(leaderboardEntries).where(eq(leaderboardEntries.scopeId, scopeId));
+  for (let start = 0; start < entries.length; start += ENTRY_INSERT_CHUNK) {
+    const chunk = entries.slice(start, start + ENTRY_INSERT_CHUNK);
+    await tx.insert(leaderboardEntries).values(chunk.map((entry) => ({ ...entry, scopeId, computedAt })));
+  }
+}
 
 async function lockOpenScope(tx: DatabaseTransaction, scopeId: Uuid): Promise<boolean> {
   const [scope] = await tx

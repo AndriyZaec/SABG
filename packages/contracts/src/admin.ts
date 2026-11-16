@@ -39,6 +39,11 @@ export type AdminMutationCommand =
   | { type: "leaderboard.scope.current.set"; scopeId: Uuid }
   /** Final recompute and close of the current scope, leaving none current. */
   | { type: "leaderboard.scope.close" }
+  /**
+   * Final recompute, then — when every prize place holds an approved player and no mark change is
+   * staged — gives out the prize places, locks prizes and marks, and closes the current scope.
+   */
+  | { type: "leaderboard.scope.finalize"; scopeId: Uuid }
   | { type: "leaderboard.competition.add"; scopeId: Uuid; competitionId: Uuid }
   | { type: "leaderboard.competition.remove"; scopeId: Uuid; competitionId: Uuid }
   /** Adds or replaces the prize for a place of an open scope. */
@@ -90,6 +95,8 @@ export interface AdminLeaderboardScope {
   status: LeaderboardScopeStatus;
   current: boolean;
   closedAt?: IsoDateTime;
+  /** Closed through finalize: prizes and marks are locked and the winners can claim their prizes. */
+  finalizedAt?: IsoDateTime;
   /** Competitions the scope counts. */
   competitionCount: number;
   /** Names of its competitions that still have an upcoming or live series. */

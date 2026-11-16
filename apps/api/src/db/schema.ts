@@ -330,11 +330,14 @@ export const leaderboardScopes = pgTable("leaderboard_scope", {
   status: leaderboardScopeStatusEnum("status").notNull().default("open"),
   isCurrent: boolean("is_current").notNull().default(false),
   closedAt: timestamp("closed_at", { withTimezone: true }),
+  /** Set when the scope closed through finalize: its prizes and marks are locked and claims exist. */
+  finalizedAt: timestamp("finalized_at", { withTimezone: true }),
   ...timestamps,
 }, (t) => [
   uniqueIndex("leaderboard_scope_one_current_idx").on(t.isCurrent).where(sql`${t.isCurrent}`),
   check("leaderboard_scope_name_not_blank", sql`btrim(${t.name}) <> ''`),
   check("leaderboard_scope_closed_check", sql`(${t.status} = 'closed') = (${t.closedAt} is not null) and not (${t.status} = 'closed' and ${t.isCurrent})`),
+  check("leaderboard_scope_finalized_check", sql`${t.finalizedAt} is null or ${t.status} = 'closed'`),
 ]);
 
 export const leaderboardScopeCompetitions = pgTable("leaderboard_scope_competition", {
@@ -395,6 +398,25 @@ export const leaderboardMarkDrafts = pgTable("leaderboard_mark_draft", {
 }, (t) => [
   primaryKey({ columns: [t.scopeId, t.userId], name: "leaderboard_mark_draft_pk" }),
   check("leaderboard_mark_draft_reason_check", sql`(${t.action} = 'disqualify') = (${t.reason} is not null) and char_length(${t.reason}) <= 280`),
+]);
+
+/** A winner's prize in a finalized scope: one per place, one per player. */
+export const leaderboardPrizeClaims = pgTable("leaderboard_prize_claim", {
+  scopeId: uuid("scope_id")
+    .notNull()
+    .references(() => leaderboardScopes.id, { onDelete: "cascade" }),
+  place: integer("place").notNull(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id),
+  tradeUrl: text("trade_url"),
+  tradeUrlUpdatedAt: timestamp("trade_url_updated_at", { withTimezone: true }),
+  sentAt: timestamp("sent_at", { withTimezone: true }),
+  tradeUrlErasedAt: timestamp("trade_url_erased_at", { withTimezone: true }),
+  ...timestamps,
+}, (t) => [
+  primaryKey({ columns: [t.scopeId, t.place], name: "leaderboard_prize_claim_pk" }),
+  uniqueIndex("leaderboard_prize_claim_scope_user_idx").on(t.scopeId, t.userId),
 ]);
 
 /** A scope's ranked rows, rebuilt in full by each recompute. */

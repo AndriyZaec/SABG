@@ -1,6 +1,6 @@
 import type { Uuid } from "@arena/contracts";
 import { arenaResultRepository } from "../db/repositories/arena-result.repository.js";
-import { leaderboardRepository } from "../db/repositories/leaderboard.repository.js";
+import { leaderboardRepository, type FinalizeScopeResult } from "../db/repositories/leaderboard.repository.js";
 import { payoutRepository } from "../db/repositories/payout.repository.js";
 import { rankPlayers } from "./player-ranking.js";
 
@@ -11,12 +11,20 @@ import { rankPlayers } from "./player-ranking.js";
  * closed: a closed scope keeps the result of its final recompute, which runs before it closes.
  */
 export async function recomputeScope(scopeId: Uuid, now?: Date): Promise<boolean> {
-  return leaderboardRepository.replaceEntries(scopeId, async () => {
-    const results = await arenaResultRepository.listByCompetitions(await leaderboardRepository.listCompetitionIds(scopeId));
-    const payouts = await payoutRepository.sentTotalsByUser([...new Set(results.map((result) => result.arenaId))]);
-    // Read under the same lock the marks are applied under, so this run sees every applied mark or none.
-    const marks = await leaderboardRepository.listMarks(scopeId);
-    const disqualified = new Set(marks.filter((mark) => mark.status === "disqualified").map((mark) => mark.userId));
-    return rankPlayers(results, payouts, disqualified);
-  }, now);
+  return leaderboardRepository.replaceEntries(scopeId, () => computeEntries(scopeId), now);
+}
+
+/** Finalizes the current scope with its final ranking computed under the same lock (see `finalizeCurrent`). */
+export async function finalizeScope(scopeId: Uuid, now?: Date): Promise<FinalizeScopeResult> {
+  return leaderboardRepository.finalizeCurrent(scopeId, () => computeEntries(scopeId), now);
+}
+
+// Runs inside the caller's scope lock, so it reads everything committed before the lock was granted.
+async function computeEntries(scopeId: Uuid) {
+  const results = await arenaResultRepository.listByCompetitions(await leaderboardRepository.listCompetitionIds(scopeId));
+  const payouts = await payoutRepository.sentTotalsByUser([...new Set(results.map((result) => result.arenaId))]);
+  // Marks are applied under the same lock, so a run sees every applied mark or none.
+  const marks = await leaderboardRepository.listMarks(scopeId);
+  const disqualified = new Set(marks.filter((mark) => mark.status === "disqualified").map((mark) => mark.userId));
+  return rankPlayers(results, payouts, disqualified);
 }

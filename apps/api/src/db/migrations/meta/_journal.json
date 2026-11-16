@@ -197,6 +197,13 @@
       "when": 1794832079343,
       "tag": "0027_leaderboard_entry_disqualified",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1794832716906,
+      "tag": "0028_leaderboard_finalize",
+      "breakpoints": true
     }
   ]
 }

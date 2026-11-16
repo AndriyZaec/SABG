@@ -21,6 +21,7 @@ const ACTION_LABELS: Record<OperatorAuditEntry["action"], string> = {
   "leaderboard.scope.rename": "Leaderboard scope rename",
   "leaderboard.scope.current.set": "Leaderboard scope switch",
   "leaderboard.scope.close": "Leaderboard scope close",
+  "leaderboard.scope.finalize": "Leaderboard scope finalize",
   "leaderboard.competition.add": "Leaderboard tournament add",
   "leaderboard.competition.remove": "Leaderboard tournament remove",
   "leaderboard.recompute": "Leaderboard recompute",

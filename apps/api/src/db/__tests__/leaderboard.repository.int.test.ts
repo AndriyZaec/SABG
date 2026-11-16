@@ -244,6 +244,122 @@ describe.skipIf(!RUN)("leaderboardRepository (integration, requires DATABASE_URL
     expect((await repository.listMarks(scope.id)).map((mark) => mark.status)).toEqual(["disqualified"]);
   });
 
+  describe("finalize", () => {
+    const entry = (userId: string, rank: number, points: number, disqualified = false) =>
+      ({ userId, rank, points, arenasPlayed: 1, wins: 0, secondPlaces: 0, roundsPlayed: 10, totalScore: points, totalPayoutLamports: 0, disqualified });
+
+    async function currentScope(name: string) {
+      const scope = await createScope(name);
+      const previous = await repository.findCurrent();
+      expect(await repository.setCurrent(scope.id, previous?.id ?? null)).toBe("switched");
+      return scope;
+    }
+
+    // Claims get a repository read with the winners' admin view; until then the test reads the table.
+    async function claims(scopeId: string) {
+      return db.select({ place: schema.leaderboardPrizeClaims.place, userId: schema.leaderboardPrizeClaims.userId })
+        .from(schema.leaderboardPrizeClaims)
+        .where(eq(schema.leaderboardPrizeClaims.scopeId, scopeId))
+        .orderBy(schema.leaderboardPrizeClaims.place);
+    }
+
+    const noEntries = async () => [];
+
+    async function approve(scopeId: string, ...userIds: string[]) {
+      for (const userId of userIds) await repository.setMarkDraft(scopeId, userId, "approve", null, "admin");
+      await repository.applyMarkDrafts(scopeId);
+    }
+
+    it("refuses a scope that isn't open and current, has no prizes, or has staged changes", async () => {
+      const prepared = await createScope("Finalize prepared");
+      await repository.setPrize(prepared.id, 1, "https://cdn.example.com/skins/awp.png");
+      expect(await repository.finalizeCurrent(prepared.id, noEntries)).toEqual({ kind: "current_changed" });
+
+      const scope = await currentScope("Finalize checks");
+      const player = await seedUser("finalize-check");
+      expect(await repository.finalizeCurrent(scope.id, noEntries)).toEqual({ kind: "no_prizes" });
+
+      await repository.setPrize(scope.id, 1, "https://cdn.example.com/skins/awp.png");
+      await repository.setMarkDraft(scope.id, player, "approve", null, "admin");
+      expect(await repository.finalizeCurrent(scope.id, noEntries)).toEqual({ kind: "drafts_pending" });
+
+      expect((await repository.findScope(scope.id))).toMatchObject({ status: "open", isCurrent: true, finalizedAt: null });
+      await repository.closeCurrent(scope.id);
+    });
+
+    it("refuses while a player on a prize place lacks an applied approval", async () => {
+      const scope = await currentScope("Finalize unapproved");
+      const [first, second, third] = [await seedUser("unapproved-first"), await seedUser("unapproved-second"), await seedUser("unapproved-third")];
+      await repository.setPrize(scope.id, 1, "https://cdn.example.com/skins/awp.png");
+      await repository.setPrize(scope.id, 2, "https://cdn.example.com/skins/ak.png");
+      await approve(scope.id, first, third);
+
+      const ranked = async () => [entry(first, 1, 30), entry(second, 2, 20), entry(third, 3, 10)];
+      expect(await repository.finalizeCurrent(scope.id, ranked)).toEqual({ kind: "unapproved", usernames: ["unapproved-second"] });
+      expect(await claims(scope.id)).toEqual([]);
+      await repository.closeCurrent(scope.id);
+    });
+
+    it("gives places by position, skipping disqualified rows and spreading a tie, then closes and locks the scope", async () => {
+      const scope = await currentScope("Finalize");
+      const [cheat, tiedA, tiedB, fourth] = [await seedUser("final-cheat"), await seedUser("final-tied-a"), await seedUser("final-tied-b"), await seedUser("final-fourth")];
+      for (const place of [1, 2, 3]) await repository.setPrize(scope.id, place, `https://cdn.example.com/skins/${place}.png`);
+      // A stale stored board: finalize ranks again itself, so these rows never count.
+      await repository.replaceEntries(scope.id, async () => [entry(fourth, 1, 99)], new Date());
+      await approve(scope.id, tiedA, tiedB, fourth);
+
+      const ranked = async () => [entry(cheat, 1, 50, true), entry(tiedA, 1, 40), entry(tiedB, 1, 40), entry(fourth, 3, 10)];
+      expect(await repository.finalizeCurrent(scope.id, ranked)).toEqual({ kind: "finalized", claims: 3 });
+      expect((await repository.topEntries(scope.id, 10)).map((row) => row.userId)).toEqual(expect.arrayContaining([cheat, tiedA, tiedB, fourth]));
+
+      const [firstTied, secondTied] = [tiedA, tiedB].sort();
+      expect(await claims(scope.id)).toEqual([
+        { place: 1, userId: firstTied },
+        { place: 2, userId: secondTied },
+        { place: 3, userId: fourth },
+      ]);
+      const finalized = await repository.findScope(scope.id);
+      expect(finalized).toMatchObject({ status: "closed", isCurrent: false });
+      expect(finalized?.finalizedAt).toBeInstanceOf(Date);
+      expect(await repository.findCurrent()).toBeUndefined();
+      expect(await repository.setPrize(scope.id, 1, "https://cdn.example.com/skins/other.png")).toBe(false);
+      expect(await repository.setMarkDraft(scope.id, fourth, "disqualify", "Late", "admin")).toBe(false);
+      expect(await repository.finalizeCurrent(scope.id, noEntries)).toEqual({ kind: "current_changed" });
+    });
+
+    it("ranks and gives places under the lock, so a mark change made meanwhile waits and is then refused", async () => {
+      const scope = await currentScope("Finalize lock");
+      const [winner, late] = [await seedUser("lock-winner"), await seedUser("lock-late")];
+      await repository.setPrize(scope.id, 1, "https://cdn.example.com/skins/awp.png");
+      await approve(scope.id, winner);
+
+      let markComputing!: () => void;
+      let finishCompute!: () => void;
+      const computing = new Promise<void>((resolve) => { markComputing = resolve; });
+      const computeDone = new Promise<void>((resolve) => { finishCompute = resolve; });
+      const finalize = repository.finalizeCurrent(scope.id, async () => {
+        markComputing();
+        await computeDone;
+        return [entry(winner, 1, 20), entry(late, 2, 10)];
+      });
+      await computing;
+
+      let staged: boolean | undefined;
+      const draft = repository.setMarkDraft(scope.id, winner, "disqualify", "Second account", "admin").then((ok) => { staged = ok; return ok; });
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        expect(staged).toBeUndefined();
+      } finally {
+        // Always let go, so a regression fails here instead of hanging on the held lock.
+        finishCompute();
+      }
+      await expect(finalize).resolves.toEqual({ kind: "finalized", claims: 1 });
+      await expect(draft).resolves.toBe(false);
+      expect(await claims(scope.id)).toEqual([{ place: 1, userId: winner }]);
+      expect(await repository.listMarkDrafts(scope.id)).toEqual([]);
+    });
+  });
+
   it("reads a disqualified row before the real player sharing its rank", async () => {
     const scope = await createScope("Board order");
     const [leader, cheat, real] = [await seedUser("order-leader"), await seedUser("order-cheat"), await seedUser("order-real")];
