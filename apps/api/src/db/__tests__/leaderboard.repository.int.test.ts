@@ -325,17 +325,34 @@ describe.skipIf(!RUN)("leaderboardRepository (integration, requires DATABASE_URL
       const [winner] = await repository.listPrizeClaims([scope.id]);
       expect(winner).toMatchObject({ scopeId: scope.id, username: expect.any(String), imageUrl: "https://cdn.example.com/skins/1.png", tradeUrl: null, sentAt: null });
       expect(await repository.markPrizeSent(scope.id, 1)).toEqual({ kind: "no_trade_url" });
-      // The winner's trade URL form arrives with the public API; until then the test writes the column.
-      await db.update(schema.leaderboardPrizeClaims)
-        .set({ tradeUrl: "https://steamcommunity.com/tradeoffer/new/?partner=1&token=abc", tradeUrlUpdatedAt: new Date() })
-        .where(eq(schema.leaderboardPrizeClaims.scopeId, scope.id));
+
+      // Players see the finalized scope until another one becomes current.
+      expect((await repository.findShownScope())?.id).toBe(scope.id);
+      expect(await repository.findMark(scope.id, fourth)).toMatchObject({ status: "approved", reason: null });
+      expect(await repository.findMark(scope.id, cheat)).toBeUndefined();
+      expect(await repository.findPrizeClaim(scope.id, fourth)).toEqual({ place: 3, imageUrl: "https://cdn.example.com/skins/3.png", tradeUrl: null, sentAt: null });
+      expect(await repository.findPrizeClaim(scope.id, cheat)).toBeUndefined();
+      const tradeUrl = "https://steamcommunity.com/tradeoffer/new/?partner=1&token=abc";
+      expect(await repository.setTradeUrl(scope.id, firstTied!, "https://steamcommunity.com/tradeoffer/new/?partner=1&token=old")).toMatchObject({ kind: "saved" });
+      expect(await repository.setTradeUrl(scope.id, firstTied!, tradeUrl)).toEqual({
+        kind: "saved", claim: { place: 1, imageUrl: "https://cdn.example.com/skins/1.png", tradeUrl, sentAt: null },
+      });
+      expect(await repository.setTradeUrl(scope.id, cheat, tradeUrl)).toEqual({ kind: "not_found" });
+      expect((await repository.listPrizeClaims([scope.id]))[0]).toMatchObject({ userId: firstTied, tradeUrl, tradeUrlUpdatedAt: expect.any(Date) });
+
       const marked = await repository.markPrizeSent(scope.id, 1);
       expect(marked).toEqual({ kind: "sent", sentAt: expect.any(Date), previous: null });
       const sentAt = marked.kind === "sent" ? marked.sentAt : undefined;
       expect(await repository.markPrizeSent(scope.id, 1)).toEqual({ kind: "sent", sentAt, previous: sentAt });
       expect(await repository.markPrizeSent(scope.id, 9)).toEqual({ kind: "not_found" });
       expect((await repository.listPrizeClaims([scope.id]))[0]?.sentAt).toEqual(sentAt);
+      expect(await repository.setTradeUrl(scope.id, firstTied!, "https://steamcommunity.com/tradeoffer/new/?partner=1&token=new")).toEqual({ kind: "sent" });
+      expect(await repository.findPrizeClaim(scope.id, firstTied!)).toMatchObject({ tradeUrl, sentAt });
       expect(await repository.listPrizeClaims([])).toEqual([]);
+
+      const next = await currentScope("Finalize next");
+      expect((await repository.findShownScope())?.id).toBe(next.id);
+      await repository.closeCurrent(next.id);
     });
 
     it("ranks and gives places under the lock, so a mark change made meanwhile waits and is then refused", async () => {

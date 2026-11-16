@@ -297,25 +297,61 @@ export interface PlayerLeaderboardEntry {
   userId: Uuid;
   username: string;
   avatar?: string;
+  /** A disqualified player's rank is virtual: the place their points would take among the others. */
   rank: number;
   points: number;
   wins: number;
   arenasPlayed: number;
+  disqualified: boolean;
+  /** The prize place this board row holds; set only on `GET /leaderboard` rows. */
+  prizePlace?: number;
 }
 
-/** GET /leaderboard — the current scope's top players; `scope: null` while no scope is current. */
+export interface PlayerLeaderboardPrize {
+  place: number;
+  imageUrl: string;
+}
+
+/**
+ * GET /leaderboard — the top players of the current scope, else of the scope finalized last;
+ * `scope: null` while there is neither.
+ */
 export type PlayerLeaderboardResponse =
   | { scope: null }
   | {
-      scope: { name: string };
+      scope: { name: string; finalized: boolean };
       competitions: Cs2CompetitionSummary[];
+      /** Skin prizes by place, ordered by place. */
+      prizes: PlayerLeaderboardPrize[];
       entries: PlayerLeaderboardEntry[];
       computedAt?: IsoDateTime;
     };
 
-/** GET /leaderboard/me — the signed-in player's row in the current scope, if ranked. */
+/** The signed-in winner's prize on the shown finalized scope. */
+export interface PlayerLeaderboardPrizeClaim extends PlayerLeaderboardPrize {
+  tradeUrl?: string;
+  /** Once sent, the trade URL can no longer change. */
+  sent: boolean;
+}
+
+/** GET /leaderboard/me — the signed-in player's row in the shown scope, if ranked. */
 export interface PlayerLeaderboardMeResponse {
   entry: PlayerLeaderboardEntry | null;
+  /** Shown only to the disqualified player. */
+  disqualificationReason?: string;
+  prize?: PlayerLeaderboardPrizeClaim;
+}
+
+/** A Steam trade offer link: `https://steamcommunity.com/tradeoffer/new/?partner=…&token=…`. */
+export const STEAM_TRADE_URL_PATTERN = /^https:\/\/steamcommunity\.com\/tradeoffer\/new\/\?partner=\d{1,20}&token=[A-Za-z0-9_-]{1,64}$/u;
+
+/** POST /leaderboard/prize/trade-url — the winner sends or changes their trade URL until the prize is sent. */
+export interface PlayerTradeUrlRequest {
+  tradeUrl: string;
+}
+
+export interface PlayerTradeUrlResponse {
+  prize: PlayerLeaderboardPrizeClaim;
 }
 
 export interface ApiError {

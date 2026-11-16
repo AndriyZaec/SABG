@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, ilike, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, isNotNull, or, sql } from "drizzle-orm";
 import type { LeaderboardMarkAction, LeaderboardMarkStatus, LeaderboardScopeStatus, Uuid } from "@arena/contracts";
 import { db, type DatabaseTransaction } from "../client.js";
 import { assignPrizePlaces } from "../../leaderboard/player-ranking.js";
@@ -83,6 +83,15 @@ export interface PrizeClaimView {
   sentAt: Date | null;
   tradeUrlErasedAt: Date | null;
 }
+
+export interface PlayerPrizeClaim {
+  place: number;
+  imageUrl: string;
+  tradeUrl: string | null;
+  sentAt: Date | null;
+}
+
+export type SetTradeUrlResult = { kind: "saved"; claim: PlayerPrizeClaim } | { kind: "not_found" } | { kind: "sent" };
 
 export type MarkPrizeSentResult =
   /** `previous` is the date of an earlier mark; a repeat keeps it. */
@@ -171,6 +180,17 @@ export const leaderboardRepository = {
 
   async findCurrent(): Promise<LeaderboardScope | undefined> {
     const [row] = await db.select(scopeColumns).from(leaderboardScopes).where(eq(leaderboardScopes.isCurrent, true));
+    return row;
+  },
+
+  /** The scope players see: the current one, else the one finalized last. */
+  async findShownScope(): Promise<LeaderboardScope | undefined> {
+    const [row] = await db
+      .select(scopeColumns)
+      .from(leaderboardScopes)
+      .where(or(eq(leaderboardScopes.isCurrent, true), isNotNull(leaderboardScopes.finalizedAt)))
+      .orderBy(desc(leaderboardScopes.isCurrent), sql`${leaderboardScopes.finalizedAt} desc nulls last`)
+      .limit(1);
     return row;
   },
 
@@ -351,6 +371,14 @@ export const leaderboardRepository = {
       .orderBy(asc(leaderboardMarks.userId));
   },
 
+  async findMark(scopeId: Uuid, userId: Uuid): Promise<Omit<LeaderboardMark, "userId"> | undefined> {
+    const [row] = await db
+      .select({ status: leaderboardMarks.status, reason: leaderboardMarks.reason, appliedAt: leaderboardMarks.appliedAt })
+      .from(leaderboardMarks)
+      .where(and(eq(leaderboardMarks.scopeId, scopeId), eq(leaderboardMarks.userId, userId)));
+    return row;
+  },
+
   async listMarkDrafts(scopeId: Uuid): Promise<LeaderboardMarkDraft[]> {
     return db
       .select({
@@ -499,6 +527,47 @@ export const leaderboardRepository = {
       ))
       .where(inArray(leaderboardPrizeClaims.scopeId, [...scopeIds]))
       .orderBy(asc(leaderboardPrizeClaims.scopeId), asc(leaderboardPrizeClaims.place));
+  },
+
+  async findPrizeClaim(scopeId: Uuid, userId: Uuid): Promise<PlayerPrizeClaim | undefined> {
+    const [row] = await db
+      .select({
+        place: leaderboardPrizeClaims.place,
+        imageUrl: leaderboardPrizes.imageUrl,
+        tradeUrl: leaderboardPrizeClaims.tradeUrl,
+        sentAt: leaderboardPrizeClaims.sentAt,
+      })
+      .from(leaderboardPrizeClaims)
+      .innerJoin(leaderboardPrizes, and(
+        eq(leaderboardPrizes.scopeId, leaderboardPrizeClaims.scopeId),
+        eq(leaderboardPrizes.place, leaderboardPrizeClaims.place),
+      ))
+      .where(and(eq(leaderboardPrizeClaims.scopeId, scopeId), eq(leaderboardPrizeClaims.userId, userId)));
+    return row;
+  },
+
+  /** Stores the winner's trade URL; it can change until the prize is marked sent. */
+  async setTradeUrl(scopeId: Uuid, userId: Uuid, tradeUrl: string): Promise<SetTradeUrlResult> {
+    return db.transaction(async (tx) => {
+      const claimKey = and(eq(leaderboardPrizeClaims.scopeId, scopeId), eq(leaderboardPrizeClaims.userId, userId));
+      // Shares the row lock with `markPrizeSent`, so a URL change never lands after the sent mark.
+      const [claim] = await tx
+        .select({ place: leaderboardPrizeClaims.place, imageUrl: leaderboardPrizes.imageUrl, sentAt: leaderboardPrizeClaims.sentAt })
+        .from(leaderboardPrizeClaims)
+        .innerJoin(leaderboardPrizes, and(
+          eq(leaderboardPrizes.scopeId, leaderboardPrizeClaims.scopeId),
+          eq(leaderboardPrizes.place, leaderboardPrizeClaims.place),
+        ))
+        .where(claimKey)
+        .for("update", { of: leaderboardPrizeClaims });
+      if (claim === undefined) return { kind: "not_found" };
+      if (claim.sentAt !== null) return { kind: "sent" };
+      await tx
+        .update(leaderboardPrizeClaims)
+        .set({ tradeUrl, tradeUrlUpdatedAt: sql`now()`, updatedAt: sql`now()` })
+        .where(claimKey);
+      return { kind: "saved", claim: { place: claim.place, imageUrl: claim.imageUrl, tradeUrl, sentAt: null } };
+    });
   },
 
   /** Marks a claim's prize sent, keeping the first date on a repeat. */

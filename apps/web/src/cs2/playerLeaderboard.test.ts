@@ -3,10 +3,10 @@ import type { PlayerLeaderboardEntry, PlayerLeaderboardResponse } from "@arena/c
 import { playerLeaderboardView } from "./playerLeaderboard.js";
 
 const entry = (userId: string, rank: number): PlayerLeaderboardEntry =>
-  ({ userId, username: userId, rank, points: 100 - rank, wins: 0, arenasPlayed: 1 });
+  ({ userId, username: userId, rank, points: 100 - rank, wins: 0, arenasPlayed: 1, disqualified: false });
 
 const board = (entries: PlayerLeaderboardEntry[]): PlayerLeaderboardResponse =>
-  ({ scope: { name: "November" }, competitions: [{ name: "BLAST" }], entries, computedAt: "2026-10-27T12:00:00.000Z" });
+  ({ scope: { name: "November", finalized: false }, competitions: [{ name: "BLAST" }], prizes: [], entries, computedAt: "2026-10-27T12:00:00.000Z" });
 
 describe("playerLeaderboardView", () => {
   it("shows coming soon while no scope is current", () => {
@@ -14,7 +14,7 @@ describe("playerLeaderboardView", () => {
   });
 
   it("keeps the title and an empty list for a scope without results", () => {
-    expect(playerLeaderboardView({ scope: { name: "November" }, competitions: [], entries: [] }, null))
+    expect(playerLeaderboardView({ scope: { name: "November", finalized: false }, competitions: [], prizes: [], entries: [] }, null))
       .toEqual({ kind: "board", scopeName: "November", competitions: [], rows: [] });
   });
 
