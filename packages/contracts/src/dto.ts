@@ -313,8 +313,8 @@ export interface PlayerLeaderboardPrize {
 }
 
 /**
- * GET /leaderboard — the top players of the current scope, else of the scope finalized last;
- * `scope: null` while there is neither.
+ * GET /leaderboard — the top players of the current scope, else of the scope closed last
+ * (`finalized`: its final results); `scope: null` while there is neither.
  */
 export type PlayerLeaderboardResponse =
   | { scope: null }
@@ -327,7 +327,7 @@ export type PlayerLeaderboardResponse =
       computedAt?: IsoDateTime;
     };
 
-/** The signed-in winner's prize on the shown finalized scope. */
+/** The signed-in winner's prize on the shown scope, once it was finalized with prizes. */
 export interface PlayerLeaderboardPrizeClaim extends PlayerLeaderboardPrize {
   tradeUrl?: string;
   /** Once sent, the trade URL can no longer change. */

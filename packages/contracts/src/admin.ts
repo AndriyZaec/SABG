@@ -35,15 +35,18 @@ export type AdminMutationCommand =
   | { type: "tournament.publish"; gridTournamentId: string; gridSeriesId: string }
   | { type: "leaderboard.scope.create"; name: string }
   | { type: "leaderboard.scope.rename"; scopeId: Uuid; name: string }
-  /** Final recompute and close of the previous current scope, then this open one becomes current. */
-  | { type: "leaderboard.scope.current.set"; scopeId: Uuid }
-  /** Final recompute and close of the current scope, leaving none current. */
-  | { type: "leaderboard.scope.close" }
   /**
-   * Final recompute, then — when every prize place holds an approved player and no mark change is
-   * staged — gives out the prize places, locks prizes and marks, and closes the current scope.
+   * Final recompute and close of the previous current scope, then this open one becomes current. Refused
+   * while the previous current scope has prizes (only `leaderboard.scope.close` awards them) or staged
+   * mark changes (the close would drop them).
    */
-  | { type: "leaderboard.scope.finalize"; scopeId: Uuid }
+  | { type: "leaderboard.scope.current.set"; scopeId: Uuid }
+  /**
+   * Ends the current scope, leaving none current, once no mark change is staged: a final recompute, then
+   * the close. A scope with prizes is finalized on the way: every player on a prize place needs an
+   * applied approval, the places are given out, and prizes and marks lock.
+   */
+  | { type: "leaderboard.scope.close"; scopeId: Uuid }
   | { type: "leaderboard.competition.add"; scopeId: Uuid; competitionId: Uuid }
   | { type: "leaderboard.competition.remove"; scopeId: Uuid; competitionId: Uuid }
   /** Adds or replaces the prize for a place of an open scope. */

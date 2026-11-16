@@ -14,7 +14,6 @@ function fakeLeaderboard(): OperatorControlDependencies["leaderboard"] {
     createScope: vi.fn(),
     renameScope: vi.fn(),
     setCurrent: vi.fn(),
-    closeCurrent: vi.fn(),
     addCompetition: vi.fn(),
     removeCompetition: vi.fn(),
     competitionExists: vi.fn(),
@@ -34,7 +33,7 @@ function fakeLeaderboard(): OperatorControlDependencies["leaderboard"] {
     listPrizeClaims: vi.fn().mockResolvedValue([]),
     markPrizeSent: vi.fn(),
     recomputeScope: vi.fn(),
-    finalizeScope: vi.fn(),
+    endScope: vi.fn(),
   };
 }
 
@@ -186,15 +185,17 @@ describe("operator control leaderboard routes", () => {
     expect((await post({ type: "leaderboard.marks.apply", scopeId })).status).toBe(200);
   });
 
-  it("validates the finalize mutation before running it", async () => {
+  it("validates the scope end mutation before running it, and no longer takes a separate finalize", async () => {
     const mutate = vi.fn().mockResolvedValue({ result: { status: "succeeded" } });
     const baseUrl = await start({ mutate });
     const post = (command: unknown) => fetch(`${baseUrl}/mutations`, { method: "POST", headers, body: JSON.stringify(command) });
+    const scopeId = "3f0c5b9e-8f3a-4d7e-9a51-2b6f0c1d4e7a";
 
-    expect((await post({ type: "leaderboard.scope.finalize" })).status).toBe(400);
-    expect((await post({ type: "leaderboard.scope.finalize", scopeId: "not-a-uuid" })).status).toBe(400);
+    expect((await post({ type: "leaderboard.scope.close" })).status).toBe(400);
+    expect((await post({ type: "leaderboard.scope.close", scopeId: "not-a-uuid" })).status).toBe(400);
+    expect((await post({ type: "leaderboard.scope.finalize", scopeId })).status).toBe(400);
     expect(mutate).not.toHaveBeenCalled();
-    expect((await post({ type: "leaderboard.scope.finalize", scopeId: "3f0c5b9e-8f3a-4d7e-9a51-2b6f0c1d4e7a" })).status).toBe(200);
+    expect((await post({ type: "leaderboard.scope.close", scopeId })).status).toBe(200);
   });
 
   it("validates prize mutations before running them", async () => {

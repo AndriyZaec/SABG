@@ -1,6 +1,6 @@
 import type { Uuid } from "@arena/contracts";
 import { arenaResultRepository } from "../db/repositories/arena-result.repository.js";
-import { leaderboardRepository, type FinalizeScopeResult } from "../db/repositories/leaderboard.repository.js";
+import { leaderboardRepository, type EndScopeResult } from "../db/repositories/leaderboard.repository.js";
 import { payoutRepository } from "../db/repositories/payout.repository.js";
 import { rankPlayers, type PlayerRanking } from "./player-ranking.js";
 
@@ -14,9 +14,9 @@ export async function recomputeScope(scopeId: Uuid, now?: Date): Promise<boolean
   return leaderboardRepository.replaceEntries(scopeId, () => computeEntries(scopeId), now);
 }
 
-/** Finalizes the current scope with its final ranking computed under the same lock (see `finalizeCurrent`). */
-export async function finalizeScope(scopeId: Uuid, now?: Date): Promise<FinalizeScopeResult> {
-  return leaderboardRepository.finalizeCurrent(scopeId, () => computeEntries(scopeId), now);
+/** Ends the current scope with its final ranking computed under the same lock (see `endCurrent`). */
+export async function endScope(scopeId: Uuid, now?: Date): Promise<EndScopeResult> {
+  return leaderboardRepository.endCurrent(scopeId, () => computeEntries(scopeId), now);
 }
 
 // Runs inside the caller's scope lock, so it reads everything committed before the lock was granted.

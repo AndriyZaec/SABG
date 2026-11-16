@@ -15,6 +15,8 @@ const AWP = "https://cdn.test/skins/awp.png";
 
 const openScope = { id: SCOPE_ID, name: "November", status: "open", isCurrent: true, closedAt: null, finalizedAt: null };
 const finalizedScope = { ...openScope, name: "IEM", status: "closed", isCurrent: false, closedAt: finalizedAt, finalizedAt };
+// Ended without prizes: closed, never finalized.
+const endedScope = { ...openScope, name: "October", status: "closed", isCurrent: false, closedAt: finalizedAt };
 
 const row = (userId: string, rank: number, { avatar = null, disqualified = false }: { avatar?: string | null; disqualified?: boolean } = {}) => ({
   userId, username: `player-${userId}`, avatar, rank, points: 200 - rank, arenasPlayed: 3, wins: 1, secondPlaces: 1,
@@ -185,6 +187,18 @@ describe("player leaderboard routes", () => {
 
     store.setTradeUrl.mockClear();
     store.findShownScope.mockResolvedValue(openScope);
+    expect((await sendTradeUrl({ tradeUrl: TRADE_URL })).status).toBe(404);
+    expect(store.setTradeUrl).not.toHaveBeenCalled();
+  });
+
+  it("shows a scope ended without prizes as final results, with no prize claim or trade URL form", async () => {
+    store.findShownScope.mockResolvedValue(endedScope);
+    store.findPrizeClaim.mockResolvedValue({ place: 1, imageUrl: AWP, tradeUrl: null, sentAt: null });
+
+    const board = await (await fetch(`${baseUrl}/leaderboard`)).json() as PlayerLeaderboardResponse;
+    expect(board.scope).toEqual({ name: "October", finalized: true });
+    expect(await me()).not.toHaveProperty("prize");
+    expect(store.findPrizeClaim).not.toHaveBeenCalled();
     expect((await sendTradeUrl({ tradeUrl: TRADE_URL })).status).toBe(404);
     expect(store.setTradeUrl).not.toHaveBeenCalled();
   });

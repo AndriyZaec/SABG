@@ -19,7 +19,7 @@ import { cs2CatalogRepository } from "../db/repositories/cs2-catalog.repository.
 import { operatorAuditRepository, type AppendOperatorAudit } from "../db/repositories/operator-audit.repository.js";
 import { leaderboardRepository, type PrizeClaimView } from "../db/repositories/leaderboard.repository.js";
 import { operatorControlRepository } from "../db/repositories/operator-control.repository.js";
-import { finalizeScope, recomputeScope } from "../leaderboard/recompute.js";
+import { endScope, recomputeScope } from "../leaderboard/recompute.js";
 import { assignPrizePlaces } from "../leaderboard/player-ranking.js";
 import {
   CS2_AUTOPILOT_SETTING,
@@ -40,7 +40,6 @@ const ADMIN_LEADERBOARD_TOP = 100;
 // Another operator switched or closed the current scope between this request's read and its write.
 const CURRENT_SCOPE_CHANGED = "Current scope changed; reload and try again";
 const DRAFTS_PENDING = "Apply or remove the staged mark changes first";
-const NO_PRIZES = "Scope has no prizes";
 
 export type LeaderboardControl = Pick<
   typeof leaderboardRepository,
@@ -50,7 +49,6 @@ export type LeaderboardControl = Pick<
   | "createScope"
   | "renameScope"
   | "setCurrent"
-  | "closeCurrent"
   | "addCompetition"
   | "removeCompetition"
   | "competitionExists"
@@ -69,7 +67,7 @@ export type LeaderboardControl = Pick<
   | "applyMarkDrafts"
   | "listPrizeClaims"
   | "markPrizeSent"
-> & { recomputeScope: typeof recomputeScope; finalizeScope: typeof finalizeScope };
+> & { recomputeScope: typeof recomputeScope; endScope: typeof endScope };
 
 export interface OperatorControlDependencies {
   getActiveTournamentId(): Promise<string | undefined>;
@@ -129,7 +127,6 @@ const targetIdFor = (command: AdminMutationCommand): string | undefined => {
     case "series.skip.request":
       return command.gridSeriesId;
     case "leaderboard.scope.create":
-    case "leaderboard.scope.close":
     case "leaderboard.recompute":
       return undefined;
     case "leaderboard.scope.rename":
@@ -139,7 +136,7 @@ const targetIdFor = (command: AdminMutationCommand): string | undefined => {
     case "leaderboard.prize.set":
     case "leaderboard.prize.remove":
     case "leaderboard.marks.apply":
-    case "leaderboard.scope.finalize":
+    case "leaderboard.scope.close":
       return command.scopeId;
     case "leaderboard.mark.draft.set":
     case "leaderboard.mark.draft.remove":
@@ -187,7 +184,7 @@ function createDefaultDependencies(
       return buildOperatorDiscoveryPayload(window, found === undefined ? [] : [found]);
     },
     activate: (gridSeriesId, expectedTournamentId) => activateCs2Series(gridSeriesId, { expectedTournamentId }),
-    leaderboard: { ...leaderboardRepository, recomputeScope, finalizeScope },
+    leaderboard: { ...leaderboardRepository, recomputeScope, endScope },
     queueLeaderboardRecompute,
   };
 }
@@ -372,7 +369,7 @@ export class OperatorControlService {
   }
 
   /**
-   * Marks and finalize act only on the current scope: it alone has a recomputed board to verify, and the
+   * Marks and the scope end act only on the current scope: it alone has a recomputed board to verify, and the
    * recompute marks queue covers only it. Switching away closes it, so a later write is refused as closed.
    */
   private async currentScopeRefusal(scopeId: Uuid): Promise<string | undefined> {
@@ -461,31 +458,26 @@ export class OperatorControlService {
         const switched = await this.deps.leaderboard.setCurrent(scope.id, previous?.id ?? null);
         if (switched === "closed") return this.refused("Scope is closed");
         if (switched === "current_changed") return this.refused(CURRENT_SCOPE_CHANGED);
+        if (switched === "current_has_prizes") return this.refused("End the current scope first: it has prizes to award");
+        if (switched === "current_has_drafts") return this.refused(DRAFTS_PENDING);
         return { result: { status: "succeeded" }, details: { before: previous?.id ?? null, after: scope.id } };
       }
       case "leaderboard.scope.close": {
-        const current = await this.deps.leaderboard.findCurrent();
-        if (current === undefined) return this.refused("No current scope");
-        await this.deps.leaderboard.recomputeScope(current.id);
-        if (!await this.deps.leaderboard.closeCurrent(current.id)) return this.refused(CURRENT_SCOPE_CHANGED);
-        return { result: { status: "succeeded" }, details: { before: current.id, after: null } };
-      }
-      case "leaderboard.scope.finalize": {
         const refusal = await this.currentScopeRefusal(command.scopeId);
         if (refusal !== undefined) return this.refused(refusal);
-        // Checks drafts and prizes, then runs the final recompute, all under the lock marks are applied under.
-        const finalized = await this.deps.leaderboard.finalizeScope(command.scopeId);
-        switch (finalized.kind) {
+        // Checks drafts and prizes, then runs the final recompute, all under the lock marks and prizes change under.
+        const ended = await this.deps.leaderboard.endScope(command.scopeId);
+        switch (ended.kind) {
+          case "closed":
+            return { result: { status: "succeeded" }, details: { before: command.scopeId, after: null } };
           case "finalized":
-            return { result: { status: "succeeded" }, details: { before: command.scopeId, after: finalized.claims } };
+            return { result: { status: "succeeded" }, details: { before: command.scopeId, after: ended.claims } };
           case "current_changed":
             return this.refused(CURRENT_SCOPE_CHANGED);
           case "drafts_pending":
             return this.refused(DRAFTS_PENDING);
-          case "no_prizes":
-            return this.refused(NO_PRIZES);
           case "unapproved":
-            return this.refused(`Prize players need an approval: ${finalized.usernames.join(", ")}`);
+            return this.refused(`Prize players need an approval: ${ended.usernames.join(", ")}`);
         }
       }
       case "leaderboard.recompute": {

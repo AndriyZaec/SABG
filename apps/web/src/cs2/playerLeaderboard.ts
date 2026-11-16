@@ -18,7 +18,7 @@ export type PlayerLeaderboardView =
   | {
       kind: "board";
       scopeName: string;
-      /** Final results: prizes and marks are locked and winners claim their prizes. */
+      /** Final results of a closed scope: nothing changes any more, and winners claim their prizes. */
       finalized: boolean;
       competitions: Cs2CompetitionSummary[];
       prizes: PlayerLeaderboardPrize[];

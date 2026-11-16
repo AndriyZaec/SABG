@@ -8,14 +8,15 @@ export function formatDateTime(value: string): string {
 }
 
 /**
- * What stops the current scope from being finalized, read from the preview. The server checks again on
- * a fresh recompute, so this only explains why the button is disabled.
+ * What stops the current scope from ending, read from the preview: staged drafts, and with prizes the
+ * prize players without an applied approval. The server checks again on a fresh recompute, so this only
+ * explains why the button is disabled.
  */
-export function finalizeBlockers(scope: AdminLeaderboardScope, board: CurrentBoard | undefined): string[] {
+export function endScopeBlockers(scope: AdminLeaderboardScope, board: CurrentBoard | undefined): string[] {
   const blockers: string[] = [];
-  if (scope.prizes.length === 0) blockers.push("The scope has no prizes.");
   const drafts = board?.drafts.length ?? 0;
   if (drafts > 0) blockers.push(`${drafts} staged mark ${drafts === 1 ? "change is" : "changes are"} not applied.`);
+  if (scope.prizes.length === 0) return blockers;
   const approved = (mark: AdminLeaderboardMark | undefined) => mark?.status === "approved";
   for (const entry of board?.entries ?? []) {
     if (entry.prizePlace === undefined) continue;
@@ -26,25 +27,27 @@ export function finalizeBlockers(scope: AdminLeaderboardScope, board: CurrentBoa
   return blockers;
 }
 
-export function FinalizePanel({ scope, board, disabled, onFinalize }: {
+/** The one way to end the current scope; with prizes it finalizes the scope and awards them. */
+export function EndScopePanel({ scope, board, disabled, onEnd }: {
   scope: AdminLeaderboardScope;
   board: CurrentBoard | undefined;
   disabled: boolean;
-  onFinalize: () => void;
+  onEnd: () => void;
 }) {
-  const blockers = finalizeBlockers(scope, board);
+  const blockers = endScopeBlockers(scope, board);
   const heldPlaces = new Set(board?.entries.flatMap((entry) => entry.prizePlace !== undefined ? [entry.prizePlace] : []));
   const emptyPlaces = scope.prizes.map((prize) => prize.place).filter((place) => !heldPlaces.has(place));
   return (
-    <div className="leaderboard-finalize">
+    <div className="leaderboard-end">
       <div>
-        <strong>Finalize {scope.name}</strong>
+        <strong>End {scope.name}</strong>
+        <span>{scope.prizes.length > 0 ? "Ending finalizes the scope and awards its prizes." : "No prizes: ending closes the scope without winners."}</span>
         {blockers.length === 0
-          ? <span>Ready to finalize.</span>
+          ? <span>Ready to end.</span>
           : <ul>{blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}</ul>}
         {emptyPlaces.length > 0 && <span>No player holds {emptyPlaces.length === 1 ? "place" : "places"} {emptyPlaces.join(", ")}: {emptyPlaces.length === 1 ? "it is" : "they are"} not awarded.</span>}
       </div>
-      <button className="primary-action" type="button" disabled={disabled || blockers.length > 0} onClick={onFinalize}>Finalize</button>
+      <button className="danger-action" type="button" disabled={disabled || blockers.length > 0} onClick={onEnd}>End scope</button>
     </div>
   );
 }

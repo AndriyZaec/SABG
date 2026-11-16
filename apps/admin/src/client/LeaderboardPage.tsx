@@ -11,17 +11,16 @@ import type {
 import type { AdminSessionResponse } from "../shared/session.js";
 import { AdminApiError, mutateControl, readLeaderboard } from "./api.js";
 import { ConfirmDialog } from "./ConfirmDialog.js";
-import { FinalizePanel, WinnersTable, formatDateTime } from "./LeaderboardFinalize.js";
+import { EndScopePanel, WinnersTable, formatDateTime } from "./LeaderboardEnd.js";
 import { MAX_MARK_REASON_LENGTH, MarkDraftsPanel, PlayerMark, PlayerMarkActions, draftLabel } from "./LeaderboardMarks.js";
 import { PrizeEditor } from "./LeaderboardPrizes.js";
 
 type Confirmation =
   | { kind: "current"; scope: AdminLeaderboardScope }
-  | { kind: "close" }
   | { kind: "remove"; scopeId: string; competition: AdminLeaderboardCompetition }
   | { kind: "prize-remove"; scope: AdminLeaderboardScope; prize: AdminLeaderboardPrize }
   | { kind: "apply"; scope: AdminLeaderboardScope }
-  | { kind: "finalize"; scope: AdminLeaderboardScope }
+  | { kind: "end"; scope: AdminLeaderboardScope }
   | { kind: "sent"; scope: AdminLeaderboardScope; winner: AdminLeaderboardWinner };
 
 const LAMPORTS_PER_SOL = 1_000_000_000;
@@ -113,6 +112,12 @@ export function LeaderboardPage({ session, onSessionExpired }: {
   }
 
   const currentScope = data.scopes.find((scope) => scope.current);
+  // Without a current scope, players see the one closed last as its final results.
+  const shownScope = currentScope ?? data.scopes
+    .filter((scope) => scope.closedAt !== undefined)
+    .sort((a, b) => (b.closedAt ?? "").localeCompare(a.closedAt ?? ""))[0];
+  // Only ending a scope awards its prizes, so a switch can't close one that has them.
+  const switchBlocked = currentScope !== undefined && currentScope.prizes.length > 0;
   const openScopes = data.scopes.filter((scope) => scope.status === "open");
   const editingScope = openScopes.find((scope) => scope.id === editingScopeId)
     ?? (currentScope?.status === "open" ? currentScope : openScopes[0]);
@@ -185,13 +190,6 @@ export function LeaderboardPage({ session, onSessionExpired }: {
     );
   };
 
-  // Closing a scope another way than finalize leaves it without winners for good.
-  const unfinalizedPrizesWarning = currentScope !== undefined && currentScope.prizes.length > 0 && currentScope.finalizedAt === undefined && (
-    <p className="leaderboard-warning">
-      {currentScope.name} has prizes but is not finalized: it closes without winners and can no longer be finalized.
-      Finalize it instead to award the prizes.
-    </p>
-  );
   const finalizedScopes = data.scopes
     .filter((scope) => scope.winners !== undefined)
     .sort((a, b) => (b.finalizedAt ?? "").localeCompare(a.finalizedAt ?? ""));
@@ -220,13 +218,15 @@ export function LeaderboardPage({ session, onSessionExpired }: {
         <div className="control-panel__heading">
           <div>
             <span className="eyebrow">Shown to players</span>
-            <h2>{currentScope?.name ?? "No current scope"}</h2>
+            <h2>{shownScope?.name ?? "No current scope"}</h2>
           </div>
-          <span className={`state-chip ${currentScope !== undefined ? "state-chip--on" : ""}`}>{currentScope !== undefined ? "Current" : "Coming soon"}</span>
+          <span className={`state-chip ${currentScope !== undefined ? "state-chip--on" : ""}`}>{currentScope !== undefined ? "Current" : shownScope !== undefined ? "Final results" : "Coming soon"}</span>
         </div>
         <p>
           {currentScope === undefined
-            ? "Players see a coming-soon page until a scope is made current."
+            ? shownScope !== undefined
+              ? `Players see the final results of ${shownScope.name} until a scope is made current.`
+              : "Players see a coming-soon page until a scope is made current."
             : data.current?.computedAt !== undefined
               ? `Last computed ${formatDateTime(data.current.computedAt)}.`
               : "Not computed yet: recompute now, or it runs after the next arena or within 15 minutes."}
@@ -241,11 +241,10 @@ export function LeaderboardPage({ session, onSessionExpired }: {
             >
               Recompute now
             </button>
-            <button className="danger-action" type="button" disabled={mutating} onClick={() => setConfirmation({ kind: "close" })}>Close current scope</button>
           </div>
         )}
         {currentScope !== undefined && (
-          <FinalizePanel scope={currentScope} board={data.current} disabled={mutating} onFinalize={() => setConfirmation({ kind: "finalize", scope: currentScope })} />
+          <EndScopePanel scope={currentScope} board={data.current} disabled={mutating} onEnd={() => setConfirmation({ kind: "end", scope: currentScope })} />
         )}
       </section>
 
@@ -257,6 +256,11 @@ export function LeaderboardPage({ session, onSessionExpired }: {
             <button className="primary-action" type="submit" disabled={mutating || newName.trim().length === 0}>Create scope</button>
           </form>
         </div>
+        {switchBlocked && (
+          <p className="leaderboard-warning">
+            End {currentScope.name} first: it has prizes to award. Making another scope current is blocked until then.
+          </p>
+        )}
         {data.scopes.length === 0 ? (
           <div className="empty-state catalog-empty"><strong>No scopes yet</strong><span>Create a scope, add tournaments to it, then make it current.</span></div>
         ) : (
@@ -276,7 +280,13 @@ export function LeaderboardPage({ session, onSessionExpired }: {
                       <div className="row-actions">
                         <button type="button" disabled={mutating} onClick={() => setRename({ scope, value: scope.name })}>Rename</button>
                         {scope.status === "open" && !scope.current && (
-                          <button type="button" disabled={mutating} onClick={() => setConfirmation({ kind: "current", scope })}>Make current</button>
+                          <button
+                            type="button"
+                            disabled={mutating || switchBlocked}
+                            onClick={() => setConfirmation({ kind: "current", scope })}
+                          >
+                            Make current
+                          </button>
                         )}
                       </div>
                     </td>
@@ -481,20 +491,6 @@ export function LeaderboardPage({ session, onSessionExpired }: {
               ? "Players will see this scope's leaderboard."
               : `${currentScope.name} gets a final recompute and closes for good: its tournaments can no longer change.`}
           </p>
-          {unfinalizedPrizesWarning}
-          {unfinishedWarning}
-        </ConfirmDialog>
-      )}
-      {confirmation?.kind === "close" && currentScope !== undefined && (
-        <ConfirmDialog
-          eyebrow="Close leaderboard scope"
-          title={`Close ${currentScope.name}?`}
-          confirmLabel="Close scope"
-          onCancel={() => setConfirmation(undefined)}
-          onConfirm={() => void runMutation({ type: "leaderboard.scope.close" }, `${currentScope.name} closed.`)}
-        >
-          <p>It gets a final recompute and closes for good. Players see a coming-soon page until another scope is made current.</p>
-          {unfinalizedPrizesWarning}
           {unfinishedWarning}
         </ConfirmDialog>
       )}
@@ -546,20 +542,24 @@ export function LeaderboardPage({ session, onSessionExpired }: {
         </ConfirmDialog>
       )}
 
-      {confirmation?.kind === "finalize" && (
+      {confirmation?.kind === "end" && (
         <ConfirmDialog
-          eyebrow="Finalize leaderboard scope"
-          title={`Finalize ${confirmation.scope.name}?`}
-          confirmLabel="Finalize"
+          eyebrow="End leaderboard scope"
+          title={`End ${confirmation.scope.name}?`}
+          confirmLabel="End scope"
           onCancel={() => setConfirmation(undefined)}
           onConfirm={() => void runMutation(
-            { type: "leaderboard.scope.finalize", scopeId: confirmation.scope.id },
-            `${confirmation.scope.name} finalized. Winners can now send their trade URLs.`,
+            { type: "leaderboard.scope.close", scopeId: confirmation.scope.id },
+            confirmation.scope.prizes.length > 0
+              ? `${confirmation.scope.name} ended. Winners can now send their trade URLs.`
+              : `${confirmation.scope.name} ended.`,
           )}
         >
           <p>
-            It gets a final recompute and closes for good: prizes and player marks lock, and the players on prize
-            places become winners. Players see this scope until another one is made current.
+            {confirmation.scope.prizes.length > 0
+              ? "It gets a final recompute and closes for good: prizes and player marks lock, and the players on prize places become winners."
+              : "It gets a final recompute and closes for good, without winners: it has no prizes."}
+            {" "}Players see its final results until another scope is made current.
           </p>
           {unfinishedWarning}
         </ConfirmDialog>

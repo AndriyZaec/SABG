@@ -57,7 +57,7 @@ function toPrizeClaim(claim: PlayerPrizeClaim): PlayerLeaderboardPrizeClaim {
   };
 }
 
-/** Players see the current scope, or the scope finalized last until another becomes current. */
+/** Players see the current scope, else the scope closed last as its final results. */
 export function createLeaderboardRouter(store: PlayerLeaderboardStore = leaderboardRepository): RouterType {
   const router = Router();
 
@@ -75,7 +75,7 @@ export function createLeaderboardRouter(store: PlayerLeaderboardStore = leaderbo
     const prizePlaces = assignPrizePlaces(rows, prizes.map((prize) => prize.place));
     const computedAt = rows[0]?.computedAt;
     res.json({
-      scope: { name: scope.name, finalized: scope.finalizedAt !== null },
+      scope: { name: scope.name, finalized: scope.status === "closed" },
       competitions: competitions.map(({ name, shortName, logoUrl }) => ({
         name,
         ...(shortName !== null ? { shortName } : {}),
@@ -116,7 +116,7 @@ export function createLeaderboardRouter(store: PlayerLeaderboardStore = leaderbo
         res.status(400).json({ error: "bad_request", message: "tradeUrl must be a Steam trade offer link" });
         return;
       }
-      // Only the shown finalized scope takes a trade URL, so the form closes once another scope is current.
+      // Only the shown finalized scope takes a trade URL, so the form closes once another scope is shown.
       const scope = await store.findShownScope();
       const result = scope !== undefined && scope.finalizedAt !== null
         ? await store.setTradeUrl(scope.id, userId, parsed.data.tradeUrl)

@@ -11,7 +11,6 @@ function fakeLeaderboard(overrides: Partial<OperatorControlDependencies["leaderb
     createScope: vi.fn().mockResolvedValue(undefined),
     renameScope: vi.fn().mockResolvedValue(true),
     setCurrent: vi.fn().mockResolvedValue("switched"),
-    closeCurrent: vi.fn().mockResolvedValue(true),
     addCompetition: vi.fn().mockResolvedValue(true),
     removeCompetition: vi.fn().mockResolvedValue(true),
     competitionExists: vi.fn().mockResolvedValue(true),
@@ -30,7 +29,7 @@ function fakeLeaderboard(overrides: Partial<OperatorControlDependencies["leaderb
     applyMarkDrafts: vi.fn().mockResolvedValue(1),
     listPrizeClaims: vi.fn().mockResolvedValue([]),
     markPrizeSent: vi.fn().mockResolvedValue({ kind: "not_found" }),
-    finalizeScope: vi.fn().mockResolvedValue({ kind: "finalized", claims: 1 }),
+    endScope: vi.fn().mockResolvedValue({ kind: "closed" }),
     recomputeScope: vi.fn().mockResolvedValue(true),
     ...overrides,
   };
@@ -183,36 +182,26 @@ describe("operator control leaderboard", () => {
     expect(deps.appendAudit).toHaveBeenCalledWith(expect.objectContaining({ result: "succeeded", details: { before: "prev", after: "next" } }));
   });
 
-  it("closes the current scope after its final recompute, and refuses when there is none", async () => {
-    const leaderboard = fakeLeaderboard({ findCurrent: vi.fn().mockResolvedValue(scope("live", { isCurrent: true })) });
-    const { service } = setup({ leaderboard });
-    await expect(service.mutate({ type: "leaderboard.scope.close" }, actor, randomUUID())).resolves.toEqual({ result: { status: "succeeded" } });
-    expect(vi.mocked(leaderboard.recomputeScope).mock.invocationCallOrder[0]!)
-      .toBeLessThan(vi.mocked(leaderboard.closeCurrent).mock.invocationCallOrder[0]!);
-    expect(leaderboard.closeCurrent).toHaveBeenCalledWith("live");
-
-    const empty = setup();
-    await expect(empty.service.mutate({ type: "leaderboard.scope.close" }, actor, randomUUID()))
-      .resolves.toEqual({ result: { status: "refused", reason: "No current scope" } });
-    expect(empty.deps.leaderboard.closeCurrent).not.toHaveBeenCalled();
-  });
-
-  it("refuses a switch or close when another operator changed the current scope meanwhile", async () => {
+  it("refuses a switch when another operator changed the current scope meanwhile, or while the current scope has prizes or drafts", async () => {
     const reason = "Current scope changed; reload and try again";
     const leaderboard = fakeLeaderboard({
       findScope: vi.fn().mockResolvedValue(scope("next")),
       findCurrent: vi.fn().mockResolvedValue(scope("prev", { isCurrent: true })),
       setCurrent: vi.fn().mockResolvedValue("current_changed"),
-      closeCurrent: vi.fn().mockResolvedValue(false),
     });
     const { service, deps } = setup({ leaderboard });
 
     await expect(service.mutate({ type: "leaderboard.scope.current.set", scopeId: "next" }, actor, randomUUID()))
       .resolves.toEqual({ result: { status: "refused", reason } });
-    await expect(service.mutate({ type: "leaderboard.scope.close" }, actor, randomUUID()))
-      .resolves.toEqual({ result: { status: "refused", reason } });
     expect(deps.appendAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "leaderboard.scope.current.set", result: "refused", details: { reason } }));
-    expect(deps.appendAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "leaderboard.scope.close", result: "refused", details: { reason } }));
+
+    vi.mocked(leaderboard.setCurrent).mockResolvedValue("current_has_prizes");
+    await expect(service.mutate({ type: "leaderboard.scope.current.set", scopeId: "next" }, actor, randomUUID()))
+      .resolves.toEqual({ result: { status: "refused", reason: "End the current scope first: it has prizes to award" } });
+
+    vi.mocked(leaderboard.setCurrent).mockResolvedValue("current_has_drafts");
+    await expect(service.mutate({ type: "leaderboard.scope.current.set", scopeId: "next" }, actor, randomUUID()))
+      .resolves.toEqual({ result: { status: "refused", reason: "Apply or remove the staged mark changes first" } });
   });
 
   it("refuses to change a closed scope's competitions but still renames it", async () => {
@@ -422,26 +411,27 @@ describe("operator control leaderboard", () => {
     expect(leaderboard.applyMarkDrafts).not.toHaveBeenCalled();
   });
 
-  it("finalizes the current scope and audits the claims given out", async () => {
-    const leaderboard = fakeLeaderboard({
-      findScope: vi.fn().mockResolvedValue(scope("live", { isCurrent: true })),
-      listPrizes: vi.fn().mockResolvedValue([{ place: 1, imageUrl: "https://cdn.example.com/skins/awp.png" }]),
-      finalizeScope: vi.fn().mockResolvedValue({ kind: "finalized", claims: 1 }),
-    });
-    const { service, deps } = setup({ leaderboard });
+  it("ends the current scope, auditing a plain close or the claims a finalize gave out", async () => {
+    for (const [outcome, after] of [[{ kind: "closed" }, null], [{ kind: "finalized", claims: 2 }, 2]] as const) {
+      const leaderboard = fakeLeaderboard({
+        findScope: vi.fn().mockResolvedValue(scope("live", { isCurrent: true })),
+        endScope: vi.fn().mockResolvedValue(outcome),
+      });
+      const { service, deps } = setup({ leaderboard });
 
-    await expect(service.mutate({ type: "leaderboard.scope.finalize", scopeId: "live" }, actor, randomUUID()))
-      .resolves.toEqual({ result: { status: "succeeded" } });
-    // The final recompute runs inside finalize, under the lock marks are applied under.
-    expect(leaderboard.finalizeScope).toHaveBeenCalledWith("live");
-    expect(leaderboard.recomputeScope).not.toHaveBeenCalled();
-    expect(deps.appendAudit).toHaveBeenLastCalledWith(expect.objectContaining({
-      action: "leaderboard.scope.finalize", targetId: "live", result: "succeeded", details: { before: "live", after: 1 },
-    }));
+      await expect(service.mutate({ type: "leaderboard.scope.close", scopeId: "live" }, actor, randomUUID()))
+        .resolves.toEqual({ result: { status: "succeeded" } });
+      // The final recompute runs inside the end, under the lock marks and prizes change under.
+      expect(leaderboard.endScope).toHaveBeenCalledWith("live");
+      expect(leaderboard.recomputeScope).not.toHaveBeenCalled();
+      expect(deps.appendAudit).toHaveBeenLastCalledWith(expect.objectContaining({
+        action: "leaderboard.scope.close", targetId: "live", result: "succeeded", details: { before: "live", after },
+      }));
+    }
   });
 
-  it("refuses to finalize a scope that isn't open and current", async () => {
-    const finalize = (service: OperatorControlService) => service.mutate({ type: "leaderboard.scope.finalize", scopeId: "live" }, actor, randomUUID());
+  it("refuses to end a scope that isn't open and current", async () => {
+    const end = (service: OperatorControlService) => service.mutate({ type: "leaderboard.scope.close", scopeId: "live" }, actor, randomUUID());
     const cases = [
       [fakeLeaderboard({ findScope: vi.fn().mockResolvedValue(scope("live")) }), "Scope is not current"],
       [fakeLeaderboard({ findScope: vi.fn().mockResolvedValue(scope("live", { status: "closed", closedAt: new Date() })) }), "Scope is closed"],
@@ -449,25 +439,23 @@ describe("operator control leaderboard", () => {
     ] as const;
     for (const [leaderboard, reason] of cases) {
       const { service } = setup({ leaderboard });
-      await expect(finalize(service)).resolves.toEqual({ result: { status: "refused", reason } });
-      expect(leaderboard.finalizeScope).not.toHaveBeenCalled();
+      await expect(end(service)).resolves.toEqual({ result: { status: "refused", reason } });
+      expect(leaderboard.endScope).not.toHaveBeenCalled();
     }
   });
 
-  it("refuses to finalize when the locked check finds staged changes, no prizes, unapproved prize players or a changed scope", async () => {
+  it("refuses to end when the locked check finds staged changes, unapproved prize players or a changed scope", async () => {
     for (const [outcome, reason] of [
       [{ kind: "unapproved", usernames: ["ace", "bolt"] }, "Prize players need an approval: ace, bolt"],
       [{ kind: "current_changed" }, "Current scope changed; reload and try again"],
       [{ kind: "drafts_pending" }, "Apply or remove the staged mark changes first"],
-      [{ kind: "no_prizes" }, "Scope has no prizes"],
     ] as const) {
       const leaderboard = fakeLeaderboard({
         findScope: vi.fn().mockResolvedValue(scope("live", { isCurrent: true })),
-        listPrizes: vi.fn().mockResolvedValue([{ place: 1, imageUrl: "https://cdn.example.com/skins/awp.png" }]),
-        finalizeScope: vi.fn().mockResolvedValue(outcome),
+        endScope: vi.fn().mockResolvedValue(outcome),
       });
       const { service } = setup({ leaderboard });
-      await expect(service.mutate({ type: "leaderboard.scope.finalize", scopeId: "live" }, actor, randomUUID()))
+      await expect(service.mutate({ type: "leaderboard.scope.close", scopeId: "live" }, actor, randomUUID()))
         .resolves.toEqual({ result: { status: "refused", reason } });
     }
   });

@@ -69,7 +69,11 @@ export interface LeaderboardMarkDraft {
   updatedAt: Date;
 }
 
-export type SetCurrentScopeResult = "switched" | "closed" | "current_changed";
+/**
+ * `current_has_prizes`: the current scope holds prizes, so only ending it (`endCurrent`) may close it.
+ * `current_has_drafts`: closing it would drop its staged mark changes.
+ */
+export type SetCurrentScopeResult = "switched" | "closed" | "current_changed" | "current_has_prizes" | "current_has_drafts";
 
 export interface PrizeClaimView {
   scopeId: Uuid;
@@ -100,10 +104,11 @@ export type MarkPrizeSentResult =
   /** Marking sent locks the trade URL, so it waits until the winner gives one. */
   | { kind: "no_trade_url" };
 
-export type FinalizeScopeResult =
+export type EndScopeResult =
+  /** A scope without prizes: closed, nothing awarded. */
+  | { kind: "closed" }
   | { kind: "finalized"; claims: number }
   | { kind: "current_changed" }
-  | { kind: "no_prizes" }
   | { kind: "drafts_pending" }
   /** Players on prize places without an applied approval, by username. */
   | { kind: "unapproved"; usernames: string[] };
@@ -189,13 +194,13 @@ export const leaderboardRepository = {
     return row;
   },
 
-  /** The scope players see: the current one, else the one finalized last. */
+  /** The scope players see: the current one, else the one closed last, as its final results. */
   async findShownScope(): Promise<LeaderboardScope | undefined> {
     const [row] = await db
       .select(scopeColumns)
       .from(leaderboardScopes)
-      .where(or(eq(leaderboardScopes.isCurrent, true), isNotNull(leaderboardScopes.finalizedAt)))
-      .orderBy(desc(leaderboardScopes.isCurrent), sql`${leaderboardScopes.finalizedAt} desc nulls last`)
+      .where(or(eq(leaderboardScopes.isCurrent, true), eq(leaderboardScopes.status, "closed")))
+      .orderBy(desc(leaderboardScopes.isCurrent), sql`${leaderboardScopes.closedAt} desc nulls last`)
       .limit(1);
     return row;
   },
@@ -206,8 +211,8 @@ export const leaderboardRepository = {
 
   /**
    * Closes the current scope (if another one) and makes this open scope current, only while the current
-   * scope is still `expectedCurrentId` (null: none). With none expected there is no row to lock: two
-   * concurrent switches are left to the unique index on the current scope.
+   * scope is still `expectedCurrentId` (null: none) and holds no prizes or staged mark changes. With none expected there is no
+   * row to lock: two concurrent switches are left to the unique index on the current scope.
    */
   async setCurrent(scopeId: Uuid, expectedCurrentId: Uuid | null): Promise<SetCurrentScopeResult> {
     return db.transaction(async (tx) => {
@@ -223,6 +228,11 @@ export const leaderboardRepository = {
         .where(eq(leaderboardScopes.isCurrent, true))
         .for("update");
       if ((current?.id ?? null) !== expectedCurrentId) return "current_changed";
+      // Prizes and drafts are set under this same row lock, so none can appear before the close below.
+      if (expectedCurrentId !== null && expectedCurrentId !== scopeId) {
+        if (await hasPrizes(tx, expectedCurrentId)) return "current_has_prizes";
+        if (await hasMarkDrafts(tx, expectedCurrentId)) return "current_has_drafts";
+      }
       const now = new Date();
       // Only the expected scope closes; one made current meanwhile makes the next update hit the index.
       if (expectedCurrentId !== null && expectedCurrentId !== scopeId) {
@@ -234,17 +244,6 @@ export const leaderboardRepository = {
       await tx.update(leaderboardScopes).set({ isCurrent: true, updatedAt: now }).where(eq(leaderboardScopes.id, scopeId));
       return "switched";
     });
-  },
-
-  /** Closes this scope while it is the current one, leaving none current. False when it isn't current. */
-  async closeCurrent(expectedId: Uuid): Promise<boolean> {
-    const now = new Date();
-    const rows = await db
-      .update(leaderboardScopes)
-      .set({ status: "closed", isCurrent: false, closedAt: now, updatedAt: now })
-      .where(and(eq(leaderboardScopes.isCurrent, true), eq(leaderboardScopes.id, expectedId)))
-      .returning({ id: leaderboardScopes.id });
-    return rows.length > 0;
   },
 
   async competitionExists(competitionId: Uuid): Promise<boolean> {
@@ -456,17 +455,18 @@ export const leaderboardRepository = {
   },
 
   /**
-   * One step under the scope row lock, while the scope is still open and current: computes and writes the
-   * final entries (as `replaceEntries` does), gives the prize places out by position over them, refuses
-   * unless every player on one has an applied approval, then stores the claims, sets `finalized_at` and
-   * closes the scope. Marks are applied under the same lock, so they can't change between the final
-   * ranking and the places given out.
+   * Ends the current scope in one step under the scope row lock, while it is still open and current and
+   * no mark change is staged: computes and writes the final entries (as `replaceEntries` does), then
+   * closes it. A scope with prizes is finalized on the way: the prize places go out by position over the
+   * final entries, every player on one needs an applied approval, the claims are stored and
+   * `finalized_at` is set. Marks and prizes change under the same lock, so neither can move between the
+   * final ranking and the close.
    */
-  async finalizeCurrent(
+  async endCurrent(
     scopeId: Uuid,
     compute: () => Promise<readonly Omit<LeaderboardEntryRow, "computedAt">[]>,
     computedAt?: Date,
-  ): Promise<FinalizeScopeResult> {
+  ): Promise<EndScopeResult> {
     return db.transaction(async (tx) => {
       const [scope] = await tx
         .select({ status: leaderboardScopes.status, isCurrent: leaderboardScopes.isCurrent })
@@ -474,13 +474,19 @@ export const leaderboardRepository = {
         .where(eq(leaderboardScopes.id, scopeId))
         .for("update");
       if (scope?.status !== "open" || !scope.isCurrent) return { kind: "current_changed" };
-      const [draft] = await tx.select({ userId: leaderboardMarkDrafts.userId }).from(leaderboardMarkDrafts)
-        .where(eq(leaderboardMarkDrafts.scopeId, scopeId)).limit(1);
-      if (draft !== undefined) return { kind: "drafts_pending" };
+      if (await hasMarkDrafts(tx, scopeId)) return { kind: "drafts_pending" };
       const prizes = await tx.select({ place: leaderboardPrizes.place }).from(leaderboardPrizes).where(eq(leaderboardPrizes.scopeId, scopeId));
-      if (prizes.length === 0) return { kind: "no_prizes" };
 
       await writeEntries(tx, scopeId, await compute(), computedAt ?? new Date());
+      const now = new Date();
+      if (prizes.length === 0) {
+        await tx
+          .update(leaderboardScopes)
+          .set({ status: "closed", isCurrent: false, closedAt: now, updatedAt: now })
+          .where(eq(leaderboardScopes.id, scopeId));
+        return { kind: "closed" };
+      }
+
       const entries = await tx
         .select({ userId: leaderboardEntries.userId, disqualified: leaderboardEntries.disqualified, username: users.username })
         .from(leaderboardEntries)
@@ -499,7 +505,6 @@ export const leaderboardRepository = {
       if (places.size > 0) {
         await tx.insert(leaderboardPrizeClaims).values([...places].map(([userId, place]) => ({ scopeId, place, userId })));
       }
-      const now = new Date();
       await tx
         .update(leaderboardScopes)
         .set({ status: "closed", isCurrent: false, closedAt: now, finalizedAt: now, updatedAt: now })
@@ -649,6 +654,16 @@ async function writeEntries(
     const chunk = entries.slice(start, start + ENTRY_INSERT_CHUNK);
     await tx.insert(leaderboardEntries).values(chunk.map((entry) => ({ ...entry, scopeId, computedAt })));
   }
+}
+
+async function hasPrizes(tx: DatabaseTransaction, scopeId: Uuid): Promise<boolean> {
+  const [prize] = await tx.select({ place: leaderboardPrizes.place }).from(leaderboardPrizes).where(eq(leaderboardPrizes.scopeId, scopeId)).limit(1);
+  return prize !== undefined;
+}
+
+async function hasMarkDrafts(tx: DatabaseTransaction, scopeId: Uuid): Promise<boolean> {
+  const [draft] = await tx.select({ userId: leaderboardMarkDrafts.userId }).from(leaderboardMarkDrafts).where(eq(leaderboardMarkDrafts.scopeId, scopeId)).limit(1);
+  return draft !== undefined;
 }
 
 async function lockOpenScope(tx: DatabaseTransaction, scopeId: Uuid): Promise<boolean> {
