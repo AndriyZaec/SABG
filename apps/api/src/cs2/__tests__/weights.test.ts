@@ -8,11 +8,11 @@ import {
 import type { Cs2Candidate } from "../catalog.js";
 
 describe("cs2TierForRound", () => {
-  it("bands rounds into easy/medium/hard at the R5/R6 and R14/R15 boundaries", () => {
-    expect(cs2TierForRound(5)).toBe("easy");
-    expect(cs2TierForRound(6)).toBe("medium");
-    expect(cs2TierForRound(14)).toBe("medium");
-    expect(cs2TierForRound(15)).toBe("hard");
+  it("bands rounds into easy/medium/hard at the R4/R5 and R11/R12 boundaries", () => {
+    expect(cs2TierForRound(4)).toBe("easy");
+    expect(cs2TierForRound(5)).toBe("medium");
+    expect(cs2TierForRound(11)).toBe("medium");
+    expect(cs2TierForRound(12)).toBe("hard");
     expect(cs2TierForRound(30)).toBe("hard");
   });
 });
