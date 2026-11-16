@@ -10,6 +10,8 @@ import type {
   LeaderboardResponse,
   PlayerLeaderboardMeResponse,
   PlayerLeaderboardResponse,
+  PlayerTradeUrlRequest,
+  PlayerTradeUrlResponse,
   PrepareEntryRequest,
   PrepareEntryResponse,
   PushSubscribeRequest,
@@ -88,6 +90,28 @@ export async function fetchPlayerLeaderboard(): Promise<PlayerLeaderboardRespons
 
 export async function fetchPlayerLeaderboardMe(): Promise<PlayerLeaderboardMeResponse> {
   return get<PlayerLeaderboardMeResponse>("/leaderboard/me", true);
+}
+
+/** A refused trade URL: 400 malformed, 404 no prize to claim, 409 the prize is already sent. */
+export class TradeUrlRejectedError extends Error {
+  constructor(readonly status: number) {
+    super(`/leaderboard/prize/trade-url failed (${status})`);
+  }
+}
+
+export async function submitPrizeTradeUrl(tradeUrl: string): Promise<PlayerTradeUrlResponse> {
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  const token = getAuthToken();
+  if (token) headers["authorization"] = `Bearer ${token}`;
+  const res = await fetch("/cs2-api/leaderboard/prize/trade-url", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ tradeUrl } satisfies PlayerTradeUrlRequest),
+  });
+  await reportEventAccessFailure(res);
+  if (res.status === 400 || res.status === 404 || res.status === 409) throw new TradeUrlRejectedError(res.status);
+  if (!res.ok) throw new Error(`/leaderboard/prize/trade-url failed (${res.status})`);
+  return (await res.json()) as PlayerTradeUrlResponse;
 }
 
 export async function prepareCs2Entry(arenaId: string, walletAddress: string): Promise<PrepareEntryResponse> {
