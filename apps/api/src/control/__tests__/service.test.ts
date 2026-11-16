@@ -22,6 +22,12 @@ function fakeLeaderboard(overrides: Partial<OperatorControlDependencies["leaderb
     listAllPrizes: vi.fn().mockResolvedValue([]),
     setPrize: vi.fn().mockResolvedValue(true),
     removePrize: vi.fn().mockResolvedValue(true),
+    userExists: vi.fn().mockResolvedValue(true),
+    listMarks: vi.fn().mockResolvedValue([]),
+    listMarkDrafts: vi.fn().mockResolvedValue([]),
+    setMarkDraft: vi.fn().mockResolvedValue(true),
+    removeMarkDraft: vi.fn().mockResolvedValue(true),
+    applyMarkDrafts: vi.fn().mockResolvedValue(1),
     recomputeScope: vi.fn().mockResolvedValue(true),
     ...overrides,
   };
@@ -291,6 +297,128 @@ describe("operator control leaderboard", () => {
       .resolves.toEqual({ result: { status: "refused", reason: "Scope is closed" } });
   });
 
+  it("stages mark drafts with the actor and audits them against the scope and player", async () => {
+    const leaderboard = fakeLeaderboard({ findScope: vi.fn().mockResolvedValue(scope("open", { isCurrent: true })) });
+    const { service, deps } = setup({ leaderboard });
+
+    await expect(service.mutate({ type: "leaderboard.mark.draft.set", scopeId: "open", userId: "u1", action: "disqualify", reason: "Second account" }, actor, randomUUID()))
+      .resolves.toEqual({ result: { status: "succeeded" } });
+    expect(leaderboard.setMarkDraft).toHaveBeenCalledWith("open", "u1", "disqualify", "Second account", actor.login);
+    expect(deps.appendAudit).toHaveBeenLastCalledWith(expect.objectContaining({
+      action: "leaderboard.mark.draft.set", targetId: "open:u1", result: "succeeded", details: { before: null, after: "disqualify" },
+    }));
+
+    vi.mocked(leaderboard.listMarkDrafts).mockResolvedValue([
+      { userId: "u1", action: "disqualify", reason: "Second account", actorLogin: actor.login, updatedAt: new Date() },
+    ]);
+    await expect(service.mutate({ type: "leaderboard.mark.draft.set", scopeId: "open", userId: "u1", action: "approve" }, actor, randomUUID()))
+      .resolves.toEqual({ result: { status: "succeeded" } });
+    expect(leaderboard.setMarkDraft).toHaveBeenLastCalledWith("open", "u1", "approve", null, actor.login);
+    expect(deps.appendAudit).toHaveBeenLastCalledWith(expect.objectContaining({ details: { before: "disqualify", after: "approve" } }));
+
+    await expect(service.mutate({ type: "leaderboard.mark.draft.remove", scopeId: "open", userId: "u1" }, actor, randomUUID()))
+      .resolves.toEqual({ result: { status: "succeeded" } });
+    expect(leaderboard.removeMarkDraft).toHaveBeenCalledWith("open", "u1");
+    expect(deps.appendAudit).toHaveBeenLastCalledWith(expect.objectContaining({
+      action: "leaderboard.mark.draft.remove", details: { before: "disqualify", after: null },
+    }));
+    expect(deps.queueLeaderboardRecompute).not.toHaveBeenCalled();
+  });
+
+  it("lifts only an applied mark", async () => {
+    const leaderboard = fakeLeaderboard({ findScope: vi.fn().mockResolvedValue(scope("open", { isCurrent: true })) });
+    const { service } = setup({ leaderboard });
+    const clear = () => service.mutate({ type: "leaderboard.mark.draft.set", scopeId: "open", userId: "u1", action: "clear" }, actor, randomUUID());
+
+    await expect(clear()).resolves.toEqual({ result: { status: "refused", reason: "No mark to clear" } });
+    expect(leaderboard.setMarkDraft).not.toHaveBeenCalled();
+
+    vi.mocked(leaderboard.listMarks).mockResolvedValue([{ userId: "u1", status: "disqualified", reason: "Second account", appliedAt: new Date() }]);
+    await expect(clear()).resolves.toEqual({ result: { status: "succeeded" } });
+    expect(leaderboard.setMarkDraft).toHaveBeenCalledWith("open", "u1", "clear", null, actor.login);
+  });
+
+  it("refuses a mark draft with a wrong reason, an unknown player, or a missing, closed or not current scope", async () => {
+    const leaderboard = fakeLeaderboard({ findScope: vi.fn().mockResolvedValue(scope("open", { isCurrent: true })) });
+    const { service } = setup({ leaderboard });
+    const draft = (action: "approve" | "disqualify" | "clear", reason?: string) =>
+      service.mutate({ type: "leaderboard.mark.draft.set", scopeId: "open", userId: "u1", action, ...(reason !== undefined ? { reason } : {}) }, actor, randomUUID());
+
+    await expect(draft("disqualify")).resolves.toEqual({ result: { status: "refused", reason: "A disqualification needs a reason" } });
+    await expect(draft("approve", "Looks fine")).resolves.toEqual({ result: { status: "refused", reason: "Only a disqualification takes a reason" } });
+    await expect(draft("clear", "Lifted")).resolves.toEqual({ result: { status: "refused", reason: "Only a disqualification takes a reason" } });
+    vi.mocked(leaderboard.userExists).mockResolvedValue(false);
+    await expect(draft("approve")).resolves.toEqual({ result: { status: "refused", reason: "Player not found" } });
+    expect(leaderboard.setMarkDraft).not.toHaveBeenCalled();
+
+    const missing = setup();
+    await expect(missing.service.mutate({ type: "leaderboard.mark.draft.remove", scopeId: "nope", userId: "u1" }, actor, randomUUID()))
+      .resolves.toEqual({ result: { status: "refused", reason: "Scope not found" } });
+
+    const closed = fakeLeaderboard({ findScope: vi.fn().mockResolvedValue(scope("old", { status: "closed", closedAt: new Date() })) });
+    const closedSetup = setup({ leaderboard: closed });
+    for (const command of [
+      { type: "leaderboard.mark.draft.set", scopeId: "old", userId: "u1", action: "approve" },
+      { type: "leaderboard.mark.draft.remove", scopeId: "old", userId: "u1" },
+      { type: "leaderboard.marks.apply", scopeId: "old" },
+    ] as const) {
+      await expect(closedSetup.service.mutate(command, actor, randomUUID())).resolves.toEqual({ result: { status: "refused", reason: "Scope is closed" } });
+    }
+    expect(closed.applyMarkDrafts).not.toHaveBeenCalled();
+
+    const prepared = fakeLeaderboard({ findScope: vi.fn().mockResolvedValue(scope("next")) });
+    const preparedSetup = setup({ leaderboard: prepared });
+    for (const command of [
+      { type: "leaderboard.mark.draft.set", scopeId: "next", userId: "u1", action: "approve" },
+      { type: "leaderboard.mark.draft.remove", scopeId: "next", userId: "u1" },
+      { type: "leaderboard.marks.apply", scopeId: "next" },
+    ] as const) {
+      await expect(preparedSetup.service.mutate(command, actor, randomUUID())).resolves.toEqual({ result: { status: "refused", reason: "Scope is not current" } });
+    }
+    expect(prepared.setMarkDraft).not.toHaveBeenCalled();
+    expect(prepared.applyMarkDrafts).not.toHaveBeenCalled();
+    expect(preparedSetup.deps.queueLeaderboardRecompute).not.toHaveBeenCalled();
+  });
+
+  it("applies every staged mark at once, audits the count, and queues a recompute", async () => {
+    const leaderboard = fakeLeaderboard({
+      findScope: vi.fn().mockResolvedValue(scope("live", { isCurrent: true })),
+      listMarkDrafts: vi.fn().mockResolvedValue([
+        { userId: "u1", action: "disqualify", reason: "Second account", actorLogin: actor.login, updatedAt: new Date() },
+        { userId: "u2", action: "approve", reason: null, actorLogin: actor.login, updatedAt: new Date() },
+      ]),
+      applyMarkDrafts: vi.fn().mockResolvedValue(2),
+    });
+    const { service, deps } = setup({ leaderboard });
+
+    await expect(service.mutate({ type: "leaderboard.marks.apply", scopeId: "live" }, actor, randomUUID()))
+      .resolves.toEqual({ result: { status: "succeeded" } });
+    expect(leaderboard.applyMarkDrafts).toHaveBeenCalledWith("live");
+    expect(leaderboard.recomputeScope).not.toHaveBeenCalled();
+    expect(vi.mocked(deps.queueLeaderboardRecompute).mock.invocationCallOrder.at(-1))
+      .toBeGreaterThan(vi.mocked(leaderboard.applyMarkDrafts).mock.invocationCallOrder[0]!);
+    expect(deps.appendAudit).toHaveBeenCalledOnce();
+    expect(deps.appendAudit).toHaveBeenLastCalledWith(expect.objectContaining({
+      action: "leaderboard.marks.apply", targetId: "live", result: "succeeded", details: { after: 2 },
+    }));
+  });
+
+  it("refuses to apply with no drafts or before the recompute queue runs, leaving the drafts staged", async () => {
+    const leaderboard = fakeLeaderboard({ findScope: vi.fn().mockResolvedValue(scope("live", { isCurrent: true })) });
+    const { service, deps } = setup({ leaderboard });
+
+    await expect(service.mutate({ type: "leaderboard.marks.apply", scopeId: "live" }, actor, randomUUID()))
+      .resolves.toEqual({ result: { status: "refused", reason: "No changes to apply" } });
+
+    vi.mocked(leaderboard.listMarkDrafts).mockResolvedValue([
+      { userId: "u1", action: "approve", reason: null, actorLogin: actor.login, updatedAt: new Date() },
+    ]);
+    vi.mocked(deps.queueLeaderboardRecompute).mockReturnValue(false);
+    await expect(service.mutate({ type: "leaderboard.marks.apply", scopeId: "live" }, actor, randomUUID()))
+      .resolves.toEqual({ result: { status: "refused", reason: "Recompute queue is not running" } });
+    expect(leaderboard.applyMarkDrafts).not.toHaveBeenCalled();
+  });
+
   it("queues a recompute of the current scope, and refuses without one or before the queue runs", async () => {
     const leaderboard = fakeLeaderboard({ findCurrent: vi.fn().mockResolvedValue(scope("live", { isCurrent: true })) });
     const { service, deps } = setup({ leaderboard });
@@ -317,6 +445,8 @@ describe("operator control leaderboard", () => {
     const leaderboard = fakeLeaderboard({
       listScopes: vi.fn().mockResolvedValue([scope("past", { status: "closed", closedAt: computedAt }), scope("live", { isCurrent: true })]),
       listAllPrizes: vi.fn().mockResolvedValue([{ scopeId: "live", ...prize }]),
+      listMarks: vi.fn().mockResolvedValue([{ userId: "u1", status: "disqualified", reason: "Second account", appliedAt: computedAt }]),
+      listMarkDrafts: vi.fn().mockResolvedValue([{ userId: "u2", action: "approve", reason: null, actorLogin: "operator", updatedAt: computedAt }]),
       listAdminCompetitions: vi.fn().mockResolvedValue([
         { id: "c1", name: "Cup", shortName: null, logoUrl: null, scopeIds: ["live"], arenasWithResults: 3, unfinished: true },
       ]),
@@ -338,6 +468,8 @@ describe("operator control leaderboard", () => {
         scopeId: "live",
         computedAt: computedAt.toISOString(),
         entries: [{ userId: "u1", username: "ace", rank: 1, points: 12, wins: 1, secondPlaces: 1, roundsPlayed: 30, arenasPlayed: 2, totalPayoutLamports: 900 }],
+        marks: [{ userId: "u1", status: "disqualified", reason: "Second account", appliedAt: computedAt.toISOString() }],
+        drafts: [{ userId: "u2", action: "approve", actorLogin: "operator", updatedAt: computedAt.toISOString() }],
       },
     });
     expect(leaderboard.topEntries).toHaveBeenCalledWith("live", 100);

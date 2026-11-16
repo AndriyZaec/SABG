@@ -26,6 +26,9 @@ const ACTION_LABELS: Record<OperatorAuditEntry["action"], string> = {
   "leaderboard.recompute": "Leaderboard recompute",
   "leaderboard.prize.set": "Leaderboard prize set",
   "leaderboard.prize.remove": "Leaderboard prize remove",
+  "leaderboard.mark.draft.set": "Leaderboard mark draft",
+  "leaderboard.mark.draft.remove": "Leaderboard mark draft remove",
+  "leaderboard.marks.apply": "Leaderboard marks apply",
 };
 
 function startOfDay(value: string): string | undefined {

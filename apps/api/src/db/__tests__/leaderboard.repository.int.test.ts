@@ -31,7 +31,7 @@ describe.skipIf(!RUN)("leaderboardRepository (integration, requires DATABASE_URL
 
   afterAll(async () => {
     if (db === undefined) return;
-    // Entries and scope competitions cascade with their scope.
+    // Entries, scope competitions, prizes and marks cascade with their scope.
     if (scopeIds.length > 0) await db.delete(schema.leaderboardScopes).where(inArray(schema.leaderboardScopes.id, scopeIds));
     if (arenaIds.length > 0) {
       await db.delete(schema.arenaResults).where(inArray(schema.arenaResults.arenaId, arenaIds));
@@ -153,6 +153,95 @@ describe.skipIf(!RUN)("leaderboardRepository (integration, requires DATABASE_URL
     expect(await repository.setPrize(scope.id, 4, ak)).toBe(false);
     expect(await repository.removePrize(scope.id, 2)).toBe(false);
     expect(await repository.listPrizes(scope.id)).toEqual([{ place: 1, imageUrl: awp }, { place: 2, imageUrl: ak }]);
+  });
+
+  it("stages mark drafts and applies them all at once, a clear removing the mark", async () => {
+    const scope = await createScope("Marks");
+    const [cheat, valid, lifted] = await Promise.all([seedUser("marks-cheat"), seedUser("marks-valid"), seedUser("marks-lifted")]);
+
+    expect(await repository.setMarkDraft(scope.id, cheat, "approve", null, "first-admin")).toBe(true);
+    expect(await repository.setMarkDraft(scope.id, cheat, "disqualify", "Second account", "second-admin")).toBe(true);
+    expect(await repository.setMarkDraft(scope.id, valid, "approve", null, "second-admin")).toBe(true);
+    expect(await repository.setMarkDraft(scope.id, lifted, "disqualify", "Shared wallet", "second-admin")).toBe(true);
+    expect(await repository.removeMarkDraft(scope.id, lifted)).toBe(true);
+    expect((await repository.listMarkDrafts(scope.id)).map(({ userId, action, reason, actorLogin }) => ({ userId, action, reason, actorLogin })))
+      .toEqual(expect.arrayContaining([
+        { userId: cheat, action: "disqualify", reason: "Second account", actorLogin: "second-admin" },
+        { userId: valid, action: "approve", reason: null, actorLogin: "second-admin" },
+      ]));
+    expect(await repository.listMarks(scope.id)).toEqual([]);
+
+    expect(await repository.setMarkDraft(scope.id, lifted, "disqualify", "Shared wallet", "second-admin")).toBe(true);
+    expect(await repository.applyMarkDrafts(scope.id)).toBe(3);
+    expect(await repository.listMarkDrafts(scope.id)).toEqual([]);
+    const marks = async () => (await repository.listMarks(scope.id)).map(({ userId, status, reason }) => ({ userId, status, reason }));
+    expect(await marks()).toEqual(expect.arrayContaining([
+      { userId: cheat, status: "disqualified", reason: "Second account" },
+      { userId: valid, status: "approved", reason: null },
+      { userId: lifted, status: "disqualified", reason: "Shared wallet" },
+    ]));
+    expect(await marks()).toHaveLength(3);
+
+    expect(await repository.setMarkDraft(scope.id, lifted, "clear", null, "first-admin")).toBe(true);
+    expect(await repository.setMarkDraft(scope.id, cheat, "approve", null, "first-admin")).toBe(true);
+    expect(await repository.applyMarkDrafts(scope.id)).toBe(2);
+    expect(await marks()).toEqual(expect.arrayContaining([
+      { userId: cheat, status: "approved", reason: null },
+      { userId: valid, status: "approved", reason: null },
+    ]));
+    expect(await marks()).toHaveLength(2);
+    expect(await repository.applyMarkDrafts(scope.id)).toBe(0);
+  });
+
+  it("never stages or applies marks on a closed scope", async () => {
+    const scope = await createScope("Closed marks");
+    const player = await seedUser("closed-marks");
+    expect(await repository.setMarkDraft(scope.id, player, "approve", null, "admin")).toBe(true);
+
+    await db.update(schema.leaderboardScopes).set({ status: "closed", closedAt: new Date() }).where(eq(schema.leaderboardScopes.id, scope.id));
+
+    expect(await repository.applyMarkDrafts(scope.id)).toBe(false);
+    expect(await repository.setMarkDraft(scope.id, player, "disqualify", "Late", "admin")).toBe(false);
+    expect(await repository.removeMarkDraft(scope.id, player)).toBe(false);
+    expect(await repository.listMarks(scope.id)).toEqual([]);
+    expect((await repository.listMarkDrafts(scope.id)).map((draft) => draft.action)).toEqual(["approve"]);
+  });
+
+  it("applies marks only after a running recompute releases the scope lock", async () => {
+    const scope = await createScope("Apply lock");
+    const player = await seedUser("apply-lock");
+    const entry = { userId: player, rank: 1, points: 5, arenasPlayed: 1, wins: 1, secondPlaces: 0, roundsPlayed: 10, totalScore: 5, totalPayoutLamports: 0 };
+    await repository.setMarkDraft(scope.id, player, "disqualify", "Second account", "admin");
+
+    let markComputing!: () => void;
+    let finishCompute!: () => void;
+    const computing = new Promise<void>((resolve) => { markComputing = resolve; });
+    const computeDone = new Promise<void>((resolve) => { finishCompute = resolve; });
+    let marksSeenByRecompute: unknown[] | undefined;
+    const recompute = repository.replaceEntries(scope.id, async () => {
+      markComputing();
+      await computeDone;
+      marksSeenByRecompute = await repository.listMarks(scope.id);
+      return [entry];
+    }, new Date());
+    await computing;
+
+    let applied = false;
+    const apply = repository.applyMarkDrafts(scope.id).then((count) => {
+      applied = true;
+      return count;
+    });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(applied).toBe(false);
+    } finally {
+      // Always let go, so a regression fails here instead of hanging on the held lock.
+      finishCompute();
+      await recompute;
+    }
+    await expect(apply).resolves.toBe(1);
+    expect(marksSeenByRecompute).toEqual([]);
+    expect((await repository.listMarks(scope.id)).map((mark) => mark.status)).toEqual(["disqualified"]);
   });
 
   it("replaces a scope's entries in full and reads them by rank", async () => {

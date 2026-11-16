@@ -5,6 +5,8 @@ import {
   ARENA_STATUSES,
   CS2_SERIES_LIFECYCLES,
   DISCIPLINES,
+  LEADERBOARD_MARK_ACTIONS,
+  LEADERBOARD_MARK_STATUSES,
   LEADERBOARD_SCOPE_STATUSES,
   ENTRY_PASS_STATUSES,
   MATCH_PERIODS,
@@ -53,6 +55,8 @@ export const disciplineEnum = pgEnum("discipline", DISCIPLINES);
 export const seriesStatusEnum = pgEnum("series_status", SERIES_STATUSES);
 export const cs2SeriesLifecycleEnum = pgEnum("cs2_series_lifecycle", CS2_SERIES_LIFECYCLES);
 export const leaderboardScopeStatusEnum = pgEnum("leaderboard_scope_status", LEADERBOARD_SCOPE_STATUSES);
+export const leaderboardMarkStatusEnum = pgEnum("leaderboard_mark_status", LEADERBOARD_MARK_STATUSES);
+export const leaderboardMarkActionEnum = pgEnum("leaderboard_mark_action", LEADERBOARD_MARK_ACTIONS);
 
 const timestamps = {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -357,6 +361,40 @@ export const leaderboardPrizes = pgTable("leaderboard_prize", {
   primaryKey({ columns: [t.scopeId, t.place], name: "leaderboard_prize_pk" }),
   check("leaderboard_prize_place_positive", sql`${t.place} >= 1`),
   check("leaderboard_prize_image_url_https", sql`${t.imageUrl} like 'https://%'`),
+]);
+
+/** An admin's applied verdict on a player in a scope; only `disqualified` carries a reason. */
+export const leaderboardMarks = pgTable("leaderboard_mark", {
+  scopeId: uuid("scope_id")
+    .notNull()
+    .references(() => leaderboardScopes.id, { onDelete: "cascade" }),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id),
+  status: leaderboardMarkStatusEnum("status").notNull(),
+  reason: text("reason"),
+  appliedAt: timestamp("applied_at", { withTimezone: true }).notNull(),
+  ...timestamps,
+}, (t) => [
+  primaryKey({ columns: [t.scopeId, t.userId], name: "leaderboard_mark_pk" }),
+  check("leaderboard_mark_reason_check", sql`(${t.status} = 'disqualified') = (${t.reason} is not null) and char_length(${t.reason}) <= 280`),
+]);
+
+/** A staged mark change, seen only in the admin app until the scope's drafts are applied together. */
+export const leaderboardMarkDrafts = pgTable("leaderboard_mark_draft", {
+  scopeId: uuid("scope_id")
+    .notNull()
+    .references(() => leaderboardScopes.id, { onDelete: "cascade" }),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id),
+  action: leaderboardMarkActionEnum("action").notNull(),
+  reason: text("reason"),
+  actorLogin: text("actor_login").notNull(),
+  ...timestamps,
+}, (t) => [
+  primaryKey({ columns: [t.scopeId, t.userId], name: "leaderboard_mark_draft_pk" }),
+  check("leaderboard_mark_draft_reason_check", sql`(${t.action} = 'disqualify') = (${t.reason} is not null) and char_length(${t.reason}) <= 280`),
 ]);
 
 /** A scope's ranked rows, rebuilt in full by each recompute. */

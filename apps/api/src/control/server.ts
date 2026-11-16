@@ -3,6 +3,7 @@ import { createServer, type Server as HttpServer } from "node:http";
 import type { NextFunction, Request, Response } from "express";
 import express from "express";
 import { z } from "zod";
+import { LEADERBOARD_MARK_ACTIONS } from "@arena/contracts";
 import { logger } from "../gateway/logger.js";
 import type { OperatorControlService, OperatorIdentity } from "./service.js";
 
@@ -11,6 +12,7 @@ const ScopeNameSchema = z.string().trim().min(1).max(80);
 // Blank means no search.
 const LeaderboardQuerySchema = z.string().trim().max(80).optional();
 const PrizePlaceSchema = z.number().int().min(1).max(100);
+const MarkReasonSchema = z.string().trim().min(1).max(280);
 const PrizeImageUrlSchema = z
   .string()
   .trim()
@@ -33,6 +35,15 @@ const MutationSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("leaderboard.recompute") }),
   z.object({ type: z.literal("leaderboard.prize.set"), scopeId: z.string().uuid(), place: PrizePlaceSchema, imageUrl: PrizeImageUrlSchema }),
   z.object({ type: z.literal("leaderboard.prize.remove"), scopeId: z.string().uuid(), place: PrizePlaceSchema }),
+  z.object({
+    type: z.literal("leaderboard.mark.draft.set"),
+    scopeId: z.string().uuid(),
+    userId: z.string().uuid(),
+    action: z.enum(LEADERBOARD_MARK_ACTIONS),
+    reason: MarkReasonSchema.optional(),
+  }),
+  z.object({ type: z.literal("leaderboard.mark.draft.remove"), scopeId: z.string().uuid(), userId: z.string().uuid() }),
+  z.object({ type: z.literal("leaderboard.marks.apply"), scopeId: z.string().uuid() }),
 ]);
 const ActorIdSchema = z.string().trim().min(1).max(100);
 const ActorLoginSchema = z.string().trim().min(1).max(100);

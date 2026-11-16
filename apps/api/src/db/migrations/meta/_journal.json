@@ -183,6 +183,13 @@
       "when": 1794828955309,
       "tag": "0025_leaderboard_prize",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1794831240896,
+      "tag": "0026_leaderboard_mark",
+      "breakpoints": true
     }
   ]
 }

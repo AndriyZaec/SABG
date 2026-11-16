@@ -1,4 +1,4 @@
-import type { LeaderboardScopeStatus, SeriesStatus } from "./enums.js";
+import type { LeaderboardMarkAction, LeaderboardMarkStatus, LeaderboardScopeStatus, SeriesStatus } from "./enums.js";
 import type { IsoDateTime, Uuid } from "./entities.js";
 import type { Cs2SeriesSummary } from "./dto.js";
 
@@ -44,6 +44,11 @@ export type AdminMutationCommand =
   /** Adds or replaces the prize for a place of an open scope. */
   | { type: "leaderboard.prize.set"; scopeId: Uuid; place: number; imageUrl: string }
   | { type: "leaderboard.prize.remove"; scopeId: Uuid; place: number }
+  /** Stages a mark change for a player of the current scope; it reaches the board only on `leaderboard.marks.apply`. */
+  | { type: "leaderboard.mark.draft.set"; scopeId: Uuid; userId: Uuid; action: LeaderboardMarkAction; reason?: string }
+  | { type: "leaderboard.mark.draft.remove"; scopeId: Uuid; userId: Uuid }
+  /** Applies every staged mark of the scope at once and queues a recompute. */
+  | { type: "leaderboard.marks.apply"; scopeId: Uuid }
   /** Queues a worker recompute of the current scope; the result shows up once the worker runs. */
   | { type: "leaderboard.recompute" };
 
@@ -122,9 +127,32 @@ export interface AdminLeaderboardEntry {
   totalPayoutLamports: number;
 }
 
+export interface AdminLeaderboardMark {
+  userId: Uuid;
+  status: LeaderboardMarkStatus;
+  /** Set only for `disqualified`. */
+  reason?: string;
+  appliedAt: IsoDateTime;
+}
+
+export interface AdminLeaderboardMarkDraft {
+  userId: Uuid;
+  action: LeaderboardMarkAction;
+  /** Set only for `disqualify`. */
+  reason?: string;
+  actorLogin: string;
+  updatedAt: IsoDateTime;
+}
+
 export interface AdminLeaderboardResponse {
   scopes: AdminLeaderboardScope[];
   competitions: AdminLeaderboardCompetition[];
-  /** The current scope's top entries; absent when no scope is current. */
-  current?: { scopeId: Uuid; computedAt?: IsoDateTime; entries: AdminLeaderboardEntry[] };
+  /** The current scope's top entries with its applied and staged marks; absent when no scope is current. */
+  current?: {
+    scopeId: Uuid;
+    computedAt?: IsoDateTime;
+    entries: AdminLeaderboardEntry[];
+    marks: AdminLeaderboardMark[];
+    drafts: AdminLeaderboardMarkDraft[];
+  };
 }

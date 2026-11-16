@@ -1,7 +1,18 @@
-import { and, asc, desc, eq, ilike, sql } from "drizzle-orm";
-import type { LeaderboardScopeStatus, Uuid } from "@arena/contracts";
+import { and, asc, desc, eq, ilike, inArray, sql } from "drizzle-orm";
+import type { LeaderboardMarkAction, LeaderboardMarkStatus, LeaderboardScopeStatus, Uuid } from "@arena/contracts";
 import { db, type DatabaseTransaction } from "../client.js";
-import { arenaResults, cs2Competitions, leaderboardEntries, leaderboardPrizes, leaderboardScopeCompetitions, leaderboardScopes, series, users } from "../schema.js";
+import {
+  arenaResults,
+  cs2Competitions,
+  leaderboardEntries,
+  leaderboardMarkDrafts,
+  leaderboardMarks,
+  leaderboardPrizes,
+  leaderboardScopeCompetitions,
+  leaderboardScopes,
+  series,
+  users,
+} from "../schema.js";
 
 export interface LeaderboardScope {
   id: Uuid;
@@ -37,6 +48,21 @@ export interface LeaderboardPrize {
 
 export interface ScopePrize extends LeaderboardPrize {
   scopeId: Uuid;
+}
+
+export interface LeaderboardMark {
+  userId: Uuid;
+  status: LeaderboardMarkStatus;
+  reason: string | null;
+  appliedAt: Date;
+}
+
+export interface LeaderboardMarkDraft {
+  userId: Uuid;
+  action: LeaderboardMarkAction;
+  reason: string | null;
+  actorLogin: string;
+  updatedAt: Date;
 }
 
 export type SetCurrentScopeResult = "switched" | "closed" | "current_changed";
@@ -275,6 +301,89 @@ export const leaderboardRepository = {
       if (!(await lockOpenScope(tx, scopeId))) return false;
       await tx.delete(leaderboardPrizes).where(and(eq(leaderboardPrizes.scopeId, scopeId), eq(leaderboardPrizes.place, place)));
       return true;
+    });
+  },
+
+  async userExists(userId: Uuid): Promise<boolean> {
+    const [row] = await db.select({ id: users.id }).from(users).where(eq(users.id, userId));
+    return row !== undefined;
+  },
+
+  async listMarks(scopeId: Uuid): Promise<LeaderboardMark[]> {
+    return db
+      .select({ userId: leaderboardMarks.userId, status: leaderboardMarks.status, reason: leaderboardMarks.reason, appliedAt: leaderboardMarks.appliedAt })
+      .from(leaderboardMarks)
+      .where(eq(leaderboardMarks.scopeId, scopeId))
+      .orderBy(asc(leaderboardMarks.userId));
+  },
+
+  async listMarkDrafts(scopeId: Uuid): Promise<LeaderboardMarkDraft[]> {
+    return db
+      .select({
+        userId: leaderboardMarkDrafts.userId,
+        action: leaderboardMarkDrafts.action,
+        reason: leaderboardMarkDrafts.reason,
+        actorLogin: leaderboardMarkDrafts.actorLogin,
+        updatedAt: leaderboardMarkDrafts.updatedAt,
+      })
+      .from(leaderboardMarkDrafts)
+      .where(eq(leaderboardMarkDrafts.scopeId, scopeId))
+      .orderBy(asc(leaderboardMarkDrafts.userId));
+  },
+
+  /** Stages or replaces a player's mark change. False when the scope isn't open. */
+  async setMarkDraft(scopeId: Uuid, userId: Uuid, action: LeaderboardMarkAction, reason: string | null, actorLogin: string): Promise<boolean> {
+    return db.transaction(async (tx) => {
+      if (!(await lockOpenScope(tx, scopeId))) return false;
+      await tx
+        .insert(leaderboardMarkDrafts)
+        .values({ scopeId, userId, action, reason, actorLogin })
+        .onConflictDoUpdate({
+          target: [leaderboardMarkDrafts.scopeId, leaderboardMarkDrafts.userId],
+          set: { action, reason, actorLogin, updatedAt: sql`now()` },
+        });
+      return true;
+    });
+  },
+
+  async removeMarkDraft(scopeId: Uuid, userId: Uuid): Promise<boolean> {
+    return db.transaction(async (tx) => {
+      if (!(await lockOpenScope(tx, scopeId))) return false;
+      await tx.delete(leaderboardMarkDrafts).where(and(eq(leaderboardMarkDrafts.scopeId, scopeId), eq(leaderboardMarkDrafts.userId, userId)));
+      return true;
+    });
+  },
+
+  /**
+   * Turns every staged change of the scope into applied marks (`clear` removes the mark) and drops the
+   * drafts, under the scope row lock `replaceEntries` holds: a recompute reads all of them or none.
+   * Returns how many changes were applied; false, changing nothing, when the scope isn't open.
+   */
+  async applyMarkDrafts(scopeId: Uuid): Promise<number | false> {
+    return db.transaction(async (tx) => {
+      if (!(await lockOpenScope(tx, scopeId))) return false;
+      const drafts = await tx
+        .delete(leaderboardMarkDrafts)
+        .where(eq(leaderboardMarkDrafts.scopeId, scopeId))
+        .returning({ userId: leaderboardMarkDrafts.userId, action: leaderboardMarkDrafts.action, reason: leaderboardMarkDrafts.reason });
+      const cleared = drafts.filter((draft) => draft.action === "clear").map((draft) => draft.userId);
+      if (cleared.length > 0) {
+        await tx.delete(leaderboardMarks).where(and(eq(leaderboardMarks.scopeId, scopeId), inArray(leaderboardMarks.userId, cleared)));
+      }
+      const marks = drafts.flatMap((draft) => draft.action === "clear"
+        ? []
+        : [{ scopeId, userId: draft.userId, status: draft.action === "approve" ? "approved" as const : "disqualified" as const, reason: draft.reason }]);
+      if (marks.length > 0) {
+        const appliedAt = new Date();
+        await tx
+          .insert(leaderboardMarks)
+          .values(marks.map((mark) => ({ ...mark, appliedAt })))
+          .onConflictDoUpdate({
+            target: [leaderboardMarks.scopeId, leaderboardMarks.userId],
+            set: { status: sql`excluded.status`, reason: sql`excluded.reason`, appliedAt, updatedAt: sql`now()` },
+          });
+      }
+      return drafts.length;
     });
   },
 

@@ -57,6 +57,12 @@ export type LeaderboardControl = Pick<
   | "listAllPrizes"
   | "setPrize"
   | "removePrize"
+  | "userExists"
+  | "listMarks"
+  | "listMarkDrafts"
+  | "setMarkDraft"
+  | "removeMarkDraft"
+  | "applyMarkDrafts"
 > & { recomputeScope: typeof recomputeScope };
 
 export interface OperatorControlDependencies {
@@ -112,7 +118,11 @@ const targetIdFor = (command: AdminMutationCommand): string | undefined => {
     case "leaderboard.competition.remove":
     case "leaderboard.prize.set":
     case "leaderboard.prize.remove":
+    case "leaderboard.marks.apply":
       return command.scopeId;
+    case "leaderboard.mark.draft.set":
+    case "leaderboard.mark.draft.remove":
+      return `${command.scopeId}:${command.userId}`;
   }
 };
 
@@ -203,7 +213,13 @@ export class OperatorControlService {
       leaderboard.listAllPrizes(),
     ]);
     const current = scopes.find((scope) => scope.isCurrent);
-    const entries = current === undefined ? [] : await leaderboard.topEntries(current.id, ADMIN_LEADERBOARD_TOP);
+    const [entries, marks, drafts] = current === undefined
+      ? [[], [], []]
+      : await Promise.all([
+        leaderboard.topEntries(current.id, ADMIN_LEADERBOARD_TOP),
+        leaderboard.listMarks(current.id),
+        leaderboard.listMarkDrafts(current.id),
+      ]);
     const computedAt = entries[0]?.computedAt;
     return {
       scopes: scopes.map((scope) => {
@@ -239,6 +255,19 @@ export class OperatorControlService {
                 roundsPlayed: entry.roundsPlayed,
                 arenasPlayed: entry.arenasPlayed,
                 totalPayoutLamports: entry.totalPayoutLamports,
+              })),
+              marks: marks.map((mark) => ({
+                userId: mark.userId,
+                status: mark.status,
+                ...(mark.reason !== null ? { reason: mark.reason } : {}),
+                appliedAt: mark.appliedAt.toISOString(),
+              })),
+              drafts: drafts.map((draft) => ({
+                userId: draft.userId,
+                action: draft.action,
+                ...(draft.reason !== null ? { reason: draft.reason } : {}),
+                actorLogin: draft.actorLogin,
+                updatedAt: draft.updatedAt.toISOString(),
               })),
             },
           }
@@ -292,7 +321,7 @@ export class OperatorControlService {
     try {
       let execution: { result: AdminMutationResult; details?: OperatorAuditDetails };
       try {
-        execution = await this.execute(command);
+        execution = await this.execute(command, actor);
       } catch (error) {
         await this.audit(command, actor, requestId, "failed", { reason: "Command failed" });
         throw error;
@@ -304,7 +333,19 @@ export class OperatorControlService {
     }
   }
 
-  private async execute(command: AdminMutationCommand): Promise<{
+  /**
+   * Marks act only on the current scope: it alone has a recomputed board to verify, and the recompute
+   * they queue covers only it. Switching away closes it, so a later write is refused as closed.
+   */
+  private async markScopeRefusal(scopeId: Uuid): Promise<string | undefined> {
+    const scope = await this.deps.leaderboard.findScope(scopeId);
+    if (scope === undefined) return "Scope not found";
+    if (scope.status !== "open") return "Scope is closed";
+    if (!scope.isCurrent) return "Scope is not current";
+    return undefined;
+  }
+
+  private async execute(command: AdminMutationCommand, actor: OperatorIdentity): Promise<{
     result: AdminMutationResult;
     details?: OperatorAuditDetails;
   }> {
@@ -425,6 +466,40 @@ export class OperatorControlService {
           : await this.deps.leaderboard.removePrize(command.scopeId, command.place);
         if (!changed) return this.refused("Scope is closed");
         return { result: { status: "succeeded" }, details: { before, after: setting ? command.imageUrl : null } };
+      }
+      case "leaderboard.mark.draft.set":
+      case "leaderboard.mark.draft.remove": {
+        const refusal = await this.markScopeRefusal(command.scopeId);
+        if (refusal !== undefined) return this.refused(refusal);
+        if (!await this.deps.leaderboard.userExists(command.userId)) return this.refused("Player not found");
+        const before = (await this.deps.leaderboard.listMarkDrafts(command.scopeId)).find((draft) => draft.userId === command.userId)?.action ?? null;
+        if (command.type === "leaderboard.mark.draft.remove") {
+          if (!await this.deps.leaderboard.removeMarkDraft(command.scopeId, command.userId)) return this.refused("Scope is closed");
+          return { result: { status: "succeeded" }, details: { before, after: null } };
+        }
+        const reason = command.reason ?? null;
+        if (command.action === "disqualify" && reason === null) return this.refused("A disqualification needs a reason");
+        if (command.action !== "disqualify" && reason !== null) return this.refused("Only a disqualification takes a reason");
+        if (command.action === "clear" && !(await this.deps.leaderboard.listMarks(command.scopeId)).some((mark) => mark.userId === command.userId)) {
+          return this.refused("No mark to clear");
+        }
+        if (!await this.deps.leaderboard.setMarkDraft(command.scopeId, command.userId, command.action, reason, actor.login)) {
+          return this.refused("Scope is closed");
+        }
+        return { result: { status: "succeeded" }, details: { before, after: command.action } };
+      }
+      case "leaderboard.marks.apply": {
+        const refusal = await this.markScopeRefusal(command.scopeId);
+        if (refusal !== undefined) return this.refused(refusal);
+        if ((await this.deps.leaderboard.listMarkDrafts(command.scopeId)).length === 0) return this.refused("No changes to apply");
+        // Doubles as the running check: a run it queues before the apply commits is harmless, and the one
+        // queued after the apply reads the applied marks.
+        if (!this.deps.queueLeaderboardRecompute()) return this.refused("Recompute queue is not running");
+        const applied = await this.deps.leaderboard.applyMarkDrafts(command.scopeId);
+        if (applied === false) return this.refused("Scope is closed");
+        if (applied === 0) return this.refused("No changes to apply");
+        this.deps.queueLeaderboardRecompute();
+        return { result: { status: "succeeded" }, details: { after: applied } };
       }
     }
   }
