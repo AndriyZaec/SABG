@@ -27,6 +27,7 @@ const ACTION_LABELS: Record<OperatorAuditEntry["action"], string> = {
   "leaderboard.recompute": "Leaderboard recompute",
   "leaderboard.prize.set": "Leaderboard prize set",
   "leaderboard.prize.remove": "Leaderboard prize remove",
+  "leaderboard.prize.sent": "Leaderboard prize sent",
   "leaderboard.mark.draft.set": "Leaderboard mark draft",
   "leaderboard.mark.draft.remove": "Leaderboard mark draft remove",
   "leaderboard.marks.apply": "Leaderboard marks apply",

@@ -255,12 +255,8 @@ describe.skipIf(!RUN)("leaderboardRepository (integration, requires DATABASE_URL
       return scope;
     }
 
-    // Claims get a repository read with the winners' admin view; until then the test reads the table.
     async function claims(scopeId: string) {
-      return db.select({ place: schema.leaderboardPrizeClaims.place, userId: schema.leaderboardPrizeClaims.userId })
-        .from(schema.leaderboardPrizeClaims)
-        .where(eq(schema.leaderboardPrizeClaims.scopeId, scopeId))
-        .orderBy(schema.leaderboardPrizeClaims.place);
+      return (await repository.listPrizeClaims([scopeId])).map(({ place, userId }) => ({ place, userId }));
     }
 
     const noEntries = async () => [];
@@ -325,6 +321,21 @@ describe.skipIf(!RUN)("leaderboardRepository (integration, requires DATABASE_URL
       expect(await repository.setPrize(scope.id, 1, "https://cdn.example.com/skins/other.png")).toBe(false);
       expect(await repository.setMarkDraft(scope.id, fourth, "disqualify", "Late", "admin")).toBe(false);
       expect(await repository.finalizeCurrent(scope.id, noEntries)).toEqual({ kind: "current_changed" });
+
+      const [winner] = await repository.listPrizeClaims([scope.id]);
+      expect(winner).toMatchObject({ scopeId: scope.id, username: expect.any(String), imageUrl: "https://cdn.example.com/skins/1.png", tradeUrl: null, sentAt: null });
+      expect(await repository.markPrizeSent(scope.id, 1)).toEqual({ kind: "no_trade_url" });
+      // The winner's trade URL form arrives with the public API; until then the test writes the column.
+      await db.update(schema.leaderboardPrizeClaims)
+        .set({ tradeUrl: "https://steamcommunity.com/tradeoffer/new/?partner=1&token=abc", tradeUrlUpdatedAt: new Date() })
+        .where(eq(schema.leaderboardPrizeClaims.scopeId, scope.id));
+      const marked = await repository.markPrizeSent(scope.id, 1);
+      expect(marked).toEqual({ kind: "sent", sentAt: expect.any(Date), previous: null });
+      const sentAt = marked.kind === "sent" ? marked.sentAt : undefined;
+      expect(await repository.markPrizeSent(scope.id, 1)).toEqual({ kind: "sent", sentAt, previous: sentAt });
+      expect(await repository.markPrizeSent(scope.id, 9)).toEqual({ kind: "not_found" });
+      expect((await repository.listPrizeClaims([scope.id]))[0]?.sentAt).toEqual(sentAt);
+      expect(await repository.listPrizeClaims([])).toEqual([]);
     });
 
     it("ranks and gives places under the lock, so a mark change made meanwhile waits and is then refused", async () => {

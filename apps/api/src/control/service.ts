@@ -2,6 +2,7 @@ import type {
   AdminCatalogResponse,
   AdminControlStatus,
   AdminLeaderboardResponse,
+  AdminLeaderboardWinner,
   AdminMutationCommand,
   AdminMutationResult,
   Cs2OperatorDiscoveryPayload,
@@ -16,7 +17,7 @@ import { GridCentralDataClient } from "../cs2/central-data-client.js";
 import { tryAcquireOperatorMutationLock, type ReleaseDatabaseLock } from "../db/client.js";
 import { cs2CatalogRepository } from "../db/repositories/cs2-catalog.repository.js";
 import { operatorAuditRepository, type AppendOperatorAudit } from "../db/repositories/operator-audit.repository.js";
-import { leaderboardRepository } from "../db/repositories/leaderboard.repository.js";
+import { leaderboardRepository, type PrizeClaimView } from "../db/repositories/leaderboard.repository.js";
 import { operatorControlRepository } from "../db/repositories/operator-control.repository.js";
 import { finalizeScope, recomputeScope } from "../leaderboard/recompute.js";
 import { assignPrizePlaces } from "../leaderboard/player-ranking.js";
@@ -66,6 +67,8 @@ export type LeaderboardControl = Pick<
   | "setMarkDraft"
   | "removeMarkDraft"
   | "applyMarkDrafts"
+  | "listPrizeClaims"
+  | "markPrizeSent"
 > & { recomputeScope: typeof recomputeScope; finalizeScope: typeof finalizeScope };
 
 export interface OperatorControlDependencies {
@@ -92,6 +95,20 @@ export interface OperatorControlDependencies {
   leaderboard: LeaderboardControl;
   /** False while the recompute queue isn't running yet. */
   queueLeaderboardRecompute(): boolean;
+}
+
+function toAdminWinner(claim: PrizeClaimView): AdminLeaderboardWinner {
+  return {
+    place: claim.place,
+    userId: claim.userId,
+    username: claim.username,
+    walletAddress: claim.walletAddress,
+    imageUrl: claim.imageUrl,
+    ...(claim.tradeUrl !== null ? { tradeUrl: claim.tradeUrl } : {}),
+    ...(claim.tradeUrlUpdatedAt !== null ? { tradeUrlUpdatedAt: claim.tradeUrlUpdatedAt.toISOString() } : {}),
+    ...(claim.sentAt !== null ? { sentAt: claim.sentAt.toISOString() } : {}),
+    ...(claim.tradeUrlErasedAt !== null ? { tradeUrlErasedAt: claim.tradeUrlErasedAt.toISOString() } : {}),
+  };
 }
 
 export interface OperatorAuditQuery {
@@ -127,6 +144,8 @@ const targetIdFor = (command: AdminMutationCommand): string | undefined => {
     case "leaderboard.mark.draft.set":
     case "leaderboard.mark.draft.remove":
       return `${command.scopeId}:${command.userId}`;
+    case "leaderboard.prize.sent":
+      return `${command.scopeId}:${command.place}`;
   }
 };
 
@@ -210,8 +229,11 @@ export class OperatorControlService {
 
   async leaderboard(query?: string): Promise<AdminLeaderboardResponse> {
     const { leaderboard } = this.deps;
-    const [scopes, competitions, summaries, prizes] = await Promise.all([
-      leaderboard.listScopes(),
+    const [[scopes, claims], competitions, summaries, prizes] = await Promise.all([
+      leaderboard.listScopes().then(async (scopes) => [
+        scopes,
+        await leaderboard.listPrizeClaims(scopes.filter((scope) => scope.finalizedAt !== null).map((scope) => scope.id)),
+      ] as const),
       leaderboard.listAdminCompetitions(query),
       leaderboard.listScopeCompetitionSummaries(),
       leaderboard.listAllPrizes(),
@@ -241,6 +263,9 @@ export class OperatorControlService {
           competitionCount: summary?.competitionCount ?? 0,
           unfinishedCompetitions: summary?.unfinishedCompetitions ?? [],
           prizes: prizes.filter((prize) => prize.scopeId === scope.id).map(({ place, imageUrl }) => ({ place, imageUrl })),
+          ...(scope.finalizedAt !== null
+            ? { winners: claims.filter((claim) => claim.scopeId === scope.id).map(toAdminWinner) }
+            : {}),
         };
       }),
       competitions: competitions.map(({ shortName, logoUrl, ...competition }) => ({
@@ -501,6 +526,16 @@ export class OperatorControlService {
           : await this.deps.leaderboard.removePrize(command.scopeId, command.place);
         if (!changed) return this.refused("Scope is closed");
         return { result: { status: "succeeded" }, details: { before, after: setting ? command.imageUrl : null } };
+      }
+      case "leaderboard.prize.sent": {
+        // The trade URL is personal data: the audit records only the place and the date.
+        const marked = await this.deps.leaderboard.markPrizeSent(command.scopeId, command.place);
+        if (marked.kind === "not_found") return this.refused("Prize claim not found");
+        if (marked.kind === "no_trade_url") return this.refused("Winner has not sent a trade URL yet");
+        return {
+          result: { status: "succeeded" },
+          details: { before: marked.previous?.toISOString() ?? null, after: marked.sentAt.toISOString() },
+        };
       }
       case "leaderboard.mark.draft.set":
       case "leaderboard.mark.draft.remove": {

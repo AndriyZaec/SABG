@@ -71,6 +71,26 @@ export interface LeaderboardMarkDraft {
 
 export type SetCurrentScopeResult = "switched" | "closed" | "current_changed";
 
+export interface PrizeClaimView {
+  scopeId: Uuid;
+  place: number;
+  userId: Uuid;
+  username: string;
+  walletAddress: string;
+  imageUrl: string;
+  tradeUrl: string | null;
+  tradeUrlUpdatedAt: Date | null;
+  sentAt: Date | null;
+  tradeUrlErasedAt: Date | null;
+}
+
+export type MarkPrizeSentResult =
+  /** `previous` is the date of an earlier mark; a repeat keeps it. */
+  | { kind: "sent"; sentAt: Date; previous: Date | null }
+  | { kind: "not_found" }
+  /** Marking sent locks the trade URL, so it waits until the winner gives one. */
+  | { kind: "no_trade_url" };
+
 export type FinalizeScopeResult =
   | { kind: "finalized"; claims: number }
   | { kind: "current_changed" }
@@ -451,6 +471,54 @@ export const leaderboardRepository = {
         .set({ status: "closed", isCurrent: false, closedAt: now, finalizedAt: now, updatedAt: now })
         .where(eq(leaderboardScopes.id, scopeId));
       return { kind: "finalized", claims: places.size };
+    });
+  },
+
+  /** The prize claims of these scopes with the winner and the prize image, by scope and place. */
+  async listPrizeClaims(scopeIds: readonly Uuid[]): Promise<PrizeClaimView[]> {
+    if (scopeIds.length === 0) return [];
+    return db
+      .select({
+        scopeId: leaderboardPrizeClaims.scopeId,
+        place: leaderboardPrizeClaims.place,
+        userId: leaderboardPrizeClaims.userId,
+        username: users.username,
+        walletAddress: users.walletAddress,
+        imageUrl: leaderboardPrizes.imageUrl,
+        tradeUrl: leaderboardPrizeClaims.tradeUrl,
+        tradeUrlUpdatedAt: leaderboardPrizeClaims.tradeUrlUpdatedAt,
+        sentAt: leaderboardPrizeClaims.sentAt,
+        tradeUrlErasedAt: leaderboardPrizeClaims.tradeUrlErasedAt,
+      })
+      .from(leaderboardPrizeClaims)
+      .innerJoin(users, eq(users.id, leaderboardPrizeClaims.userId))
+      // A finalized scope's prizes are locked, so every claim's prize is still there.
+      .innerJoin(leaderboardPrizes, and(
+        eq(leaderboardPrizes.scopeId, leaderboardPrizeClaims.scopeId),
+        eq(leaderboardPrizes.place, leaderboardPrizeClaims.place),
+      ))
+      .where(inArray(leaderboardPrizeClaims.scopeId, [...scopeIds]))
+      .orderBy(asc(leaderboardPrizeClaims.scopeId), asc(leaderboardPrizeClaims.place));
+  },
+
+  /** Marks a claim's prize sent, keeping the first date on a repeat. */
+  async markPrizeSent(scopeId: Uuid, place: number): Promise<MarkPrizeSentResult> {
+    return db.transaction(async (tx) => {
+      const claimKey = and(eq(leaderboardPrizeClaims.scopeId, scopeId), eq(leaderboardPrizeClaims.place, place));
+      const [claim] = await tx
+        .select({ tradeUrl: leaderboardPrizeClaims.tradeUrl, sentAt: leaderboardPrizeClaims.sentAt })
+        .from(leaderboardPrizeClaims)
+        .where(claimKey)
+        .for("update");
+      if (claim === undefined) return { kind: "not_found" };
+      if (claim.sentAt !== null) return { kind: "sent", sentAt: claim.sentAt, previous: claim.sentAt };
+      if (claim.tradeUrl === null) return { kind: "no_trade_url" };
+      const [row] = await tx
+        .update(leaderboardPrizeClaims)
+        .set({ sentAt: sql`now()`, updatedAt: sql`now()` })
+        .where(claimKey)
+        .returning({ sentAt: leaderboardPrizeClaims.sentAt });
+      return { kind: "sent", sentAt: row!.sentAt!, previous: null };
     });
   },
 

@@ -31,6 +31,8 @@ function fakeLeaderboard(): OperatorControlDependencies["leaderboard"] {
     setMarkDraft: vi.fn(),
     removeMarkDraft: vi.fn(),
     applyMarkDrafts: vi.fn(),
+    listPrizeClaims: vi.fn().mockResolvedValue([]),
+    markPrizeSent: vi.fn(),
     recomputeScope: vi.fn(),
     finalizeScope: vi.fn(),
   };
@@ -209,6 +211,8 @@ describe("operator control leaderboard routes", () => {
       expect((await post({ type: "leaderboard.prize.set", scopeId, place: 1, imageUrl: badUrl })).status).toBe(400);
     }
     expect((await post({ type: "leaderboard.prize.remove", scopeId, place: 0 })).status).toBe(400);
+    expect((await post({ type: "leaderboard.prize.sent", scopeId: "not-a-uuid", place: 1 })).status).toBe(400);
+    expect((await post({ type: "leaderboard.prize.sent", scopeId, place: 101 })).status).toBe(400);
     expect(mutate).not.toHaveBeenCalled();
 
     expect((await post({ type: "leaderboard.prize.set", scopeId, place: 100, imageUrl: `  ${imageUrl}  ` })).status).toBe(200);
@@ -224,5 +228,6 @@ describe("operator control leaderboard routes", () => {
       expect.any(String),
     );
     expect((await post({ type: "leaderboard.prize.remove", scopeId, place: 1 })).status).toBe(200);
+    expect((await post({ type: "leaderboard.prize.sent", scopeId, place: 1 })).status).toBe(200);
   });
 });

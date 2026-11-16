@@ -28,6 +28,8 @@ function fakeLeaderboard(overrides: Partial<OperatorControlDependencies["leaderb
     setMarkDraft: vi.fn().mockResolvedValue(true),
     removeMarkDraft: vi.fn().mockResolvedValue(true),
     applyMarkDrafts: vi.fn().mockResolvedValue(1),
+    listPrizeClaims: vi.fn().mockResolvedValue([]),
+    markPrizeSent: vi.fn().mockResolvedValue({ kind: "not_found" }),
     finalizeScope: vi.fn().mockResolvedValue({ kind: "finalized", claims: 1 }),
     recomputeScope: vi.fn().mockResolvedValue(true),
     ...overrides,
@@ -476,6 +478,58 @@ describe("operator control leaderboard", () => {
     }
   });
 
+  it("marks a prize sent with only the place and dates in the audit, and refuses an unknown claim or a missing trade URL", async () => {
+    const sentAt = new Date("2026-02-10T12:00:00.000Z");
+    const leaderboard = fakeLeaderboard({ markPrizeSent: vi.fn().mockResolvedValue({ kind: "sent", sentAt, previous: null }) });
+    const { service, deps } = setup({ leaderboard });
+    const mark = (place: number) => service.mutate({ type: "leaderboard.prize.sent", scopeId: "iem", place }, actor, randomUUID());
+
+    await expect(mark(1)).resolves.toEqual({ result: { status: "succeeded" } });
+    expect(leaderboard.markPrizeSent).toHaveBeenCalledWith("iem", 1);
+    expect(deps.appendAudit).toHaveBeenLastCalledWith(expect.objectContaining({
+      action: "leaderboard.prize.sent", targetId: "iem:1", result: "succeeded", details: { before: null, after: sentAt.toISOString() },
+    }));
+
+    vi.mocked(leaderboard.markPrizeSent).mockResolvedValue({ kind: "sent", sentAt, previous: sentAt });
+    await expect(mark(1)).resolves.toEqual({ result: { status: "succeeded" } });
+    expect(deps.appendAudit).toHaveBeenLastCalledWith(expect.objectContaining({
+      details: { before: sentAt.toISOString(), after: sentAt.toISOString() },
+    }));
+
+    vi.mocked(leaderboard.markPrizeSent).mockResolvedValue({ kind: "not_found" });
+    await expect(mark(9)).resolves.toEqual({ result: { status: "refused", reason: "Prize claim not found" } });
+    vi.mocked(leaderboard.markPrizeSent).mockResolvedValue({ kind: "no_trade_url" });
+    await expect(mark(2)).resolves.toEqual({ result: { status: "refused", reason: "Winner has not sent a trade URL yet" } });
+  });
+
+  it("lists a finalized scope's winners, and none for scopes that weren't finalized", async () => {
+    const at = new Date("2026-02-08T12:00:00.000Z");
+    const claim = {
+      scopeId: "iem", place: 1, userId: "u1", username: "ace", walletAddress: "Wallet1", imageUrl: "https://cdn.example.com/skins/awp.png",
+      tradeUrl: "https://steamcommunity.com/tradeoffer/new/?partner=1&token=abc", tradeUrlUpdatedAt: at, sentAt: null, tradeUrlErasedAt: null,
+    };
+    const leaderboard = fakeLeaderboard({
+      listScopes: vi.fn().mockResolvedValue([
+        scope("iem", { status: "closed", closedAt: at, finalizedAt: at }),
+        scope("closed", { status: "closed", closedAt: at }),
+        scope("open"),
+      ]),
+      listPrizeClaims: vi.fn().mockResolvedValue([claim, { ...claim, place: 2, userId: "u2", username: "bolt", tradeUrl: null, tradeUrlUpdatedAt: null, sentAt: at, tradeUrlErasedAt: at }]),
+    });
+    const { service } = setup({ leaderboard });
+
+    const { scopes } = await service.leaderboard();
+    expect(leaderboard.listPrizeClaims).toHaveBeenCalledWith(["iem"]);
+    expect(scopes.map((row) => [row.id, row.winners])).toEqual([
+      ["iem", [
+        { place: 1, userId: "u1", username: "ace", walletAddress: "Wallet1", imageUrl: claim.imageUrl, tradeUrl: claim.tradeUrl, tradeUrlUpdatedAt: at.toISOString() },
+        { place: 2, userId: "u2", username: "bolt", walletAddress: "Wallet1", imageUrl: claim.imageUrl, sentAt: at.toISOString(), tradeUrlErasedAt: at.toISOString() },
+      ]],
+      ["closed", undefined],
+      ["open", undefined],
+    ]);
+  });
+
   it("queues a recompute of the current scope, and refuses without one or before the queue runs", async () => {
     const leaderboard = fakeLeaderboard({ findCurrent: vi.fn().mockResolvedValue(scope("live", { isCurrent: true })) });
     const { service, deps } = setup({ leaderboard });
@@ -520,7 +574,7 @@ describe("operator control leaderboard", () => {
 
     expect(await service.leaderboard()).toEqual({
       scopes: [
-        { id: "past", name: "Scope past", status: "closed", current: false, closedAt: computedAt.toISOString(), finalizedAt: computedAt.toISOString(), competitionCount: 0, unfinishedCompetitions: [], prizes: [] },
+        { id: "past", name: "Scope past", status: "closed", current: false, closedAt: computedAt.toISOString(), finalizedAt: computedAt.toISOString(), competitionCount: 0, unfinishedCompetitions: [], prizes: [], winners: [] },
         { id: "live", name: "Scope live", status: "open", current: true, competitionCount: 12, unfinishedCompetitions: ["Cup", "Old Cup"], prizes: [prize] },
       ],
       competitions: [{ id: "c1", name: "Cup", scopeIds: ["live"], arenasWithResults: 3, unfinished: true }],

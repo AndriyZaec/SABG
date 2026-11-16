@@ -36,6 +36,7 @@ const MutationSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("leaderboard.recompute") }),
   z.object({ type: z.literal("leaderboard.prize.set"), scopeId: z.string().uuid(), place: PrizePlaceSchema, imageUrl: PrizeImageUrlSchema }),
   z.object({ type: z.literal("leaderboard.prize.remove"), scopeId: z.string().uuid(), place: PrizePlaceSchema }),
+  z.object({ type: z.literal("leaderboard.prize.sent"), scopeId: z.string().uuid(), place: PrizePlaceSchema }),
   z.object({
     type: z.literal("leaderboard.mark.draft.set"),
     scopeId: z.string().uuid(),

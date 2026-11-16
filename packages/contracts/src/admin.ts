@@ -49,6 +49,8 @@ export type AdminMutationCommand =
   /** Adds or replaces the prize for a place of an open scope. */
   | { type: "leaderboard.prize.set"; scopeId: Uuid; place: number; imageUrl: string }
   | { type: "leaderboard.prize.remove"; scopeId: Uuid; place: number }
+  /** Records that a finalized scope's prize for a place was handed out; a repeat keeps the first date. */
+  | { type: "leaderboard.prize.sent"; scopeId: Uuid; place: number }
   /** Stages a mark change for a player of the current scope; it reaches the board only on `leaderboard.marks.apply`. */
   | { type: "leaderboard.mark.draft.set"; scopeId: Uuid; userId: Uuid; action: LeaderboardMarkAction; reason?: string }
   | { type: "leaderboard.mark.draft.remove"; scopeId: Uuid; userId: Uuid }
@@ -103,6 +105,21 @@ export interface AdminLeaderboardScope {
   unfinishedCompetitions: string[];
   /** Skin prizes by place, ordered by place. */
   prizes: AdminLeaderboardPrize[];
+  /** A finalized scope's winners by place. */
+  winners?: AdminLeaderboardWinner[];
+}
+
+export interface AdminLeaderboardWinner {
+  place: number;
+  userId: Uuid;
+  username: string;
+  walletAddress: string;
+  imageUrl: string;
+  /** The winner's Steam trade URL, once sent and until erased. */
+  tradeUrl?: string;
+  tradeUrlUpdatedAt?: IsoDateTime;
+  sentAt?: IsoDateTime;
+  tradeUrlErasedAt?: IsoDateTime;
 }
 
 export interface AdminLeaderboardPrize {
