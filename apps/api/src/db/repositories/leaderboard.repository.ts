@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, ilike, inArray, isNotNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, isNotNull, lt, or, sql } from "drizzle-orm";
 import type { LeaderboardMarkAction, LeaderboardMarkStatus, LeaderboardScopeStatus, Uuid } from "@arena/contracts";
 import { db, type DatabaseTransaction } from "../client.js";
 import { assignPrizePlaces } from "../../leaderboard/player-ranking.js";
@@ -568,6 +568,16 @@ export const leaderboardRepository = {
         .where(claimKey);
       return { kind: "saved", claim: { place: claim.place, imageUrl: claim.imageUrl, tradeUrl, sentAt: null } };
     });
+  },
+
+  /** Erases the trade URLs of prizes sent before `before`; the claim keeps the player, the prize and the dates. */
+  async eraseSentTradeUrls(before: Date): Promise<number> {
+    const rows = await db
+      .update(leaderboardPrizeClaims)
+      .set({ tradeUrl: null, tradeUrlErasedAt: sql`now()`, updatedAt: sql`now()` })
+      .where(and(lt(leaderboardPrizeClaims.sentAt, before), isNotNull(leaderboardPrizeClaims.tradeUrl)))
+      .returning({ place: leaderboardPrizeClaims.place });
+    return rows.length;
   },
 
   /** Marks a claim's prize sent, keeping the first date on a repeat. */

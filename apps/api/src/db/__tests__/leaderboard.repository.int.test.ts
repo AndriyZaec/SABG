@@ -244,6 +244,32 @@ describe.skipIf(!RUN)("leaderboardRepository (integration, requires DATABASE_URL
     expect((await repository.listMarks(scope.id)).map((mark) => mark.status)).toEqual(["disqualified"]);
   });
 
+  it("erases trade URLs of prizes sent before the cutoff, keeping the claim, and erases nothing on a second run", async () => {
+    const scope = await createScope("Trade URL erasure");
+    const [old, recent, unsent] = [await seedUser("erase-old"), await seedUser("erase-recent"), await seedUser("erase-unsent")];
+    const day = 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const tradeUrl = "https://steamcommunity.com/tradeoffer/new/?partner=1&token=abc";
+    // Claims come from finalize; written directly here to date them in the past.
+    await db.insert(schema.leaderboardPrizeClaims).values([
+      { scopeId: scope.id, place: 1, userId: old, tradeUrl, sentAt: new Date(now - 31 * day) },
+      { scopeId: scope.id, place: 2, userId: recent, tradeUrl, sentAt: new Date(now - 29 * day) },
+      { scopeId: scope.id, place: 3, userId: unsent, tradeUrl },
+    ]);
+
+    // Other suites' leftovers may be erased too, so only this scope's rows are asserted.
+    expect(await repository.eraseSentTradeUrls(new Date(now - 30 * day))).toBeGreaterThanOrEqual(1);
+    const claims = await db.select().from(schema.leaderboardPrizeClaims)
+      .where(eq(schema.leaderboardPrizeClaims.scopeId, scope.id))
+      .orderBy(schema.leaderboardPrizeClaims.place);
+    expect(claims.map((claim) => [claim.userId, claim.tradeUrl, claim.tradeUrlErasedAt instanceof Date, claim.sentAt instanceof Date])).toEqual([
+      [old, null, true, true],
+      [recent, tradeUrl, false, true],
+      [unsent, tradeUrl, false, false],
+    ]);
+    expect(await repository.eraseSentTradeUrls(new Date(now - 30 * day))).toBe(0);
+  });
+
   describe("finalize", () => {
     const entry = (userId: string, rank: number, points: number, disqualified = false) =>
       ({ userId, rank, points, arenasPlayed: 1, wins: 0, secondPlaces: 0, roundsPlayed: 10, totalScore: points, totalPayoutLamports: 0, disqualified });
