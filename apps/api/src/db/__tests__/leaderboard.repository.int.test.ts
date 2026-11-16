@@ -268,6 +268,10 @@ describe.skipIf(!RUN)("leaderboardRepository (integration, requires DATABASE_URL
       [unsent, tradeUrl, false, false],
     ]);
     expect(await repository.eraseSentTradeUrls(new Date(now - 30 * day))).toBe(0);
+
+    // The admin app opens a trade URL, so the table holds nothing but a Steam trade offer link.
+    await expect(db.update(schema.leaderboardPrizeClaims).set({ tradeUrl: "javascript:alert(1)" })
+      .where(eq(schema.leaderboardPrizeClaims.userId, unsent))).rejects.toThrow();
   });
 
   describe("finalize", () => {

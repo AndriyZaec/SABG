@@ -156,6 +156,12 @@ const entryColumns = {
   avatar: users.avatar,
 };
 
+/** Joins a prize claim to its scope's prize for the place, which a finalized scope keeps locked. */
+const claimPrize = and(
+  eq(leaderboardPrizes.scopeId, leaderboardPrizeClaims.scopeId),
+  eq(leaderboardPrizes.place, leaderboardPrizeClaims.place),
+);
+
 export const leaderboardRepository = {
   async createScope(name: string): Promise<LeaderboardScope> {
     const [row] = await db.insert(leaderboardScopes).values({ name }).returning(scopeColumns);
@@ -520,11 +526,7 @@ export const leaderboardRepository = {
       })
       .from(leaderboardPrizeClaims)
       .innerJoin(users, eq(users.id, leaderboardPrizeClaims.userId))
-      // A finalized scope's prizes are locked, so every claim's prize is still there.
-      .innerJoin(leaderboardPrizes, and(
-        eq(leaderboardPrizes.scopeId, leaderboardPrizeClaims.scopeId),
-        eq(leaderboardPrizes.place, leaderboardPrizeClaims.place),
-      ))
+      .innerJoin(leaderboardPrizes, claimPrize)
       .where(inArray(leaderboardPrizeClaims.scopeId, [...scopeIds]))
       .orderBy(asc(leaderboardPrizeClaims.scopeId), asc(leaderboardPrizeClaims.place));
   },
@@ -538,10 +540,7 @@ export const leaderboardRepository = {
         sentAt: leaderboardPrizeClaims.sentAt,
       })
       .from(leaderboardPrizeClaims)
-      .innerJoin(leaderboardPrizes, and(
-        eq(leaderboardPrizes.scopeId, leaderboardPrizeClaims.scopeId),
-        eq(leaderboardPrizes.place, leaderboardPrizeClaims.place),
-      ))
+      .innerJoin(leaderboardPrizes, claimPrize)
       .where(and(eq(leaderboardPrizeClaims.scopeId, scopeId), eq(leaderboardPrizeClaims.userId, userId)));
     return row;
   },
@@ -554,10 +553,7 @@ export const leaderboardRepository = {
       const [claim] = await tx
         .select({ place: leaderboardPrizeClaims.place, imageUrl: leaderboardPrizes.imageUrl, sentAt: leaderboardPrizeClaims.sentAt })
         .from(leaderboardPrizeClaims)
-        .innerJoin(leaderboardPrizes, and(
-          eq(leaderboardPrizes.scopeId, leaderboardPrizeClaims.scopeId),
-          eq(leaderboardPrizes.place, leaderboardPrizeClaims.place),
-        ))
+        .innerJoin(leaderboardPrizes, claimPrize)
         .where(claimKey)
         .for("update", { of: leaderboardPrizeClaims });
       if (claim === undefined) return { kind: "not_found" };

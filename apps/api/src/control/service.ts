@@ -473,11 +473,7 @@ export class OperatorControlService {
       case "leaderboard.scope.finalize": {
         const refusal = await this.currentScopeRefusal(command.scopeId);
         if (refusal !== undefined) return this.refused(refusal);
-        if ((await this.deps.leaderboard.listMarkDrafts(command.scopeId)).length > 0) {
-          return this.refused(DRAFTS_PENDING);
-        }
-        if ((await this.deps.leaderboard.listPrizes(command.scopeId)).length === 0) return this.refused(NO_PRIZES);
-        // Runs the final recompute itself, under the lock marks are applied under.
+        // Checks drafts and prizes, then runs the final recompute, all under the lock marks are applied under.
         const finalized = await this.deps.leaderboard.finalizeScope(command.scopeId);
         switch (finalized.kind) {
           case "finalized":

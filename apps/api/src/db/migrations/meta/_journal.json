@@ -204,6 +204,13 @@
       "when": 1794832716906,
       "tag": "0028_leaderboard_finalize",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1794843376984,
+      "tag": "0029_leaderboard_trade_url_check",
+      "breakpoints": true
     }
   ]
 }

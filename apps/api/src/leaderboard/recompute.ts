@@ -2,7 +2,7 @@ import type { Uuid } from "@arena/contracts";
 import { arenaResultRepository } from "../db/repositories/arena-result.repository.js";
 import { leaderboardRepository, type FinalizeScopeResult } from "../db/repositories/leaderboard.repository.js";
 import { payoutRepository } from "../db/repositories/payout.repository.js";
-import { rankPlayers } from "./player-ranking.js";
+import { rankPlayers, type PlayerRanking } from "./player-ranking.js";
 
 /**
  * Rebuilds an open scope's leaderboard from its competitions' arena results. A full rebuild, so a
@@ -20,7 +20,7 @@ export async function finalizeScope(scopeId: Uuid, now?: Date): Promise<Finalize
 }
 
 // Runs inside the caller's scope lock, so it reads everything committed before the lock was granted.
-async function computeEntries(scopeId: Uuid) {
+async function computeEntries(scopeId: Uuid): Promise<PlayerRanking[]> {
   const results = await arenaResultRepository.listByCompetitions(await leaderboardRepository.listCompetitionIds(scopeId));
   const payouts = await payoutRepository.sentTotalsByUser([...new Set(results.map((result) => result.arenaId))]);
   // Marks are applied under the same lock, so a run sees every applied mark or none.

@@ -440,18 +440,12 @@ describe("operator control leaderboard", () => {
     }));
   });
 
-  it("refuses to finalize a scope that isn't current, has no prizes, or has staged changes", async () => {
-    const prize = { place: 1, imageUrl: "https://cdn.example.com/skins/awp.png" };
+  it("refuses to finalize a scope that isn't open and current", async () => {
     const finalize = (service: OperatorControlService) => service.mutate({ type: "leaderboard.scope.finalize", scopeId: "live" }, actor, randomUUID());
     const cases = [
       [fakeLeaderboard({ findScope: vi.fn().mockResolvedValue(scope("live")) }), "Scope is not current"],
       [fakeLeaderboard({ findScope: vi.fn().mockResolvedValue(scope("live", { status: "closed", closedAt: new Date() })) }), "Scope is closed"],
-      [fakeLeaderboard({ findScope: vi.fn().mockResolvedValue(scope("live", { isCurrent: true })) }), "Scope has no prizes"],
-      [fakeLeaderboard({
-        findScope: vi.fn().mockResolvedValue(scope("live", { isCurrent: true })),
-        listPrizes: vi.fn().mockResolvedValue([prize]),
-        listMarkDrafts: vi.fn().mockResolvedValue([{ userId: "u1", action: "approve", reason: null, actorLogin: actor.login, updatedAt: new Date() }]),
-      }), "Apply or remove the staged mark changes first"],
+      [fakeLeaderboard({ findScope: vi.fn().mockResolvedValue(undefined) }), "Scope not found"],
     ] as const;
     for (const [leaderboard, reason] of cases) {
       const { service } = setup({ leaderboard });
@@ -460,7 +454,7 @@ describe("operator control leaderboard", () => {
     }
   });
 
-  it("refuses to finalize when the locked check finds unapproved prize players or a changed scope", async () => {
+  it("refuses to finalize when the locked check finds staged changes, no prizes, unapproved prize players or a changed scope", async () => {
     for (const [outcome, reason] of [
       [{ kind: "unapproved", usernames: ["ace", "bolt"] }, "Prize players need an approval: ace, bolt"],
       [{ kind: "current_changed" }, "Current scope changed; reload and try again"],

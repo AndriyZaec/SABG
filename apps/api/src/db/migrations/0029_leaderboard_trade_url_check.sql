@@ -1,0 +1,1 @@
+ALTER TABLE "leaderboard_prize_claim" ADD CONSTRAINT "leaderboard_prize_claim_trade_url_check" CHECK ("leaderboard_prize_claim"."trade_url" is null or "leaderboard_prize_claim"."trade_url" like 'https://steamcommunity.com/tradeoffer/new/?%');

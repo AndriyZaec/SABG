@@ -417,6 +417,8 @@ export const leaderboardPrizeClaims = pgTable("leaderboard_prize_claim", {
 }, (t) => [
   primaryKey({ columns: [t.scopeId, t.place], name: "leaderboard_prize_claim_pk" }),
   uniqueIndex("leaderboard_prize_claim_scope_user_idx").on(t.scopeId, t.userId),
+  // The winner's Steam trade offer link; the admin app opens it, so nothing else is ever stored.
+  check("leaderboard_prize_claim_trade_url_check", sql`${t.tradeUrl} is null or ${t.tradeUrl} like 'https://steamcommunity.com/tradeoffer/new/?%'`),
 ]);
 
 /** A scope's ranked rows, rebuilt in full by each recompute. */
