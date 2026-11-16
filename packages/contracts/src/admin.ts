@@ -125,6 +125,10 @@ export interface AdminLeaderboardEntry {
   roundsPlayed: number;
   arenasPlayed: number;
   totalPayoutLamports: number;
+  /** Its rank is virtual: real players are ranked without it, and it never takes a prize place. */
+  disqualified: boolean;
+  /** The prize place this row holds by position among rows that are not disqualified. */
+  prizePlace?: number;
 }
 
 export interface AdminLeaderboardMark {

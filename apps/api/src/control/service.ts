@@ -19,6 +19,7 @@ import { operatorAuditRepository, type AppendOperatorAudit } from "../db/reposit
 import { leaderboardRepository } from "../db/repositories/leaderboard.repository.js";
 import { operatorControlRepository } from "../db/repositories/operator-control.repository.js";
 import { recomputeScope } from "../leaderboard/recompute.js";
+import { assignPrizePlaces } from "../leaderboard/player-ranking.js";
 import {
   CS2_AUTOPILOT_SETTING,
   settingsRepository,
@@ -221,6 +222,9 @@ export class OperatorControlService {
         leaderboard.listMarkDrafts(current.id),
       ]);
     const computedAt = entries[0]?.computedAt;
+    const prizePlaces = current === undefined
+      ? new Map<Uuid, number>()
+      : assignPrizePlaces(entries, prizes.filter((prize) => prize.scopeId === current.id).map((prize) => prize.place));
     return {
       scopes: scopes.map((scope) => {
         const summary = summaries.find((row) => row.scopeId === scope.id);
@@ -245,17 +249,22 @@ export class OperatorControlService {
             current: {
               scopeId: current.id,
               ...(computedAt !== undefined ? { computedAt: computedAt.toISOString() } : {}),
-              entries: entries.map((entry) => ({
-                userId: entry.userId,
-                username: entry.username,
-                rank: entry.rank,
-                points: entry.points,
-                wins: entry.wins,
-                secondPlaces: entry.secondPlaces,
-                roundsPlayed: entry.roundsPlayed,
-                arenasPlayed: entry.arenasPlayed,
-                totalPayoutLamports: entry.totalPayoutLamports,
-              })),
+              entries: entries.map((entry) => {
+                const prizePlace = prizePlaces.get(entry.userId);
+                return {
+                  userId: entry.userId,
+                  username: entry.username,
+                  rank: entry.rank,
+                  points: entry.points,
+                  wins: entry.wins,
+                  secondPlaces: entry.secondPlaces,
+                  roundsPlayed: entry.roundsPlayed,
+                  arenasPlayed: entry.arenasPlayed,
+                  totalPayoutLamports: entry.totalPayoutLamports,
+                  disqualified: entry.disqualified,
+                  ...(prizePlace !== undefined ? { prizePlace } : {}),
+                };
+              }),
               marks: marks.map((mark) => ({
                 userId: mark.userId,
                 status: mark.status,

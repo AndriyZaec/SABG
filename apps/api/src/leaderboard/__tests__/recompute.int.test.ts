@@ -158,6 +158,33 @@ describe.skipIf(!RUN)("recomputeScope (integration, requires DATABASE_URL)", () 
     expect((await leaderboardRepository.topEntries(scope.id, 10)).map((entry) => [entry.userId, entry.points])).toEqual([[player, 6]]);
   });
 
+  it("ranks a disqualified player virtually once the mark is applied, and restores the ranks when it is lifted", async () => {
+    const competition = await seedCompetition("Verified Cup");
+    const arena = await seedArena(competition, "verified");
+    const [leader, cheat, honest] = [await seedUser("verified-leader"), await seedUser("verified-cheat"), await seedUser("verified-honest")];
+    const row = (userId: string, score: number, rank: number) =>
+      ({ arenaId: arena, competitionId: competition, userId, score, rank, won: rank === 1, roundsPlayed: 12, playersCount: 3, finishedAt: new Date() });
+    await arenaResultRepository.insertMany([row(leader, 9, 1), row(cheat, 6, 2), row(honest, 4, 3)]);
+    const scope = await leaderboardRepository.createScope(`Verified ${runId}`);
+    scopeIds.push(scope.id);
+    await leaderboardRepository.addCompetition(scope.id, competition);
+    const board = async () => (await leaderboardRepository.topEntries(scope.id, 10)).map((entry) => [entry.userId, entry.rank, entry.disqualified]);
+
+    await leaderboardRepository.setMarkDraft(scope.id, cheat, "disqualify", "Second account", "admin");
+    expect(await recomputeScope(scope.id)).toBe(true);
+    // A draft never reaches the board.
+    expect(await board()).toEqual([[leader, 1, false], [cheat, 2, false], [honest, 3, false]]);
+
+    await leaderboardRepository.applyMarkDrafts(scope.id);
+    expect(await recomputeScope(scope.id)).toBe(true);
+    expect(await board()).toEqual([[leader, 1, false], [cheat, 2, true], [honest, 2, false]]);
+
+    await leaderboardRepository.setMarkDraft(scope.id, cheat, "clear", null, "admin");
+    await leaderboardRepository.applyMarkDrafts(scope.id);
+    expect(await recomputeScope(scope.id)).toBe(true);
+    expect(await board()).toEqual([[leader, 1, false], [cheat, 2, false], [honest, 3, false]]);
+  });
+
   it("leaves a closed scope's rows alone", async () => {
     const scope = await leaderboardRepository.createScope(`Closed ${runId}`);
     scopeIds.push(scope.id);

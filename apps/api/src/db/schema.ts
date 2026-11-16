@@ -413,6 +413,8 @@ export const leaderboardEntries = pgTable("leaderboard_entry", {
   roundsPlayed: integer("rounds_played").notNull(),
   totalScore: integer("total_score").notNull(),
   totalPayoutLamports: bigint("total_payout_lamports", { mode: "number" }).notNull(),
+  /** Its rank is virtual: real players are ranked without it. */
+  disqualified: boolean("disqualified").notNull().default(false),
   computedAt: timestamp("computed_at", { withTimezone: true }).notNull(),
 }, (t) => [
   primaryKey({ columns: [t.scopeId, t.userId], name: "leaderboard_entry_pk" }),

@@ -14,6 +14,9 @@ export async function recomputeScope(scopeId: Uuid, now?: Date): Promise<boolean
   return leaderboardRepository.replaceEntries(scopeId, async () => {
     const results = await arenaResultRepository.listByCompetitions(await leaderboardRepository.listCompetitionIds(scopeId));
     const payouts = await payoutRepository.sentTotalsByUser([...new Set(results.map((result) => result.arenaId))]);
-    return rankPlayers(results, payouts);
+    // Read under the same lock the marks are applied under, so this run sees every applied mark or none.
+    const marks = await leaderboardRepository.listMarks(scopeId);
+    const disqualified = new Set(marks.filter((mark) => mark.status === "disqualified").map((mark) => mark.userId));
+    return rankPlayers(results, payouts, disqualified);
   }, now);
 }

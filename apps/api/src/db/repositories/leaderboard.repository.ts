@@ -33,6 +33,7 @@ export interface LeaderboardEntryRow {
   roundsPlayed: number;
   totalScore: number;
   totalPayoutLamports: number;
+  disqualified: boolean;
   computedAt: Date;
 }
 
@@ -86,7 +87,7 @@ export interface ScopeCompetitionSummary {
 // The admin list without a search shows only the latest synced competitions.
 const ADMIN_COMPETITIONS_LATEST = 10;
 
-// Postgres binds at most 65 535 parameters per statement; an entry row binds 11.
+// Postgres binds at most 65 535 parameters per statement; an entry row binds 12.
 const ENTRY_INSERT_CHUNK = 1_000;
 
 const scopeColumns = {
@@ -108,6 +109,7 @@ const entryColumns = {
   roundsPlayed: leaderboardEntries.roundsPlayed,
   totalScore: leaderboardEntries.totalScore,
   totalPayoutLamports: leaderboardEntries.totalPayoutLamports,
+  disqualified: leaderboardEntries.disqualified,
   computedAt: leaderboardEntries.computedAt,
   username: users.username,
   avatar: users.avatar,
@@ -418,7 +420,8 @@ export const leaderboardRepository = {
       .from(leaderboardEntries)
       .innerJoin(users, eq(users.id, leaderboardEntries.userId))
       .where(eq(leaderboardEntries.scopeId, scopeId))
-      .orderBy(asc(leaderboardEntries.rank), asc(leaderboardEntries.userId))
+      // The board order of `compareBoardOrder`: a disqualified row stands before the real one sharing its rank.
+      .orderBy(asc(leaderboardEntries.rank), desc(leaderboardEntries.disqualified), asc(leaderboardEntries.userId))
       .limit(limit);
   },
 

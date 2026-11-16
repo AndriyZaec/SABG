@@ -210,7 +210,7 @@ describe.skipIf(!RUN)("leaderboardRepository (integration, requires DATABASE_URL
   it("applies marks only after a running recompute releases the scope lock", async () => {
     const scope = await createScope("Apply lock");
     const player = await seedUser("apply-lock");
-    const entry = { userId: player, rank: 1, points: 5, arenasPlayed: 1, wins: 1, secondPlaces: 0, roundsPlayed: 10, totalScore: 5, totalPayoutLamports: 0 };
+    const entry = { userId: player, rank: 1, points: 5, arenasPlayed: 1, wins: 1, secondPlaces: 0, roundsPlayed: 10, totalScore: 5, totalPayoutLamports: 0, disqualified: false };
     await repository.setMarkDraft(scope.id, player, "disqualify", "Second account", "admin");
 
     let markComputing!: () => void;
@@ -244,11 +244,29 @@ describe.skipIf(!RUN)("leaderboardRepository (integration, requires DATABASE_URL
     expect((await repository.listMarks(scope.id)).map((mark) => mark.status)).toEqual(["disqualified"]);
   });
 
+  it("reads a disqualified row before the real player sharing its rank", async () => {
+    const scope = await createScope("Board order");
+    const [leader, cheat, real] = [await seedUser("order-leader"), await seedUser("order-cheat"), await seedUser("order-real")];
+    const entry = (userId: string, rank: number, points: number, disqualified: boolean) =>
+      ({ userId, rank, points, arenasPlayed: 1, wins: 0, secondPlaces: 0, roundsPlayed: 10, totalScore: points, totalPayoutLamports: 0, disqualified });
+    // Both orders by userId, so the result can't depend on it.
+    const [first, second] = [cheat, real].sort();
+    expect(await repository.replaceEntries(scope.id, async () => [
+      entry(leader, 1, 100, false),
+      entry(second!, 2, second === cheat ? 90 : 80, second === cheat),
+      entry(first!, 2, first === cheat ? 90 : 80, first === cheat),
+    ], new Date())).toBe(true);
+
+    expect((await repository.topEntries(scope.id, 10)).map((row) => [row.userId, row.rank, row.disqualified]))
+      .toEqual([[leader, 1, false], [cheat, 2, true], [real, 2, false]]);
+    expect((await repository.entryFor(scope.id, cheat))?.disqualified).toBe(true);
+  });
+
   it("replaces a scope's entries in full and reads them by rank", async () => {
     const scope = await createScope("Entries");
     const [a, b, c] = [await seedUser("entry-a"), await seedUser("entry-b"), await seedUser("entry-c")];
     const entry = (userId: string, rank: number, points: number) =>
-      ({ userId, rank, points, arenasPlayed: 2, wins: 1, secondPlaces: 0, roundsPlayed: 20, totalScore: points, totalPayoutLamports: 500 });
+      ({ userId, rank, points, arenasPlayed: 2, wins: 1, secondPlaces: 0, roundsPlayed: 20, totalScore: points, totalPayoutLamports: 500, disqualified: false });
     const firstRun = new Date("2026-10-27T12:00:00.000Z");
     const secondRun = new Date("2026-10-27T12:15:00.000Z");
 
@@ -270,7 +288,7 @@ describe.skipIf(!RUN)("leaderboardRepository (integration, requires DATABASE_URL
       .returning({ id: schema.users.id });
     userIds.push(...players.map((player) => player.id));
     const entries = players.map((player, index) => ({
-      userId: player.id, rank: index + 1, points: 6000 - index, arenasPlayed: 1, wins: 0, secondPlaces: 0, roundsPlayed: 1, totalScore: 6000 - index, totalPayoutLamports: 0,
+      userId: player.id, rank: index + 1, points: 6000 - index, arenasPlayed: 1, wins: 0, secondPlaces: 0, roundsPlayed: 1, totalScore: 6000 - index, totalPayoutLamports: 0, disqualified: false,
     }));
 
     expect(await repository.replaceEntries(scope.id, async () => entries)).toBe(true);
@@ -282,7 +300,7 @@ describe.skipIf(!RUN)("leaderboardRepository (integration, requires DATABASE_URL
   it("computes only once it holds the scope lock, and never computes or writes a closed scope", async () => {
     const scope = await createScope("Locked");
     const player = await seedUser("locked-a");
-    const entry = { userId: player, rank: 1, points: 5, arenasPlayed: 1, wins: 1, secondPlaces: 0, roundsPlayed: 10, totalScore: 5, totalPayoutLamports: 0 };
+    const entry = { userId: player, rank: 1, points: 5, arenasPlayed: 1, wins: 1, secondPlaces: 0, roundsPlayed: 10, totalScore: 5, totalPayoutLamports: 0, disqualified: false };
 
     let markLocked!: () => void;
     let release!: () => void;

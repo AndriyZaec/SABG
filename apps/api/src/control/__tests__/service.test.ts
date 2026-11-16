@@ -453,7 +453,10 @@ describe("operator control leaderboard", () => {
       listScopeCompetitionSummaries: vi.fn().mockResolvedValue([{ scopeId: "live", competitionCount: 12, unfinishedCompetitions: ["Cup", "Old Cup"] }]),
       topEntries: vi.fn().mockResolvedValue([{
         userId: "u1", username: "ace", avatar: null, rank: 1, points: 12, arenasPlayed: 2, wins: 1, secondPlaces: 1,
-        roundsPlayed: 30, totalScore: 12, totalPayoutLamports: 900, computedAt,
+        roundsPlayed: 30, totalScore: 12, totalPayoutLamports: 900, disqualified: false, computedAt,
+      }, {
+        userId: "u3", username: "cheat", avatar: null, rank: 2, points: 10, arenasPlayed: 2, wins: 0, secondPlaces: 1,
+        roundsPlayed: 30, totalScore: 10, totalPayoutLamports: 0, disqualified: true, computedAt,
       }]),
     });
     const { service } = setup({ leaderboard });
@@ -467,7 +470,10 @@ describe("operator control leaderboard", () => {
       current: {
         scopeId: "live",
         computedAt: computedAt.toISOString(),
-        entries: [{ userId: "u1", username: "ace", rank: 1, points: 12, wins: 1, secondPlaces: 1, roundsPlayed: 30, arenasPlayed: 2, totalPayoutLamports: 900 }],
+        entries: [
+          { userId: "u1", username: "ace", rank: 1, points: 12, wins: 1, secondPlaces: 1, roundsPlayed: 30, arenasPlayed: 2, totalPayoutLamports: 900, disqualified: false, prizePlace: 1 },
+          { userId: "u3", username: "cheat", rank: 2, points: 10, wins: 0, secondPlaces: 1, roundsPlayed: 30, arenasPlayed: 2, totalPayoutLamports: 0, disqualified: true },
+        ],
         marks: [{ userId: "u1", status: "disqualified", reason: "Second account", appliedAt: computedAt.toISOString() }],
         drafts: [{ userId: "u2", action: "approve", actorLogin: "operator", updatedAt: computedAt.toISOString() }],
       },
