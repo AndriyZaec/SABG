@@ -5,11 +5,13 @@ import type {
   AdminLeaderboardPrize,
   AdminLeaderboardResponse,
   AdminLeaderboardScope,
+  AdminLeaderboardWinner,
   AdminMutationCommand,
 } from "@arena/contracts";
 import type { AdminSessionResponse } from "../shared/session.js";
 import { AdminApiError, mutateControl, readLeaderboard } from "./api.js";
 import { ConfirmDialog } from "./ConfirmDialog.js";
+import { FinalizePanel, WinnersTable, formatDateTime } from "./LeaderboardFinalize.js";
 import { MAX_MARK_REASON_LENGTH, MarkDraftsPanel, PlayerMark, PlayerMarkActions, draftLabel } from "./LeaderboardMarks.js";
 import { PrizeEditor } from "./LeaderboardPrizes.js";
 
@@ -18,13 +20,11 @@ type Confirmation =
   | { kind: "close" }
   | { kind: "remove"; scopeId: string; competition: AdminLeaderboardCompetition }
   | { kind: "prize-remove"; scope: AdminLeaderboardScope; prize: AdminLeaderboardPrize }
-  | { kind: "apply"; scope: AdminLeaderboardScope };
+  | { kind: "apply"; scope: AdminLeaderboardScope }
+  | { kind: "finalize"; scope: AdminLeaderboardScope }
+  | { kind: "sent"; scope: AdminLeaderboardScope; winner: AdminLeaderboardWinner };
 
 const LAMPORTS_PER_SOL = 1_000_000_000;
-
-function formatDateTime(value: string): string {
-  return new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
-}
 
 function formatSol(lamports: number): string {
   return `${new Intl.NumberFormat("en", { maximumFractionDigits: 4 }).format(lamports / LAMPORTS_PER_SOL)} SOL`;
@@ -185,6 +185,17 @@ export function LeaderboardPage({ session, onSessionExpired }: {
     );
   };
 
+  // Closing a scope another way than finalize leaves it without winners for good.
+  const unfinalizedPrizesWarning = currentScope !== undefined && currentScope.prizes.length > 0 && currentScope.finalizedAt === undefined && (
+    <p className="leaderboard-warning">
+      {currentScope.name} has prizes but is not finalized: it closes without winners and can no longer be finalized.
+      Finalize it instead to award the prizes.
+    </p>
+  );
+  const finalizedScopes = data.scopes
+    .filter((scope) => scope.winners !== undefined)
+    .sort((a, b) => (b.finalizedAt ?? "").localeCompare(a.finalizedAt ?? ""));
+
   const unfinishedWarning = unfinishedInCurrent.length > 0 && currentScope !== undefined && (
     <p className="leaderboard-warning">
       {currentScope.name} holds an unfinished tournament: {unfinishedInCurrent.join(", ")}.
@@ -233,6 +244,9 @@ export function LeaderboardPage({ session, onSessionExpired }: {
             <button className="danger-action" type="button" disabled={mutating} onClick={() => setConfirmation({ kind: "close" })}>Close current scope</button>
           </div>
         )}
+        {currentScope !== undefined && (
+          <FinalizePanel scope={currentScope} board={data.current} disabled={mutating} onFinalize={() => setConfirmation({ kind: "finalize", scope: currentScope })} />
+        )}
       </section>
 
       <section className="catalog-table-section">
@@ -254,7 +268,7 @@ export function LeaderboardPage({ session, onSessionExpired }: {
                   <tr key={scope.id}>
                     <td><strong>{scope.name}</strong><small>{scope.id}</small></td>
                     <td>
-                      <span className={`state-chip ${scope.current ? "state-chip--on" : ""}`}>{scope.current ? "Current" : scope.status === "open" ? "Open" : "Closed"}</span>
+                      <span className={`state-chip ${scope.current ? "state-chip--on" : ""}`}>{scope.current ? "Current" : scope.status === "open" ? "Open" : scope.finalizedAt !== undefined ? "Finalized" : "Closed"}</span>
                       {scope.closedAt !== undefined && <small>Closed {formatDateTime(scope.closedAt)}</small>}
                     </td>
                     <td>{scope.competitionCount}</td>
@@ -443,6 +457,16 @@ export function LeaderboardPage({ session, onSessionExpired }: {
       )}
 
 
+      {finalizedScopes.map((scope) => (
+        <WinnersTable
+          key={scope.id}
+          scope={scope}
+          winners={scope.winners ?? []}
+          disabled={mutating}
+          onMarkSent={(winner) => setConfirmation({ kind: "sent", scope, winner })}
+        />
+      ))}
+
       {confirmation?.kind === "current" && (
         <ConfirmDialog
           eyebrow="Switch leaderboard scope"
@@ -457,6 +481,7 @@ export function LeaderboardPage({ session, onSessionExpired }: {
               ? "Players will see this scope's leaderboard."
               : `${currentScope.name} gets a final recompute and closes for good: its tournaments can no longer change.`}
           </p>
+          {unfinalizedPrizesWarning}
           {unfinishedWarning}
         </ConfirmDialog>
       )}
@@ -469,6 +494,7 @@ export function LeaderboardPage({ session, onSessionExpired }: {
           onConfirm={() => void runMutation({ type: "leaderboard.scope.close" }, `${currentScope.name} closed.`)}
         >
           <p>It gets a final recompute and closes for good. Players see a coming-soon page until another scope is made current.</p>
+          {unfinalizedPrizesWarning}
           {unfinishedWarning}
         </ConfirmDialog>
       )}
@@ -517,6 +543,43 @@ export function LeaderboardPage({ session, onSessionExpired }: {
             {current.drafts.map((draft) => <li key={draft.userId}><strong>{playerName(draft.userId)}</strong> {draftLabel(draft)}</li>)}
           </ul>
           <p>Players see the changes after the recompute that runs next.</p>
+        </ConfirmDialog>
+      )}
+
+      {confirmation?.kind === "finalize" && (
+        <ConfirmDialog
+          eyebrow="Finalize leaderboard scope"
+          title={`Finalize ${confirmation.scope.name}?`}
+          confirmLabel="Finalize"
+          onCancel={() => setConfirmation(undefined)}
+          onConfirm={() => void runMutation(
+            { type: "leaderboard.scope.finalize", scopeId: confirmation.scope.id },
+            `${confirmation.scope.name} finalized. Winners can now send their trade URLs.`,
+          )}
+        >
+          <p>
+            It gets a final recompute and closes for good: prizes and player marks lock, and the players on prize
+            places become winners. Players see this scope until another one is made current.
+          </p>
+          {unfinishedWarning}
+        </ConfirmDialog>
+      )}
+      {confirmation?.kind === "sent" && (
+        <ConfirmDialog
+          eyebrow="Prize delivery"
+          title={`Mark the prize for place ${confirmation.winner.place} sent?`}
+          confirmLabel="Mark sent"
+          destructive={false}
+          onCancel={() => setConfirmation(undefined)}
+          onConfirm={() => void runMutation(
+            { type: "leaderboard.prize.sent", scopeId: confirmation.scope.id, place: confirmation.winner.place },
+            `Prize for place ${confirmation.winner.place} of ${confirmation.scope.name} marked sent.`,
+          )}
+        >
+          <p>
+            {confirmation.winner.username} can no longer change their trade URL, and it is erased 30 days from now.
+            Mark it only after the Steam trade went out.
+          </p>
         </ConfirmDialog>
       )}
 

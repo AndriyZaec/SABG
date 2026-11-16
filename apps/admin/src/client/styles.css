@@ -402,3 +402,14 @@ button:focus-visible, a:focus-visible { outline: 3px solid var(--yellow); outlin
 @media (max-width: 760px) {
   .leaderboard-prize-form, .leaderboard-drafts { grid-template-columns: 1fr; }
 }
+
+.leaderboard-finalize { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-top: 18px; padding: 16px 18px; border-left: 3px solid var(--yellow); background: var(--paper-deep); font-size: 0.75rem; }
+.leaderboard-finalize > div { display: grid; gap: 6px; }
+.leaderboard-finalize span { color: var(--muted); }
+.leaderboard-finalize ul { display: grid; gap: 4px; margin: 0; padding-left: 18px; color: var(--ink); }
+.leaderboard-finalize .primary-action { flex: 0 0 auto; min-height: 42px; }
+.leaderboard-winners { min-width: 1080px; }
+.leaderboard-copy { justify-content: flex-start; margin-top: 6px; }
+@media (max-width: 760px) {
+  .leaderboard-finalize { flex-direction: column; align-items: stretch; }
+}
