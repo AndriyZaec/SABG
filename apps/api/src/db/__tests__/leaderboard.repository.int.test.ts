@@ -131,6 +131,30 @@ describe.skipIf(!RUN)("leaderboardRepository (integration, requires DATABASE_URL
     expect((await repository.findScope(scope.id))?.name).toBe(`Season renamed ${runId}`);
   });
 
+  it("sets, replaces and removes prizes by place, and never changes a closed scope's prizes", async () => {
+    const scope = await createScope("Prizes");
+    const awp = "https://cdn.example.com/skins/awp.png";
+    const ak = "https://cdn.example.com/skins/ak.png";
+
+    expect(await repository.setPrize(scope.id, 2, ak)).toBe(true);
+    expect(await repository.setPrize(scope.id, 1, ak)).toBe(true);
+    expect(await repository.setPrize(scope.id, 1, awp)).toBe(true);
+    expect(await repository.setPrize(scope.id, 3, ak)).toBe(true);
+    expect(await repository.removePrize(scope.id, 3)).toBe(true);
+    expect(await repository.listPrizes(scope.id)).toEqual([{ place: 1, imageUrl: awp }, { place: 2, imageUrl: ak }]);
+    expect((await repository.listAllPrizes()).filter((prize) => prize.scopeId === scope.id)).toEqual([
+      { scopeId: scope.id, place: 1, imageUrl: awp },
+      { scopeId: scope.id, place: 2, imageUrl: ak },
+    ]);
+
+    await db.update(schema.leaderboardScopes).set({ status: "closed", closedAt: new Date() }).where(eq(schema.leaderboardScopes.id, scope.id));
+
+    expect(await repository.setPrize(scope.id, 1, ak)).toBe(false);
+    expect(await repository.setPrize(scope.id, 4, ak)).toBe(false);
+    expect(await repository.removePrize(scope.id, 2)).toBe(false);
+    expect(await repository.listPrizes(scope.id)).toEqual([{ place: 1, imageUrl: awp }, { place: 2, imageUrl: ak }]);
+  });
+
   it("replaces a scope's entries in full and reads them by rank", async () => {
     const scope = await createScope("Entries");
     const [a, b, c] = [await seedUser("entry-a"), await seedUser("entry-b"), await seedUser("entry-c")];

@@ -53,6 +53,10 @@ export type LeaderboardControl = Pick<
   | "listAdminCompetitions"
   | "listScopeCompetitionSummaries"
   | "topEntries"
+  | "listPrizes"
+  | "listAllPrizes"
+  | "setPrize"
+  | "removePrize"
 > & { recomputeScope: typeof recomputeScope };
 
 export interface OperatorControlDependencies {
@@ -106,6 +110,8 @@ const targetIdFor = (command: AdminMutationCommand): string | undefined => {
     case "leaderboard.scope.current.set":
     case "leaderboard.competition.add":
     case "leaderboard.competition.remove":
+    case "leaderboard.prize.set":
+    case "leaderboard.prize.remove":
       return command.scopeId;
   }
 };
@@ -190,10 +196,11 @@ export class OperatorControlService {
 
   async leaderboard(query?: string): Promise<AdminLeaderboardResponse> {
     const { leaderboard } = this.deps;
-    const [scopes, competitions, summaries] = await Promise.all([
+    const [scopes, competitions, summaries, prizes] = await Promise.all([
       leaderboard.listScopes(),
       leaderboard.listAdminCompetitions(query),
       leaderboard.listScopeCompetitionSummaries(),
+      leaderboard.listAllPrizes(),
     ]);
     const current = scopes.find((scope) => scope.isCurrent);
     const entries = current === undefined ? [] : await leaderboard.topEntries(current.id, ADMIN_LEADERBOARD_TOP);
@@ -209,6 +216,7 @@ export class OperatorControlService {
           ...(scope.closedAt !== null ? { closedAt: scope.closedAt.toISOString() } : {}),
           competitionCount: summary?.competitionCount ?? 0,
           unfinishedCompetitions: summary?.unfinishedCompetitions ?? [],
+          prizes: prizes.filter((prize) => prize.scopeId === scope.id).map(({ place, imageUrl }) => ({ place, imageUrl })),
         };
       }),
       competitions: competitions.map(({ shortName, logoUrl, ...competition }) => ({
@@ -404,6 +412,19 @@ export class OperatorControlService {
           result: { status: "succeeded" },
           details: adding ? { after: command.competitionId } : { before: command.competitionId, after: null },
         };
+      }
+      case "leaderboard.prize.set":
+      case "leaderboard.prize.remove": {
+        const scope = await this.deps.leaderboard.findScope(command.scopeId);
+        if (scope === undefined) return this.refused("Scope not found");
+        if (scope.status !== "open") return this.refused("Scope is closed");
+        const before = (await this.deps.leaderboard.listPrizes(command.scopeId)).find((prize) => prize.place === command.place)?.imageUrl ?? null;
+        const setting = command.type === "leaderboard.prize.set";
+        const changed = setting
+          ? await this.deps.leaderboard.setPrize(command.scopeId, command.place, command.imageUrl)
+          : await this.deps.leaderboard.removePrize(command.scopeId, command.place);
+        if (!changed) return this.refused("Scope is closed");
+        return { result: { status: "succeeded" }, details: { before, after: setting ? command.imageUrl : null } };
       }
     }
   }

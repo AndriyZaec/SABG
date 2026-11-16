@@ -345,6 +345,20 @@ export const leaderboardScopeCompetitions = pgTable("leaderboard_scope_competiti
   primaryKey({ columns: [t.scopeId, t.competitionId], name: "leaderboard_scope_competition_pk" }),
 ]);
 
+/** A scope's skin prize for one place; the image is linked from a CDN, not uploaded. */
+export const leaderboardPrizes = pgTable("leaderboard_prize", {
+  scopeId: uuid("scope_id")
+    .notNull()
+    .references(() => leaderboardScopes.id, { onDelete: "cascade" }),
+  place: integer("place").notNull(),
+  imageUrl: text("image_url").notNull(),
+  ...timestamps,
+}, (t) => [
+  primaryKey({ columns: [t.scopeId, t.place], name: "leaderboard_prize_pk" }),
+  check("leaderboard_prize_place_positive", sql`${t.place} >= 1`),
+  check("leaderboard_prize_image_url_https", sql`${t.imageUrl} like 'https://%'`),
+]);
+
 /** A scope's ranked rows, rebuilt in full by each recompute. */
 export const leaderboardEntries = pgTable("leaderboard_entry", {
   scopeId: uuid("scope_id")

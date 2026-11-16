@@ -21,6 +21,10 @@ function fakeLeaderboard(): OperatorControlDependencies["leaderboard"] {
     listAdminCompetitions: vi.fn().mockResolvedValue([]),
     listScopeCompetitionSummaries: vi.fn().mockResolvedValue([]),
     topEntries: vi.fn().mockResolvedValue([]),
+    listPrizes: vi.fn().mockResolvedValue([]),
+    listAllPrizes: vi.fn().mockResolvedValue([]),
+    setPrize: vi.fn(),
+    removePrize: vi.fn(),
     recomputeScope: vi.fn(),
   };
 }
@@ -146,5 +150,36 @@ describe("operator control leaderboard routes", () => {
 
     expect((await post({ type: "leaderboard.recompute" })).status).toBe(200);
     expect(mutate).toHaveBeenLastCalledWith({ type: "leaderboard.recompute" }, { id: "123", login: "operator" }, expect.any(String));
+  });
+
+  it("validates prize mutations before running them", async () => {
+    const mutate = vi.fn().mockResolvedValue({ result: { status: "succeeded" } });
+    const baseUrl = await start({ mutate });
+    const post = (command: unknown) => fetch(`${baseUrl}/mutations`, { method: "POST", headers, body: JSON.stringify(command) });
+    const scopeId = "3f0c5b9e-8f3a-4d7e-9a51-2b6f0c1d4e7a";
+    const imageUrl = "https://cdn.example.com/skins/awp.png";
+
+    for (const place of [0, 101, 1.5]) {
+      expect((await post({ type: "leaderboard.prize.set", scopeId, place, imageUrl })).status).toBe(400);
+    }
+    for (const badUrl of ["http://cdn.example.com/awp.png", "javascript:alert(1)", "not a url", `https://cdn.example.com/${"a".repeat(2048)}`]) {
+      expect((await post({ type: "leaderboard.prize.set", scopeId, place: 1, imageUrl: badUrl })).status).toBe(400);
+    }
+    expect((await post({ type: "leaderboard.prize.remove", scopeId, place: 0 })).status).toBe(400);
+    expect(mutate).not.toHaveBeenCalled();
+
+    expect((await post({ type: "leaderboard.prize.set", scopeId, place: 100, imageUrl: `  ${imageUrl}  ` })).status).toBe(200);
+    expect(mutate).toHaveBeenLastCalledWith(
+      { type: "leaderboard.prize.set", scopeId, place: 100, imageUrl },
+      { id: "123", login: "operator" },
+      expect.any(String),
+    );
+    expect((await post({ type: "leaderboard.prize.set", scopeId, place: 1, imageUrl: "HTTPS://CDN.example.com/skins/awp.png" })).status).toBe(200);
+    expect(mutate).toHaveBeenLastCalledWith(
+      { type: "leaderboard.prize.set", scopeId, place: 1, imageUrl: "https://cdn.example.com/skins/awp.png" },
+      { id: "123", login: "operator" },
+      expect.any(String),
+    );
+    expect((await post({ type: "leaderboard.prize.remove", scopeId, place: 1 })).status).toBe(200);
   });
 });

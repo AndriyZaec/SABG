@@ -41,6 +41,9 @@ export type AdminMutationCommand =
   | { type: "leaderboard.scope.close" }
   | { type: "leaderboard.competition.add"; scopeId: Uuid; competitionId: Uuid }
   | { type: "leaderboard.competition.remove"; scopeId: Uuid; competitionId: Uuid }
+  /** Adds or replaces the prize for a place of an open scope. */
+  | { type: "leaderboard.prize.set"; scopeId: Uuid; place: number; imageUrl: string }
+  | { type: "leaderboard.prize.remove"; scopeId: Uuid; place: number }
   /** Queues a worker recompute of the current scope; the result shows up once the worker runs. */
   | { type: "leaderboard.recompute" };
 
@@ -86,6 +89,13 @@ export interface AdminLeaderboardScope {
   competitionCount: number;
   /** Names of its competitions that still have an upcoming or live series. */
   unfinishedCompetitions: string[];
+  /** Skin prizes by place, ordered by place. */
+  prizes: AdminLeaderboardPrize[];
+}
+
+export interface AdminLeaderboardPrize {
+  place: number;
+  imageUrl: string;
 }
 
 export interface AdminLeaderboardCompetition {

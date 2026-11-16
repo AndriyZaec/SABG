@@ -176,6 +176,13 @@
       "when": 1793127179409,
       "tag": "0024_leaderboard_scope",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1794828955309,
+      "tag": "0025_leaderboard_prize",
+      "breakpoints": true
     }
   ]
 }

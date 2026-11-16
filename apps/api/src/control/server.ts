@@ -10,6 +10,14 @@ const GridIdSchema = z.string().trim().min(1).max(200).regex(/^[A-Za-z0-9._:-]+$
 const ScopeNameSchema = z.string().trim().min(1).max(80);
 // Blank means no search.
 const LeaderboardQuerySchema = z.string().trim().max(80).optional();
+const PrizePlaceSchema = z.number().int().min(1).max(100);
+const PrizeImageUrlSchema = z
+  .string()
+  .trim()
+  .max(2048)
+  .refine((value) => URL.canParse(value) && new URL(value).protocol === "https:", "Prize image must be an https URL")
+  // Stored normalized, so the database's https check matches whatever case the scheme was typed in.
+  .transform((value) => new URL(value).href);
 const MutationSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("autopilot.set"), enabled: z.boolean() }),
   z.object({ type: z.literal("series.priority.set"), gridSeriesId: GridIdSchema, priority: z.boolean() }),
@@ -23,6 +31,8 @@ const MutationSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("leaderboard.competition.add"), scopeId: z.string().uuid(), competitionId: z.string().uuid() }),
   z.object({ type: z.literal("leaderboard.competition.remove"), scopeId: z.string().uuid(), competitionId: z.string().uuid() }),
   z.object({ type: z.literal("leaderboard.recompute") }),
+  z.object({ type: z.literal("leaderboard.prize.set"), scopeId: z.string().uuid(), place: PrizePlaceSchema, imageUrl: PrizeImageUrlSchema }),
+  z.object({ type: z.literal("leaderboard.prize.remove"), scopeId: z.string().uuid(), place: PrizePlaceSchema }),
 ]);
 const ActorIdSchema = z.string().trim().min(1).max(100);
 const ActorLoginSchema = z.string().trim().min(1).max(100);

@@ -18,6 +18,10 @@ function fakeLeaderboard(overrides: Partial<OperatorControlDependencies["leaderb
     listAdminCompetitions: vi.fn().mockResolvedValue([]),
     listScopeCompetitionSummaries: vi.fn().mockResolvedValue([]),
     topEntries: vi.fn().mockResolvedValue([]),
+    listPrizes: vi.fn().mockResolvedValue([]),
+    listAllPrizes: vi.fn().mockResolvedValue([]),
+    setPrize: vi.fn().mockResolvedValue(true),
+    removePrize: vi.fn().mockResolvedValue(true),
     recomputeScope: vi.fn().mockResolvedValue(true),
     ...overrides,
   };
@@ -237,6 +241,56 @@ describe("operator control leaderboard", () => {
       .resolves.toEqual({ result: { status: "refused", reason: "Competition not found" } });
   });
 
+  it("sets, replaces and removes a prize with the image before and after in the audit", async () => {
+    const imageUrl = "https://cdn.example.com/skins/awp.png";
+    const leaderboard = fakeLeaderboard({
+      findScope: vi.fn().mockResolvedValue(scope("open")),
+      listPrizes: vi.fn().mockResolvedValue([{ place: 2, imageUrl: "https://cdn.example.com/skins/old.png" }]),
+    });
+    const { service, deps } = setup({ leaderboard });
+
+    await expect(service.mutate({ type: "leaderboard.prize.set", scopeId: "open", place: 1, imageUrl }, actor, randomUUID()))
+      .resolves.toEqual({ result: { status: "succeeded" } });
+    expect(leaderboard.setPrize).toHaveBeenCalledWith("open", 1, imageUrl);
+    expect(deps.appendAudit).toHaveBeenLastCalledWith(expect.objectContaining({
+      action: "leaderboard.prize.set", targetId: "open", result: "succeeded", details: { before: null, after: imageUrl },
+    }));
+
+    await expect(service.mutate({ type: "leaderboard.prize.set", scopeId: "open", place: 2, imageUrl }, actor, randomUUID()))
+      .resolves.toEqual({ result: { status: "succeeded" } });
+    expect(deps.appendAudit).toHaveBeenLastCalledWith(expect.objectContaining({
+      details: { before: "https://cdn.example.com/skins/old.png", after: imageUrl },
+    }));
+
+    await expect(service.mutate({ type: "leaderboard.prize.remove", scopeId: "open", place: 2 }, actor, randomUUID()))
+      .resolves.toEqual({ result: { status: "succeeded" } });
+    expect(leaderboard.removePrize).toHaveBeenCalledWith("open", 2);
+    expect(deps.appendAudit).toHaveBeenLastCalledWith(expect.objectContaining({
+      action: "leaderboard.prize.remove", details: { before: "https://cdn.example.com/skins/old.png", after: null },
+    }));
+  });
+
+  it("refuses prize changes on a missing or closed scope, and when the scope closes before the write", async () => {
+    const imageUrl = "https://cdn.example.com/skins/awp.png";
+    const missing = setup();
+    await expect(missing.service.mutate({ type: "leaderboard.prize.set", scopeId: "nope", place: 1, imageUrl }, actor, randomUUID()))
+      .resolves.toEqual({ result: { status: "refused", reason: "Scope not found" } });
+
+    const closed = fakeLeaderboard({ findScope: vi.fn().mockResolvedValue(scope("old", { status: "closed", closedAt: new Date() })) });
+    const { service } = setup({ leaderboard: closed });
+    await expect(service.mutate({ type: "leaderboard.prize.set", scopeId: "old", place: 1, imageUrl }, actor, randomUUID()))
+      .resolves.toEqual({ result: { status: "refused", reason: "Scope is closed" } });
+    await expect(service.mutate({ type: "leaderboard.prize.remove", scopeId: "old", place: 1 }, actor, randomUUID()))
+      .resolves.toEqual({ result: { status: "refused", reason: "Scope is closed" } });
+    expect(closed.setPrize).not.toHaveBeenCalled();
+    expect(closed.removePrize).not.toHaveBeenCalled();
+
+    const racing = fakeLeaderboard({ findScope: vi.fn().mockResolvedValue(scope("open")), setPrize: vi.fn().mockResolvedValue(false) });
+    const raced = setup({ leaderboard: racing });
+    await expect(raced.service.mutate({ type: "leaderboard.prize.set", scopeId: "open", place: 1, imageUrl }, actor, randomUUID()))
+      .resolves.toEqual({ result: { status: "refused", reason: "Scope is closed" } });
+  });
+
   it("queues a recompute of the current scope, and refuses without one or before the queue runs", async () => {
     const leaderboard = fakeLeaderboard({ findCurrent: vi.fn().mockResolvedValue(scope("live", { isCurrent: true })) });
     const { service, deps } = setup({ leaderboard });
@@ -259,8 +313,10 @@ describe("operator control leaderboard", () => {
 
   it("reports scopes, competitions with the unfinished flag, and the current top", async () => {
     const computedAt = new Date("2026-10-27T12:00:00.000Z");
+    const prize = { place: 1, imageUrl: "https://cdn.example.com/skins/awp.png" };
     const leaderboard = fakeLeaderboard({
       listScopes: vi.fn().mockResolvedValue([scope("past", { status: "closed", closedAt: computedAt }), scope("live", { isCurrent: true })]),
+      listAllPrizes: vi.fn().mockResolvedValue([{ scopeId: "live", ...prize }]),
       listAdminCompetitions: vi.fn().mockResolvedValue([
         { id: "c1", name: "Cup", shortName: null, logoUrl: null, scopeIds: ["live"], arenasWithResults: 3, unfinished: true },
       ]),
@@ -274,8 +330,8 @@ describe("operator control leaderboard", () => {
 
     expect(await service.leaderboard()).toEqual({
       scopes: [
-        { id: "past", name: "Scope past", status: "closed", current: false, closedAt: computedAt.toISOString(), competitionCount: 0, unfinishedCompetitions: [] },
-        { id: "live", name: "Scope live", status: "open", current: true, competitionCount: 12, unfinishedCompetitions: ["Cup", "Old Cup"] },
+        { id: "past", name: "Scope past", status: "closed", current: false, closedAt: computedAt.toISOString(), competitionCount: 0, unfinishedCompetitions: [], prizes: [] },
+        { id: "live", name: "Scope live", status: "open", current: true, competitionCount: 12, unfinishedCompetitions: ["Cup", "Old Cup"], prizes: [prize] },
       ],
       competitions: [{ id: "c1", name: "Cup", scopeIds: ["live"], arenasWithResults: 3, unfinished: true }],
       current: {

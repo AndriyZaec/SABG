@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, ilike, sql } from "drizzle-orm";
 import type { LeaderboardScopeStatus, Uuid } from "@arena/contracts";
 import { db, type DatabaseTransaction } from "../client.js";
-import { arenaResults, cs2Competitions, leaderboardEntries, leaderboardScopeCompetitions, leaderboardScopes, series, users } from "../schema.js";
+import { arenaResults, cs2Competitions, leaderboardEntries, leaderboardPrizes, leaderboardScopeCompetitions, leaderboardScopes, series, users } from "../schema.js";
 
 export interface LeaderboardScope {
   id: Uuid;
@@ -28,6 +28,15 @@ export interface LeaderboardEntryRow {
 export interface LeaderboardEntryView extends LeaderboardEntryRow {
   username: string;
   avatar: string | null;
+}
+
+export interface LeaderboardPrize {
+  place: number;
+  imageUrl: string;
+}
+
+export interface ScopePrize extends LeaderboardPrize {
+  scopeId: Uuid;
 }
 
 export type SetCurrentScopeResult = "switched" | "closed" | "current_changed";
@@ -226,6 +235,45 @@ export const leaderboardRepository = {
       await tx
         .delete(leaderboardScopeCompetitions)
         .where(and(eq(leaderboardScopeCompetitions.scopeId, scopeId), eq(leaderboardScopeCompetitions.competitionId, competitionId)));
+      return true;
+    });
+  },
+
+  async listPrizes(scopeId: Uuid): Promise<LeaderboardPrize[]> {
+    return db
+      .select({ place: leaderboardPrizes.place, imageUrl: leaderboardPrizes.imageUrl })
+      .from(leaderboardPrizes)
+      .where(eq(leaderboardPrizes.scopeId, scopeId))
+      .orderBy(asc(leaderboardPrizes.place));
+  },
+
+  /** Every scope's prizes in one read, for the admin overview. */
+  async listAllPrizes(): Promise<ScopePrize[]> {
+    return db
+      .select({ scopeId: leaderboardPrizes.scopeId, place: leaderboardPrizes.place, imageUrl: leaderboardPrizes.imageUrl })
+      .from(leaderboardPrizes)
+      .orderBy(asc(leaderboardPrizes.scopeId), asc(leaderboardPrizes.place));
+  },
+
+  /** Adds or replaces a place's prize. False when the scope isn't open: a closed scope's prizes never change. */
+  async setPrize(scopeId: Uuid, place: number, imageUrl: string): Promise<boolean> {
+    return db.transaction(async (tx) => {
+      if (!(await lockOpenScope(tx, scopeId))) return false;
+      await tx
+        .insert(leaderboardPrizes)
+        .values({ scopeId, place, imageUrl })
+        .onConflictDoUpdate({
+          target: [leaderboardPrizes.scopeId, leaderboardPrizes.place],
+          set: { imageUrl, updatedAt: sql`now()` },
+        });
+      return true;
+    });
+  },
+
+  async removePrize(scopeId: Uuid, place: number): Promise<boolean> {
+    return db.transaction(async (tx) => {
+      if (!(await lockOpenScope(tx, scopeId))) return false;
+      await tx.delete(leaderboardPrizes).where(and(eq(leaderboardPrizes.scopeId, scopeId), eq(leaderboardPrizes.place, place)));
       return true;
     });
   },

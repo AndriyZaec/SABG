@@ -24,6 +24,8 @@ const ACTION_LABELS: Record<OperatorAuditEntry["action"], string> = {
   "leaderboard.competition.add": "Leaderboard tournament add",
   "leaderboard.competition.remove": "Leaderboard tournament remove",
   "leaderboard.recompute": "Leaderboard recompute",
+  "leaderboard.prize.set": "Leaderboard prize set",
+  "leaderboard.prize.remove": "Leaderboard prize remove",
 };
 
 function startOfDay(value: string): string | undefined {
