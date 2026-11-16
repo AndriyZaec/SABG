@@ -3,7 +3,7 @@ export const ARENA_STAGES = ["zone", "final_circle"] as const;
 export type ArenaStage = (typeof ARENA_STAGES)[number];
 
 // Zone increments for rounds 5..24; rounds 1-4 add nothing, every overtime round adds 1.
-const ZONE_INCREMENTS_R5_TO_R24 = [1, 1, 1, 2, 1, 1, 1, 2, 0, 1, 1, 2, 0, 1, 1, 2, 0, 1, 1, 2] as const;
+const ZONE_INCREMENTS_R5_TO_R24 = [1, 1, 1, 2, 1, 1, 1, 2, 0, 1, 1, 2, 1, 1, 1, 2, 1, 1, 1, 2] as const;
 const GRACE_ROUNDS = 4;
 const REGULATION_ROUNDS = 24;
 const ZONE_AFTER_REGULATION = ZONE_INCREMENTS_R5_TO_R24.reduce<number>((sum, inc) => sum + inc, 0);

@@ -4,7 +4,7 @@ import { cs2ClassicRoundPoints, cs2ClassicZoneAfter, isCs2ClassicDoubleRound } f
 describe("cs2ClassicZoneAfter", () => {
   it("follows the classic schedule through regulation and overtime", () => {
     const expected: Record<number, number> = {
-      1: 0, 4: 0, 5: 1, 6: 2, 7: 3, 8: 5, 12: 10, 13: 10, 16: 14, 20: 18, 24: 22, 25: 23, 30: 28,
+      1: 0, 4: 0, 5: 1, 6: 2, 7: 3, 8: 5, 12: 10, 13: 10, 16: 14, 17: 15, 20: 19, 21: 20, 24: 24, 25: 25, 30: 30,
     };
     for (const [round, zone] of Object.entries(expected)) {
       expect(cs2ClassicZoneAfter(Number(round)), `round ${round}`).toBe(zone);
