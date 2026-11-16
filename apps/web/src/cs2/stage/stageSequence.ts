@@ -66,7 +66,7 @@ export function stageZoneSequence(run: number): Frame[] {
     const zone = cs2ClassicZoneAfter(settledRound);
     const leaderboard = base.view.leaderboard.map((row, i) => {
       const score = scores[i] ?? 0;
-      const eliminatedRound = [6, 7, 8, 9].find((round) => round <= settledRound && score < cs2ClassicZoneAfter(round));
+      const eliminatedRound = [5, 6, 7, 8, 9].find((round) => round <= settledRound && score < cs2ClassicZoneAfter(round));
       return { ...row, score, status: eliminatedRound !== undefined ? "eliminated" as const : "active" as const, eliminatedRound };
     });
     const round: Cs2RoundView = { roundId: `zone-${run}-${settledRound + 2}`, roundNumber: settledRound + 2, question: "Will Team Falcons win this round?", status: "open" };

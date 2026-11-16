@@ -99,10 +99,10 @@ export const stageFixtures = {
   "Reconnect · no correct answers": reconnectFixture({ mode: "hardcore", round: { ...ROUND, status: "settled", myAnswer: "no", correctAnswer: "yes", survivalRuleApplied: "no_correct_answers" } }),
   "Eliminated": fixture({ myStatus: "eliminated", survivors: 11, pendingPredictions: [], leaderboard: BASE.leaderboard.map((row) => row.you ? { ...row, status: "eliminated", eliminatedRound: 5 } : row) }),
   "Spectator": fixture({ myStatus: undefined, pendingPredictions: [], leaderboard: BASE.leaderboard.map((row) => ({ ...row, you: false })) }),
-  "Classic zone · double round": fixture({ mode: "classic", zone: { type: "arena.zone", stage: "zone", zone: 5, nextZone: 6 }, round: { ...ROUND, roundId: "stage-r12", roundNumber: 12, question: "Will Team TYLOO win this round?" } }),
+  "Classic zone · double round": fixture({ mode: "classic", zone: { type: "arena.zone", stage: "zone", zone: cs2ClassicZoneAfter(12), nextZone: cs2ClassicZoneAfter(13) }, round: { ...ROUND, roundId: "stage-r13", roundNumber: 13, question: "Will Team TYLOO win the pistol round?" } }),
   "Reconnect · classic correct": reconnectFixture({ round: { ...ROUND, status: "settled", myAnswer: "yes", correctAnswer: "yes" } }),
-  "Reconnect · classic double correct": reconnectFixture({ mode: "classic", round: { ...ROUND, roundNumber: 12, question: "Will a player on Team Falcons get 3 kills this round?", status: "settled", myAnswer: "yes", correctAnswer: "yes" } }),
-  "Reconnect · classic double wrong": reconnectFixture({ mode: "classic", round: { ...ROUND, roundNumber: 12, question: "Will a player on Team Falcons get 3 kills this round?", status: "settled", myAnswer: "no", correctAnswer: "yes" } }),
+  "Reconnect · classic double correct": reconnectFixture({ mode: "classic", round: { ...ROUND, roundNumber: 13, question: "Will Team Falcons win the pistol round?", status: "settled", myAnswer: "yes", correctAnswer: "yes" } }),
+  "Reconnect · classic double wrong": reconnectFixture({ mode: "classic", round: { ...ROUND, roundNumber: 13, question: "Will Team Falcons win the pistol round?", status: "settled", myAnswer: "no", correctAnswer: "yes" } }),
   "Final circle": fixture({ mode: "classic", zone: { type: "arena.zone", stage: "final_circle", fromRound: 7 }, finalCircleFromRound: 7, survivors: 3, leaderboard: players(24, 3) }),
   "Winner": fixture({ myStatus: "winner", finished: true, round: undefined, survivors: 1, pendingPredictions: [], leaderboard: [
     { userId: "stage-player-2", rank: 1, name: HANDLES[2], score: 6, status: "winner", you: true },

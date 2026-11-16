@@ -50,15 +50,15 @@ describe("buildCs2Feed", () => {
   });
 
   it("shows the zone elimination and turns later rounds neutral, not MISSED", () => {
-    const rounds = Array.from({ length: 9 }, (_, i) => round(i + 1, i === 0 ? "no" : undefined));
-    const items = buildCs2Feed(input({ rounds, me: { score: 2, rank: 3, eliminatedRound: 8 } }));
-    expect(items[0]).toEqual({ kind: "round", id: "round-r9", text: "R9 · Tec-9 kill? · answer NO" });
-    expect(items[1]).toEqual({ kind: "out", id: "out", text: "Out — zone 4, you had 2" });
-    expect(items[2]).toMatchObject({ kind: "result", id: "result-r8", outcome: "missed" });
+    const rounds = Array.from({ length: 8 }, (_, i) => round(i + 1, i === 0 ? "no" : undefined));
+    const items = buildCs2Feed(input({ rounds, me: { score: 2, rank: 3, eliminatedRound: 7 } }));
+    expect(items[0]).toEqual({ kind: "round", id: "round-r8", text: "R8 · Tec-9 kill? · answer NO" });
+    expect(items[1]).toEqual({ kind: "out", id: "out", text: "Out — zone 3, you had 2" });
+    expect(items[2]).toMatchObject({ kind: "result", id: "result-r7", outcome: "missed" });
   });
 
   it("marks Final Circle where it starts and scores its double rounds as 1", () => {
-    const rounds = Array.from({ length: 12 }, (_, i) => round(i + 1, "no"));
+    const rounds = Array.from({ length: 13 }, (_, i) => round(i + 1, "no"));
     const items = buildCs2Feed(input({ rounds, me: { score: 9, rank: 1 }, finalCircleFromRound: 7 }));
     const fcAt = items.findIndex((i) => i.id === "final-circle");
     expect(items[fcAt]).toEqual({
@@ -70,7 +70,7 @@ describe("buildCs2Feed", () => {
     });
     expect(items[fcAt - 1]).toMatchObject({ id: "result-r7" });
     expect(items[fcAt + 1]).toMatchObject({ id: "result-r6" });
-    expect(results(items).find((i) => i.id === "result-r12")?.points).toBe(1);
+    expect(results(items).find((i) => i.id === "result-r13")?.points).toBe(1);
     expect(results(items).find((i) => i.id === "result-r1")?.points).toBe(2);
   });
 

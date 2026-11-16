@@ -517,9 +517,10 @@ describe("Cs2ArenaRuntime — classic mode", () => {
     const { broadcasts, runtime } = playClassic([A, B], rounds);
     const zones = broadcasts.filter((m) => m.type === "arena.zone");
     expect(zones).toHaveLength(9);
-    expect(zones[4]).toEqual({ type: "arena.zone", stage: "zone", zone: 0, nextZone: 1 });
-    expect(zones[7]).toEqual({ type: "arena.zone", stage: "zone", zone: 4, nextZone: 5 });
-    expect(zones[8]).toEqual({ type: "arena.zone", stage: "zone", zone: 5, nextZone: 6 });
+    expect(zones[3]).toEqual({ type: "arena.zone", stage: "zone", zone: 0, nextZone: 1 });
+    expect(zones[4]).toEqual({ type: "arena.zone", stage: "zone", zone: 1, nextZone: 2 });
+    expect(zones[7]).toEqual({ type: "arena.zone", stage: "zone", zone: 5, nextZone: 6 });
+    expect(zones[8]).toEqual({ type: "arena.zone", stage: "zone", zone: 6, nextZone: 7 });
     // R10 is open now; the last zone still describes R9.
     expect(runtime.currentRound?.roundNumber).toBe(10);
   });
@@ -541,10 +542,10 @@ describe("Cs2ArenaRuntime — classic mode", () => {
   });
 
   it("eliminates a player who falls below the zone at R8 and tells them", () => {
-    const rounds = Array.from({ length: 8 }, (_, i) => ({ [A]: "yes" as const, [B]: "yes" as const, [C]: i === 0 ? "yes" as const : "no" as const }));
+    const rounds = Array.from({ length: 8 }, (_, i) => ({ [A]: "yes" as const, [B]: "yes" as const, [C]: i <= 1 ? "yes" as const : "no" as const }));
     const { runtime, arenaPlayerStore, personal, roundIds, setStatus } = playClassic([A, B, C], rounds);
-    // C: 2 points after R1, then nothing; zone after R7 = 2, after R8 = 4.
-    expect(score(runtime, C)).toBe(2);
+    // C: 3 points after R2, then nothing; zone after R7 = 3, after R8 = 5.
+    expect(score(runtime, C)).toBe(3);
     expect(arenaPlayerStore.getStatus(C)).toBe("eliminated");
     expect(setStatus).toHaveBeenCalledWith(C, "eliminated", roundIds[7]);
     expect(runtime.leaderboardSnapshot().find((e) => e.userId === C)?.eliminatedRound).toBe(8);
@@ -554,21 +555,21 @@ describe("Cs2ArenaRuntime — classic mode", () => {
   });
 
   it("starts Final Circle once when the zone would empty the field with tied leaders, then a wrong answer eliminates", () => {
-    // Nobody scores, so zone 1 after R6 would eliminate everyone; A and B tie at 0 and survive.
-    const warmup = Array.from({ length: 6 }, () => ({ [A]: "no" as const, [B]: "no" as const }));
-    const { broadcasts, finished, finalCircleFrom, runtime } = playClassic([A, B], [...warmup, { [A]: "yes", [B]: "no" }]);
+    // Nobody scores, so zone 1 after R5 would eliminate everyone; A and B tie at 0 and survive.
+    const noPoints = Array.from({ length: 5 }, () => ({ [A]: "no" as const, [B]: "no" as const }));
+    const { broadcasts, finished, finalCircleFrom, runtime } = playClassic([A, B], [...noPoints, { [A]: "yes", [B]: "no" }]);
     const zones = broadcasts.filter((m) => m.type === "arena.zone");
-    // R6 started Final Circle, so R7 is its first round; every later settle repeats it.
-    expect(zones.slice(5)).toEqual([
-      { type: "arena.zone", stage: "final_circle", fromRound: 7 },
-      { type: "arena.zone", stage: "final_circle", fromRound: 7 },
+    // R5 started Final Circle, so R6 is its first round; every later settle repeats it.
+    expect(zones.slice(4)).toEqual([
+      { type: "arena.zone", stage: "final_circle", fromRound: 6 },
+      { type: "arena.zone", stage: "final_circle", fromRound: 6 },
     ]);
-    expect(finalCircleFrom).toEqual([7]);
+    expect(finalCircleFrom).toEqual([6]);
     const stageAt = broadcasts.findIndex((m) => m.type === "arena.zone" && m.stage === "final_circle");
     const settles = broadcasts.flatMap((m, i) => (m.type === "round.settle" ? [i] : []));
-    // R6's own settle comes first; Final Circle follows it, before R7 settles.
-    expect(settles[5]).toBeLessThan(stageAt);
-    expect(settles[6]).toBeGreaterThan(stageAt);
+    // R5's own settle comes first; Final Circle follows it, before R6 settles.
+    expect(settles[4]).toBeLessThan(stageAt);
+    expect(settles[5]).toBeGreaterThan(stageAt);
     expect(finished).toEqual([[A]]);
     expect(runtime.finalWinners()).toEqual([A]);
     expect(runtime.statusFor(A)).toBe("winner");
@@ -581,32 +582,33 @@ describe("Cs2ArenaRuntime — classic mode", () => {
     const resultsOf = (userId: Uuid) => personal.flatMap((p) => (p.userId === userId && p.message.type === "player.result" ? [p.message] : []));
 
     expect(resultsOf(A).map((m) => m.points)).toEqual([2, 1, 1, 1, 1, 1, 1, 1, 1]);
-    // C: double round 1, a wrong answer, then misses until the zone takes them at R8.
+    // C: double round 1, a wrong answer, then misses until the zone takes them at R7.
     expect(resultsOf(C).slice(0, 3)).toEqual([
       { type: "player.result", roundId: roundIds[0], roundNumber: 1, answer: "yes", result: "correct", points: 2 },
       { type: "player.result", roundId: roundIds[1], roundNumber: 2, answer: "no", result: "incorrect", points: 0 },
       { type: "player.result", roundId: roundIds[2], roundNumber: 3, answer: null, result: "missed", points: 0 },
     ]);
-    expect(resultsOf(C).map((m) => m.roundNumber)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(resultsOf(C).map((m) => m.roundNumber)).toEqual([1, 2, 3, 4, 5, 6, 7]);
   });
 
   it("scores a double round as 1 in Final Circle", () => {
-    // Nobody scores R1-R6, so Final Circle starts at R7; both keep answering right through R12.
+    // Nobody scores R1-R5, so Final Circle starts at R6; both keep answering right through R13.
     const rounds = [
-      ...Array.from({ length: 6 }, () => ({ [A]: "no" as const, [B]: "no" as const })),
-      ...Array.from({ length: 6 }, () => ({ [A]: "yes" as const, [B]: "yes" as const })),
+      ...Array.from({ length: 5 }, () => ({ [A]: "no" as const, [B]: "no" as const })),
+      ...Array.from({ length: 8 }, () => ({ [A]: "yes" as const, [B]: "yes" as const })),
     ];
     const { personal } = playClassic([A, B], rounds);
-    const r12 = personal.find((p) => p.userId === A && p.message.type === "player.result" && p.message.roundNumber === 12);
-    expect(r12?.message).toMatchObject({ result: "correct", points: 1 });
+    const r13 = personal.find((p) => p.userId === A && p.message.type === "player.result" && p.message.roundNumber === 13);
+    expect(r13?.message).toMatchObject({ result: "correct", points: 1 });
   });
 
   it("lets a single leader win outright when the zone would empty the field, without Final Circle", () => {
-    // After R7: A has 3, B has 2. Zone after R8 = 4 puts both below; A alone survives.
+    // After R7: A has 4, B has 3. Zone after R8 = 5 puts both below; A alone survives.
     const rounds = [
       { [A]: "yes" as const, [B]: "yes" as const },
+      { [A]: "yes" as const, [B]: "yes" as const },
       { [A]: "yes" as const, [B]: "no" as const },
-      ...Array.from({ length: 6 }, () => ({ [A]: "no" as const, [B]: "no" as const })),
+      ...Array.from({ length: 5 }, () => ({ [A]: "no" as const, [B]: "no" as const })),
     ];
     const { broadcasts, finished, finalCircleFrom } = playClassic([A, B], rounds);
     expect(broadcasts.some((m) => m.type === "arena.zone" && m.stage === "final_circle")).toBe(false);
@@ -622,7 +624,7 @@ describe("Cs2ArenaRuntime — classic mode", () => {
   });
 
   it("hands each player's final result to the persistence at finish", () => {
-    // C scores only in R1 and falls below the zone at R8; A and B answer everything through R10.
+    // C scores only in R1 and falls below the zone at R7; A and B answer everything through R10.
     const rounds = Array.from({ length: 10 }, (_, i) => ({ [A]: "yes" as const, [B]: "yes" as const, [C]: i === 0 ? "yes" as const : "no" as const }));
     const { bus, results } = playClassic([A, B, C], rounds);
     // R11 is open at match end and gets voided; it isn't a round played.
@@ -630,7 +632,7 @@ describe("Cs2ArenaRuntime — classic mode", () => {
     expect(results).toEqual([[
       { userId: A, score: 11, rank: 1, won: true, roundsPlayed: 10 },
       { userId: B, score: 11, rank: 1, won: true, roundsPlayed: 10 },
-      { userId: C, score: 2, rank: 3, won: false, roundsPlayed: 8 },
+      { userId: C, score: 2, rank: 3, won: false, roundsPlayed: 7 },
     ]]);
   });
 
