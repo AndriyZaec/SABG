@@ -58,8 +58,8 @@ export function cs2Difficulty(candidate: Cs2Candidate, isPistolRound: boolean, t
 }
 
 export function cs2TierForRound(roundNumber: number): Cs2DifficultyTier {
-  if (roundNumber <= 5) return "easy";
-  if (roundNumber <= 14) return "medium";
+  if (roundNumber <= 4) return "easy";
+  if (roundNumber <= 11) return "medium";
   return "hard";
 }
 

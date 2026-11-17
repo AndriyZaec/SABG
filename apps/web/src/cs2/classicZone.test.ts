@@ -35,11 +35,11 @@ describe("classicZoneHud", () => {
 describe("classicRoundScoring", () => {
   it("marks double rounds while the zone is in play", () => {
     expect([1, 2, 11, 12, 13, 24, 25].map((n) => classicRoundScoring(view(), n)?.double))
-      .toEqual([true, false, false, true, true, true, false]);
+      .toEqual([true, false, false, false, true, false, false]);
   });
 
   it("falls back to elimination scoring in hardcore and Final Circle", () => {
     expect(classicRoundScoring(view({ mode: "hardcore" }), 1)).toBeUndefined();
-    expect(classicRoundScoring(view({ zone: FINAL_CIRCLE }), 24)).toBeUndefined();
+    expect(classicRoundScoring(view({ zone: FINAL_CIRCLE }), 13)).toBeUndefined();
   });
 });

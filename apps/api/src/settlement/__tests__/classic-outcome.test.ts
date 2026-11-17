@@ -29,11 +29,20 @@ describe("resolveClassicRound — zone stage", () => {
     ]);
     expect(r1.stage).toBe("zone");
     expect(byUser(round(2, [["a", 0, "yes"], ["b", 0, "no"]]), "a")?.points).toBe(1);
-    expect(round(5, [["a", 0, "no"], ["b", 0, undefined]]).results.every((r) => r.status === "active")).toBe(true);
+    const r4 = round(4, [["a", 0, "no"], ["b", 0, undefined]]);
+    expect(r4.results.every((r) => r.status === "active")).toBe(true);
+    expect(r4.stage).toBe("zone");
   });
 
-  it("eliminates only players strictly below the zone (zone after R8 = 4)", () => {
-    const outcome = round(8, [["below", 3, "no"], ["onZone", 4, "no"], ["above", 4, "yes"]]);
+  it("starts the zone after R5 (zone 1)", () => {
+    const outcome = round(5, [["out", 0, "no"], ["in", 0, "yes"]]);
+    expect(byUser(outcome, "out")?.status).toBe("eliminated");
+    expect(byUser(outcome, "in")?.status).toBe("active");
+    expect(outcome.stage).toBe("zone");
+  });
+
+  it("eliminates only players strictly below the zone (zone after R8 = 5)", () => {
+    const outcome = round(8, [["below", 4, "no"], ["onZone", 5, "no"], ["above", 5, "yes"]]);
     expect(byUser(outcome, "below")?.status).toBe("eliminated");
     expect(byUser(outcome, "onZone")?.status).toBe("active");
     expect(byUser(outcome, "above")?.status).toBe("active");
@@ -42,7 +51,7 @@ describe("resolveClassicRound — zone stage", () => {
   });
 
   it("when the zone would empty the field, the tied top scorers survive and Final Circle starts", () => {
-    // Zone after R13 = 9; R13 is a double round.
+    // Zone after R13 = 10; R13 is a double round.
     const outcome = round(13, [["a", 5, "no"], ["b", 3, "yes"], ["c", 3, "no"]]);
     expect(outcome.results.map((r) => [r.userId, r.status])).toEqual([
       ["a", "active"], ["b", "active"], ["c", "eliminated"],
@@ -69,7 +78,7 @@ describe("resolveClassicRound — zone stage", () => {
 
 describe("resolveClassicRound — Final Circle", () => {
   it("eliminates wrong and missed answers, ignores the zone and gives 1 point even on a double round", () => {
-    const outcome = round(24, [["a", 1, "yes"], ["b", 30, "no"], ["c", 30, undefined]], "final_circle");
+    const outcome = round(13, [["a", 1, "yes"], ["b", 30, "no"], ["c", 30, undefined]], "final_circle");
     expect(outcome.results).toEqual([
       { userId: "a", answer: "yes", result: "correct", points: 1, status: "active" },
       { userId: "b", answer: "no", result: "incorrect", points: 0, status: "eliminated" },

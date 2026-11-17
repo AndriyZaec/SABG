@@ -82,6 +82,24 @@ describe("eligibleCs2Candidates", () => {
     expect(round3Weapons.has("hegrenade")).toBe(true);
   });
 
+  it("moves flat-pool topics in at R5 and ak47/awp at R12, but keeps ak47/awp out of R14 (economy ban)", () => {
+    const flat = (roundNumber: number) =>
+      eligibleCs2Candidates({ teams: TEAMS, roundNumber, previousCandidate: undefined })
+        .some((c) => c.topic === "round_winner" || c.topic === "survivors_team");
+    const weapons = (roundNumber: number) => new Set(
+      eligibleCs2Candidates({ teams: TEAMS, roundNumber, previousCandidate: undefined })
+        .filter((c) => c.topic === "weapon_kill")
+        .map((c) => c.params.weapon),
+    );
+    expect(flat(4)).toBe(false);
+    expect(flat(5)).toBe(true);
+    for (const weapon of ["ak47", "awp"] as const) {
+      expect(weapons(11).has(weapon), `${weapon} on R11`).toBe(false);
+      expect(weapons(12).has(weapon), `${weapon} on R12`).toBe(true);
+      expect(weapons(14).has(weapon), `${weapon} on R14`).toBe(false);
+    }
+  });
+
   it("ak47/awp (hard-tier weapons) become eligible once a round reaches the hard tier", () => {
     const hardPool = eligibleCs2Candidates({ teams: TEAMS, roundNumber: 20, previousCandidate: undefined });
     const hardWeapons = new Set(hardPool.filter((c) => c.topic === "weapon_kill").map((c) => c.params.weapon));
