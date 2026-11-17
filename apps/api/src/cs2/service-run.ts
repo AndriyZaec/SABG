@@ -10,7 +10,7 @@ import { logger } from "../gateway/logger.js";
 import { createGatewayServer } from "../gateway/server.js";
 import { WriteQueue } from "../gateway/stores/write-queue.js";
 import { MongoService } from "../grid/mongo/mongo.service.js";
-import { registerLeaderboardJobs } from "../leaderboard/jobs.js";
+import { registerLeaderboardJobs, registerTradeUrlErasureJob } from "../leaderboard/jobs.js";
 import { startScheduler, stopScheduler, type Scheduler } from "../scheduler/index.js";
 import { Cs2Autopilot, createCs2AutopilotDeps, registerCs2AutopilotJobs } from "./autopilot.js";
 import { cs2CatalogConfig } from "./catalog-config.js";
@@ -101,6 +101,7 @@ async function main(): Promise<void> {
       registerJobs: async (boss) => {
         await registerCs2AutopilotJobs(boss, launcher);
         queueLeaderboardRecompute = await registerLeaderboardJobs(boss);
+        await registerTradeUrlErasureJob(boss);
       },
     });
     // A signal during startup already ran shutdown() without the scheduler.

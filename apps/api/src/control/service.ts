@@ -2,6 +2,7 @@ import type {
   AdminCatalogResponse,
   AdminControlStatus,
   AdminLeaderboardResponse,
+  AdminLeaderboardWinner,
   AdminMutationCommand,
   AdminMutationResult,
   Cs2OperatorDiscoveryPayload,
@@ -16,9 +17,10 @@ import { GridCentralDataClient } from "../cs2/central-data-client.js";
 import { tryAcquireOperatorMutationLock, type ReleaseDatabaseLock } from "../db/client.js";
 import { cs2CatalogRepository } from "../db/repositories/cs2-catalog.repository.js";
 import { operatorAuditRepository, type AppendOperatorAudit } from "../db/repositories/operator-audit.repository.js";
-import { leaderboardRepository } from "../db/repositories/leaderboard.repository.js";
+import { leaderboardRepository, type PrizeClaimView } from "../db/repositories/leaderboard.repository.js";
 import { operatorControlRepository } from "../db/repositories/operator-control.repository.js";
-import { recomputeScope } from "../leaderboard/recompute.js";
+import { endScope, recomputeScope } from "../leaderboard/recompute.js";
+import { assignPrizePlaces } from "../leaderboard/player-ranking.js";
 import {
   CS2_AUTOPILOT_SETTING,
   settingsRepository,
@@ -37,6 +39,7 @@ export interface OperatorMutationExecution {
 const ADMIN_LEADERBOARD_TOP = 100;
 // Another operator switched or closed the current scope between this request's read and its write.
 const CURRENT_SCOPE_CHANGED = "Current scope changed; reload and try again";
+const DRAFTS_PENDING = "Apply or remove the staged mark changes first";
 
 export type LeaderboardControl = Pick<
   typeof leaderboardRepository,
@@ -46,14 +49,25 @@ export type LeaderboardControl = Pick<
   | "createScope"
   | "renameScope"
   | "setCurrent"
-  | "closeCurrent"
   | "addCompetition"
   | "removeCompetition"
   | "competitionExists"
   | "listAdminCompetitions"
   | "listScopeCompetitionSummaries"
   | "topEntries"
-> & { recomputeScope: typeof recomputeScope };
+  | "listPrizes"
+  | "listAllPrizes"
+  | "setPrize"
+  | "removePrize"
+  | "userExists"
+  | "listMarks"
+  | "listMarkDrafts"
+  | "setMarkDraft"
+  | "removeMarkDraft"
+  | "applyMarkDrafts"
+  | "listPrizeClaims"
+  | "markPrizeSent"
+> & { recomputeScope: typeof recomputeScope; endScope: typeof endScope };
 
 export interface OperatorControlDependencies {
   getActiveTournamentId(): Promise<string | undefined>;
@@ -81,6 +95,20 @@ export interface OperatorControlDependencies {
   queueLeaderboardRecompute(): boolean;
 }
 
+function toAdminWinner(claim: PrizeClaimView): AdminLeaderboardWinner {
+  return {
+    place: claim.place,
+    userId: claim.userId,
+    username: claim.username,
+    walletAddress: claim.walletAddress,
+    imageUrl: claim.imageUrl,
+    ...(claim.tradeUrl !== null ? { tradeUrl: claim.tradeUrl } : {}),
+    ...(claim.tradeUrlUpdatedAt !== null ? { tradeUrlUpdatedAt: claim.tradeUrlUpdatedAt.toISOString() } : {}),
+    ...(claim.sentAt !== null ? { sentAt: claim.sentAt.toISOString() } : {}),
+    ...(claim.tradeUrlErasedAt !== null ? { tradeUrlErasedAt: claim.tradeUrlErasedAt.toISOString() } : {}),
+  };
+}
+
 export interface OperatorAuditQuery {
   actorId?: string;
   from?: Date;
@@ -99,14 +127,22 @@ const targetIdFor = (command: AdminMutationCommand): string | undefined => {
     case "series.skip.request":
       return command.gridSeriesId;
     case "leaderboard.scope.create":
-    case "leaderboard.scope.close":
     case "leaderboard.recompute":
       return undefined;
     case "leaderboard.scope.rename":
     case "leaderboard.scope.current.set":
     case "leaderboard.competition.add":
     case "leaderboard.competition.remove":
+    case "leaderboard.prize.set":
+    case "leaderboard.prize.remove":
+    case "leaderboard.marks.apply":
+    case "leaderboard.scope.close":
       return command.scopeId;
+    case "leaderboard.mark.draft.set":
+    case "leaderboard.mark.draft.remove":
+      return `${command.scopeId}:${command.userId}`;
+    case "leaderboard.prize.sent":
+      return `${command.scopeId}:${command.place}`;
   }
 };
 
@@ -148,7 +184,7 @@ function createDefaultDependencies(
       return buildOperatorDiscoveryPayload(window, found === undefined ? [] : [found]);
     },
     activate: (gridSeriesId, expectedTournamentId) => activateCs2Series(gridSeriesId, { expectedTournamentId }),
-    leaderboard: { ...leaderboardRepository, recomputeScope },
+    leaderboard: { ...leaderboardRepository, recomputeScope, endScope },
     queueLeaderboardRecompute,
   };
 }
@@ -190,14 +226,27 @@ export class OperatorControlService {
 
   async leaderboard(query?: string): Promise<AdminLeaderboardResponse> {
     const { leaderboard } = this.deps;
-    const [scopes, competitions, summaries] = await Promise.all([
-      leaderboard.listScopes(),
+    const [[scopes, claims], competitions, summaries, prizes] = await Promise.all([
+      leaderboard.listScopes().then(async (scopes) => [
+        scopes,
+        await leaderboard.listPrizeClaims(scopes.filter((scope) => scope.finalizedAt !== null).map((scope) => scope.id)),
+      ] as const),
       leaderboard.listAdminCompetitions(query),
       leaderboard.listScopeCompetitionSummaries(),
+      leaderboard.listAllPrizes(),
     ]);
     const current = scopes.find((scope) => scope.isCurrent);
-    const entries = current === undefined ? [] : await leaderboard.topEntries(current.id, ADMIN_LEADERBOARD_TOP);
+    const [entries, marks, drafts] = current === undefined
+      ? [[], [], []]
+      : await Promise.all([
+        leaderboard.topEntries(current.id, ADMIN_LEADERBOARD_TOP),
+        leaderboard.listMarks(current.id),
+        leaderboard.listMarkDrafts(current.id),
+      ]);
     const computedAt = entries[0]?.computedAt;
+    const prizePlaces = current === undefined
+      ? new Map<Uuid, number>()
+      : assignPrizePlaces(entries, prizes.filter((prize) => prize.scopeId === current.id).map((prize) => prize.place));
     return {
       scopes: scopes.map((scope) => {
         const summary = summaries.find((row) => row.scopeId === scope.id);
@@ -207,8 +256,13 @@ export class OperatorControlService {
           status: scope.status,
           current: scope.isCurrent,
           ...(scope.closedAt !== null ? { closedAt: scope.closedAt.toISOString() } : {}),
+          ...(scope.finalizedAt !== null ? { finalizedAt: scope.finalizedAt.toISOString() } : {}),
           competitionCount: summary?.competitionCount ?? 0,
           unfinishedCompetitions: summary?.unfinishedCompetitions ?? [],
+          prizes: prizes.filter((prize) => prize.scopeId === scope.id).map(({ place, imageUrl }) => ({ place, imageUrl })),
+          ...(scope.finalizedAt !== null
+            ? { winners: claims.filter((claim) => claim.scopeId === scope.id).map(toAdminWinner) }
+            : {}),
         };
       }),
       competitions: competitions.map(({ shortName, logoUrl, ...competition }) => ({
@@ -221,16 +275,34 @@ export class OperatorControlService {
             current: {
               scopeId: current.id,
               ...(computedAt !== undefined ? { computedAt: computedAt.toISOString() } : {}),
-              entries: entries.map((entry) => ({
-                userId: entry.userId,
-                username: entry.username,
-                rank: entry.rank,
-                points: entry.points,
-                wins: entry.wins,
-                secondPlaces: entry.secondPlaces,
-                roundsPlayed: entry.roundsPlayed,
-                arenasPlayed: entry.arenasPlayed,
-                totalPayoutLamports: entry.totalPayoutLamports,
+              entries: entries.map((entry) => {
+                const prizePlace = prizePlaces.get(entry.userId);
+                return {
+                  userId: entry.userId,
+                  username: entry.username,
+                  rank: entry.rank,
+                  points: entry.points,
+                  wins: entry.wins,
+                  secondPlaces: entry.secondPlaces,
+                  roundsPlayed: entry.roundsPlayed,
+                  arenasPlayed: entry.arenasPlayed,
+                  totalPayoutLamports: entry.totalPayoutLamports,
+                  disqualified: entry.disqualified,
+                  ...(prizePlace !== undefined ? { prizePlace } : {}),
+                };
+              }),
+              marks: marks.map((mark) => ({
+                userId: mark.userId,
+                status: mark.status,
+                ...(mark.reason !== null ? { reason: mark.reason } : {}),
+                appliedAt: mark.appliedAt.toISOString(),
+              })),
+              drafts: drafts.map((draft) => ({
+                userId: draft.userId,
+                action: draft.action,
+                ...(draft.reason !== null ? { reason: draft.reason } : {}),
+                actorLogin: draft.actorLogin,
+                updatedAt: draft.updatedAt.toISOString(),
               })),
             },
           }
@@ -284,7 +356,7 @@ export class OperatorControlService {
     try {
       let execution: { result: AdminMutationResult; details?: OperatorAuditDetails };
       try {
-        execution = await this.execute(command);
+        execution = await this.execute(command, actor);
       } catch (error) {
         await this.audit(command, actor, requestId, "failed", { reason: "Command failed" });
         throw error;
@@ -296,7 +368,19 @@ export class OperatorControlService {
     }
   }
 
-  private async execute(command: AdminMutationCommand): Promise<{
+  /**
+   * Marks and the scope end act only on the current scope: it alone has a recomputed board to verify, and the
+   * recompute marks queue covers only it. Switching away closes it, so a later write is refused as closed.
+   */
+  private async currentScopeRefusal(scopeId: Uuid): Promise<string | undefined> {
+    const scope = await this.deps.leaderboard.findScope(scopeId);
+    if (scope === undefined) return "Scope not found";
+    if (scope.status !== "open") return "Scope is closed";
+    if (!scope.isCurrent) return "Scope is not current";
+    return undefined;
+  }
+
+  private async execute(command: AdminMutationCommand, actor: OperatorIdentity): Promise<{
     result: AdminMutationResult;
     details?: OperatorAuditDetails;
   }> {
@@ -374,14 +458,27 @@ export class OperatorControlService {
         const switched = await this.deps.leaderboard.setCurrent(scope.id, previous?.id ?? null);
         if (switched === "closed") return this.refused("Scope is closed");
         if (switched === "current_changed") return this.refused(CURRENT_SCOPE_CHANGED);
+        if (switched === "current_has_prizes") return this.refused("End the current scope first: it has prizes to award");
+        if (switched === "current_has_drafts") return this.refused(DRAFTS_PENDING);
         return { result: { status: "succeeded" }, details: { before: previous?.id ?? null, after: scope.id } };
       }
       case "leaderboard.scope.close": {
-        const current = await this.deps.leaderboard.findCurrent();
-        if (current === undefined) return this.refused("No current scope");
-        await this.deps.leaderboard.recomputeScope(current.id);
-        if (!await this.deps.leaderboard.closeCurrent(current.id)) return this.refused(CURRENT_SCOPE_CHANGED);
-        return { result: { status: "succeeded" }, details: { before: current.id, after: null } };
+        const refusal = await this.currentScopeRefusal(command.scopeId);
+        if (refusal !== undefined) return this.refused(refusal);
+        // Checks drafts and prizes, then runs the final recompute, all under the lock marks and prizes change under.
+        const ended = await this.deps.leaderboard.endScope(command.scopeId);
+        switch (ended.kind) {
+          case "closed":
+            return { result: { status: "succeeded" }, details: { before: command.scopeId, after: null } };
+          case "finalized":
+            return { result: { status: "succeeded" }, details: { before: command.scopeId, after: ended.claims } };
+          case "current_changed":
+            return this.refused(CURRENT_SCOPE_CHANGED);
+          case "drafts_pending":
+            return this.refused(DRAFTS_PENDING);
+          case "unapproved":
+            return this.refused(`Prize players need an approval: ${ended.usernames.join(", ")}`);
+        }
       }
       case "leaderboard.recompute": {
         const current = await this.deps.leaderboard.findCurrent();
@@ -404,6 +501,63 @@ export class OperatorControlService {
           result: { status: "succeeded" },
           details: adding ? { after: command.competitionId } : { before: command.competitionId, after: null },
         };
+      }
+      case "leaderboard.prize.set":
+      case "leaderboard.prize.remove": {
+        const scope = await this.deps.leaderboard.findScope(command.scopeId);
+        if (scope === undefined) return this.refused("Scope not found");
+        if (scope.status !== "open") return this.refused("Scope is closed");
+        const before = (await this.deps.leaderboard.listPrizes(command.scopeId)).find((prize) => prize.place === command.place)?.imageUrl ?? null;
+        const setting = command.type === "leaderboard.prize.set";
+        const changed = setting
+          ? await this.deps.leaderboard.setPrize(command.scopeId, command.place, command.imageUrl)
+          : await this.deps.leaderboard.removePrize(command.scopeId, command.place);
+        if (!changed) return this.refused("Scope is closed");
+        return { result: { status: "succeeded" }, details: { before, after: setting ? command.imageUrl : null } };
+      }
+      case "leaderboard.prize.sent": {
+        // The trade URL is personal data: the audit records only the place and the date.
+        const marked = await this.deps.leaderboard.markPrizeSent(command.scopeId, command.place);
+        if (marked.kind === "not_found") return this.refused("Prize claim not found");
+        if (marked.kind === "no_trade_url") return this.refused("Winner has not sent a trade URL yet");
+        return {
+          result: { status: "succeeded" },
+          details: { before: marked.previous?.toISOString() ?? null, after: marked.sentAt.toISOString() },
+        };
+      }
+      case "leaderboard.mark.draft.set":
+      case "leaderboard.mark.draft.remove": {
+        const refusal = await this.currentScopeRefusal(command.scopeId);
+        if (refusal !== undefined) return this.refused(refusal);
+        if (!await this.deps.leaderboard.userExists(command.userId)) return this.refused("Player not found");
+        const before = (await this.deps.leaderboard.listMarkDrafts(command.scopeId)).find((draft) => draft.userId === command.userId)?.action ?? null;
+        if (command.type === "leaderboard.mark.draft.remove") {
+          if (!await this.deps.leaderboard.removeMarkDraft(command.scopeId, command.userId)) return this.refused("Scope is closed");
+          return { result: { status: "succeeded" }, details: { before, after: null } };
+        }
+        const reason = command.reason ?? null;
+        if (command.action === "disqualify" && reason === null) return this.refused("A disqualification needs a reason");
+        if (command.action !== "disqualify" && reason !== null) return this.refused("Only a disqualification takes a reason");
+        if (command.action === "clear" && !(await this.deps.leaderboard.listMarks(command.scopeId)).some((mark) => mark.userId === command.userId)) {
+          return this.refused("No mark to clear");
+        }
+        if (!await this.deps.leaderboard.setMarkDraft(command.scopeId, command.userId, command.action, reason, actor.login)) {
+          return this.refused("Scope is closed");
+        }
+        return { result: { status: "succeeded" }, details: { before, after: command.action } };
+      }
+      case "leaderboard.marks.apply": {
+        const refusal = await this.currentScopeRefusal(command.scopeId);
+        if (refusal !== undefined) return this.refused(refusal);
+        if ((await this.deps.leaderboard.listMarkDrafts(command.scopeId)).length === 0) return this.refused("No changes to apply");
+        // Doubles as the running check: a run it queues before the apply commits is harmless, and the one
+        // queued after the apply reads the applied marks.
+        if (!this.deps.queueLeaderboardRecompute()) return this.refused("Recompute queue is not running");
+        const applied = await this.deps.leaderboard.applyMarkDrafts(command.scopeId);
+        if (applied === false) return this.refused("Scope is closed");
+        if (applied === 0) return this.refused("No changes to apply");
+        this.deps.queueLeaderboardRecompute();
+        return { result: { status: "succeeded" }, details: { after: applied } };
       }
     }
   }

@@ -5,6 +5,8 @@ import {
   ARENA_STATUSES,
   CS2_SERIES_LIFECYCLES,
   DISCIPLINES,
+  LEADERBOARD_MARK_ACTIONS,
+  LEADERBOARD_MARK_STATUSES,
   LEADERBOARD_SCOPE_STATUSES,
   ENTRY_PASS_STATUSES,
   MATCH_PERIODS,
@@ -53,6 +55,8 @@ export const disciplineEnum = pgEnum("discipline", DISCIPLINES);
 export const seriesStatusEnum = pgEnum("series_status", SERIES_STATUSES);
 export const cs2SeriesLifecycleEnum = pgEnum("cs2_series_lifecycle", CS2_SERIES_LIFECYCLES);
 export const leaderboardScopeStatusEnum = pgEnum("leaderboard_scope_status", LEADERBOARD_SCOPE_STATUSES);
+export const leaderboardMarkStatusEnum = pgEnum("leaderboard_mark_status", LEADERBOARD_MARK_STATUSES);
+export const leaderboardMarkActionEnum = pgEnum("leaderboard_mark_action", LEADERBOARD_MARK_ACTIONS);
 
 const timestamps = {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -326,11 +330,14 @@ export const leaderboardScopes = pgTable("leaderboard_scope", {
   status: leaderboardScopeStatusEnum("status").notNull().default("open"),
   isCurrent: boolean("is_current").notNull().default(false),
   closedAt: timestamp("closed_at", { withTimezone: true }),
+  /** Set when the scope closed through finalize: its prizes and marks are locked and claims exist. */
+  finalizedAt: timestamp("finalized_at", { withTimezone: true }),
   ...timestamps,
 }, (t) => [
   uniqueIndex("leaderboard_scope_one_current_idx").on(t.isCurrent).where(sql`${t.isCurrent}`),
   check("leaderboard_scope_name_not_blank", sql`btrim(${t.name}) <> ''`),
   check("leaderboard_scope_closed_check", sql`(${t.status} = 'closed') = (${t.closedAt} is not null) and not (${t.status} = 'closed' and ${t.isCurrent})`),
+  check("leaderboard_scope_finalized_check", sql`${t.finalizedAt} is null or ${t.status} = 'closed'`),
 ]);
 
 export const leaderboardScopeCompetitions = pgTable("leaderboard_scope_competition", {
@@ -343,6 +350,75 @@ export const leaderboardScopeCompetitions = pgTable("leaderboard_scope_competiti
   ...timestamps,
 }, (t) => [
   primaryKey({ columns: [t.scopeId, t.competitionId], name: "leaderboard_scope_competition_pk" }),
+]);
+
+/** A scope's skin prize for one place; the image is linked from a CDN, not uploaded. */
+export const leaderboardPrizes = pgTable("leaderboard_prize", {
+  scopeId: uuid("scope_id")
+    .notNull()
+    .references(() => leaderboardScopes.id, { onDelete: "cascade" }),
+  place: integer("place").notNull(),
+  imageUrl: text("image_url").notNull(),
+  ...timestamps,
+}, (t) => [
+  primaryKey({ columns: [t.scopeId, t.place], name: "leaderboard_prize_pk" }),
+  check("leaderboard_prize_place_positive", sql`${t.place} >= 1`),
+  check("leaderboard_prize_image_url_https", sql`${t.imageUrl} like 'https://%'`),
+]);
+
+/** An admin's applied verdict on a player in a scope; only `disqualified` carries a reason. */
+export const leaderboardMarks = pgTable("leaderboard_mark", {
+  scopeId: uuid("scope_id")
+    .notNull()
+    .references(() => leaderboardScopes.id, { onDelete: "cascade" }),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id),
+  status: leaderboardMarkStatusEnum("status").notNull(),
+  reason: text("reason"),
+  appliedAt: timestamp("applied_at", { withTimezone: true }).notNull(),
+  ...timestamps,
+}, (t) => [
+  primaryKey({ columns: [t.scopeId, t.userId], name: "leaderboard_mark_pk" }),
+  check("leaderboard_mark_reason_check", sql`(${t.status} = 'disqualified') = (${t.reason} is not null) and char_length(${t.reason}) <= 280`),
+]);
+
+/** A staged mark change, seen only in the admin app until the scope's drafts are applied together. */
+export const leaderboardMarkDrafts = pgTable("leaderboard_mark_draft", {
+  scopeId: uuid("scope_id")
+    .notNull()
+    .references(() => leaderboardScopes.id, { onDelete: "cascade" }),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id),
+  action: leaderboardMarkActionEnum("action").notNull(),
+  reason: text("reason"),
+  actorLogin: text("actor_login").notNull(),
+  ...timestamps,
+}, (t) => [
+  primaryKey({ columns: [t.scopeId, t.userId], name: "leaderboard_mark_draft_pk" }),
+  check("leaderboard_mark_draft_reason_check", sql`(${t.action} = 'disqualify') = (${t.reason} is not null) and char_length(${t.reason}) <= 280`),
+]);
+
+/** A winner's prize in a finalized scope: one per place, one per player. */
+export const leaderboardPrizeClaims = pgTable("leaderboard_prize_claim", {
+  scopeId: uuid("scope_id")
+    .notNull()
+    .references(() => leaderboardScopes.id, { onDelete: "cascade" }),
+  place: integer("place").notNull(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id),
+  tradeUrl: text("trade_url"),
+  tradeUrlUpdatedAt: timestamp("trade_url_updated_at", { withTimezone: true }),
+  sentAt: timestamp("sent_at", { withTimezone: true }),
+  tradeUrlErasedAt: timestamp("trade_url_erased_at", { withTimezone: true }),
+  ...timestamps,
+}, (t) => [
+  primaryKey({ columns: [t.scopeId, t.place], name: "leaderboard_prize_claim_pk" }),
+  uniqueIndex("leaderboard_prize_claim_scope_user_idx").on(t.scopeId, t.userId),
+  // The winner's Steam trade offer link; the admin app opens it, so nothing else is ever stored.
+  check("leaderboard_prize_claim_trade_url_check", sql`${t.tradeUrl} is null or ${t.tradeUrl} like 'https://steamcommunity.com/tradeoffer/new/?%'`),
 ]);
 
 /** A scope's ranked rows, rebuilt in full by each recompute. */
@@ -361,6 +437,8 @@ export const leaderboardEntries = pgTable("leaderboard_entry", {
   roundsPlayed: integer("rounds_played").notNull(),
   totalScore: integer("total_score").notNull(),
   totalPayoutLamports: bigint("total_payout_lamports", { mode: "number" }).notNull(),
+  /** Its rank is virtual: real players are ranked without it. */
+  disqualified: boolean("disqualified").notNull().default(false),
   computedAt: timestamp("computed_at", { withTimezone: true }).notNull(),
 }, (t) => [
   primaryKey({ columns: [t.scopeId, t.userId], name: "leaderboard_entry_pk" }),

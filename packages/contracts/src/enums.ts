@@ -81,3 +81,11 @@ export type PayoutStatus = (typeof PAYOUT_STATUSES)[number];
 
 export const LEADERBOARD_SCOPE_STATUSES = ["open", "closed"] as const;
 export type LeaderboardScopeStatus = (typeof LEADERBOARD_SCOPE_STATUSES)[number];
+
+/** An admin's applied verdict on a player within one leaderboard scope. */
+export const LEADERBOARD_MARK_STATUSES = ["approved", "disqualified"] as const;
+export type LeaderboardMarkStatus = (typeof LEADERBOARD_MARK_STATUSES)[number];
+
+/** A staged admin change to a player's mark; `clear` removes the applied mark. */
+export const LEADERBOARD_MARK_ACTIONS = ["approve", "disqualify", "clear"] as const;
+export type LeaderboardMarkAction = (typeof LEADERBOARD_MARK_ACTIONS)[number];

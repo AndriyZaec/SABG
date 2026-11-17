@@ -21,9 +21,11 @@ export interface PlayerRanking {
   roundsPlayed: number;
   totalScore: number;
   totalPayoutLamports: number;
+  /** Ranked only virtually: it never pushes a real player down or takes a prize place. */
+  disqualified: boolean;
 }
 
-type Totals = Omit<PlayerRanking, "rank">;
+type Totals = Omit<PlayerRanking, "rank" | "disqualified">;
 
 /**
  * Points are the total arena score. Ties go to more wins, then more 2nd places, then more rounds
@@ -39,7 +41,16 @@ function compare(a: Totals, b: Totals): number {
   );
 }
 
-export function rankPlayers(results: readonly PlayerArenaResult[], payouts: ReadonlyMap<Uuid, number>): PlayerRanking[] {
+/**
+ * Real players are ranked among themselves. A disqualified player gets a virtual rank: the one a real
+ * player with the same totals would have, so it may equal a real player's rank. Rows come in the board
+ * order: by rank, a disqualified row before the real one sharing its rank, then by userId.
+ */
+export function rankPlayers(
+  results: readonly PlayerArenaResult[],
+  payouts: ReadonlyMap<Uuid, number>,
+  disqualified: ReadonlySet<Uuid> = new Set(),
+): PlayerRanking[] {
   const totals = new Map<Uuid, Totals>();
   for (const result of results) {
     const row = totals.get(result.userId) ?? {
@@ -63,10 +74,39 @@ export function rankPlayers(results: readonly PlayerArenaResult[], payouts: Read
 
   // userId only makes the order of full ties stable between runs; it never changes a rank.
   const sorted = [...totals.values()].sort((a, b) => compare(a, b) || a.userId.localeCompare(b.userId));
-  let rank = 0;
-  return sorted.map((row, index) => {
-    const prev = sorted[index - 1];
-    if (prev === undefined || compare(prev, row) !== 0) rank = index + 1;
-    return { ...row, rank };
+  let realCount = 0;
+  let lastReal: (Totals & { rank: number }) | undefined;
+  const ranked = sorted.map((row): PlayerRanking => {
+    const tiesLastReal = lastReal !== undefined && compare(lastReal, row) === 0;
+    const rank = tiesLastReal ? lastReal!.rank : realCount + 1;
+    if (disqualified.has(row.userId)) return { ...row, rank, disqualified: true };
+    realCount += 1;
+    lastReal = { ...row, rank };
+    return { ...row, rank, disqualified: false };
   });
+  return ranked.sort(compareBoardOrder);
+}
+
+/** The board order every reader uses: rank, then a disqualified row before a real one, then userId. */
+export function compareBoardOrder(a: Pick<PlayerRanking, "rank" | "disqualified" | "userId">, b: Pick<PlayerRanking, "rank" | "disqualified" | "userId">): number {
+  return a.rank - b.rank || Number(b.disqualified) - Number(a.disqualified) || a.userId.localeCompare(b.userId);
+}
+
+/**
+ * Prize places go by position, not rank: in board order, the N-th entry that is not disqualified gets
+ * place N when that place has a prize. A full tie therefore spreads over consecutive places.
+ */
+export function assignPrizePlaces(
+  entries: readonly Pick<PlayerRanking, "userId" | "disqualified">[],
+  prizePlaces: readonly number[],
+): Map<Uuid, number> {
+  const places = new Set(prizePlaces);
+  const assigned = new Map<Uuid, number>();
+  let position = 0;
+  for (const entry of entries) {
+    if (entry.disqualified) continue;
+    position += 1;
+    if (places.has(position)) assigned.set(entry.userId, position);
+  }
+  return assigned;
 }

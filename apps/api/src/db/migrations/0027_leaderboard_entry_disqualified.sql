@@ -1,0 +1,1 @@
+ALTER TABLE "leaderboard_entry" ADD COLUMN "disqualified" boolean DEFAULT false NOT NULL;

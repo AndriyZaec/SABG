@@ -3,6 +3,7 @@ import { createServer, type Server as HttpServer } from "node:http";
 import type { NextFunction, Request, Response } from "express";
 import express from "express";
 import { z } from "zod";
+import { LEADERBOARD_MARK_ACTIONS } from "@arena/contracts";
 import { logger } from "../gateway/logger.js";
 import type { OperatorControlService, OperatorIdentity } from "./service.js";
 
@@ -10,6 +11,15 @@ const GridIdSchema = z.string().trim().min(1).max(200).regex(/^[A-Za-z0-9._:-]+$
 const ScopeNameSchema = z.string().trim().min(1).max(80);
 // Blank means no search.
 const LeaderboardQuerySchema = z.string().trim().max(80).optional();
+const PrizePlaceSchema = z.number().int().min(1).max(100);
+const MarkReasonSchema = z.string().trim().min(1).max(280);
+const PrizeImageUrlSchema = z
+  .string()
+  .trim()
+  .max(2048)
+  .refine((value) => URL.canParse(value) && new URL(value).protocol === "https:", "Prize image must be an https URL")
+  // Stored normalized, so the database's https check matches whatever case the scheme was typed in.
+  .transform((value) => new URL(value).href);
 const MutationSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("autopilot.set"), enabled: z.boolean() }),
   z.object({ type: z.literal("series.priority.set"), gridSeriesId: GridIdSchema, priority: z.boolean() }),
@@ -19,10 +29,22 @@ const MutationSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("leaderboard.scope.create"), name: ScopeNameSchema }),
   z.object({ type: z.literal("leaderboard.scope.rename"), scopeId: z.string().uuid(), name: ScopeNameSchema }),
   z.object({ type: z.literal("leaderboard.scope.current.set"), scopeId: z.string().uuid() }),
-  z.object({ type: z.literal("leaderboard.scope.close") }),
+  z.object({ type: z.literal("leaderboard.scope.close"), scopeId: z.string().uuid() }),
   z.object({ type: z.literal("leaderboard.competition.add"), scopeId: z.string().uuid(), competitionId: z.string().uuid() }),
   z.object({ type: z.literal("leaderboard.competition.remove"), scopeId: z.string().uuid(), competitionId: z.string().uuid() }),
   z.object({ type: z.literal("leaderboard.recompute") }),
+  z.object({ type: z.literal("leaderboard.prize.set"), scopeId: z.string().uuid(), place: PrizePlaceSchema, imageUrl: PrizeImageUrlSchema }),
+  z.object({ type: z.literal("leaderboard.prize.remove"), scopeId: z.string().uuid(), place: PrizePlaceSchema }),
+  z.object({ type: z.literal("leaderboard.prize.sent"), scopeId: z.string().uuid(), place: PrizePlaceSchema }),
+  z.object({
+    type: z.literal("leaderboard.mark.draft.set"),
+    scopeId: z.string().uuid(),
+    userId: z.string().uuid(),
+    action: z.enum(LEADERBOARD_MARK_ACTIONS),
+    reason: MarkReasonSchema.optional(),
+  }),
+  z.object({ type: z.literal("leaderboard.mark.draft.remove"), scopeId: z.string().uuid(), userId: z.string().uuid() }),
+  z.object({ type: z.literal("leaderboard.marks.apply"), scopeId: z.string().uuid() }),
 ]);
 const ActorIdSchema = z.string().trim().min(1).max(100);
 const ActorLoginSchema = z.string().trim().min(1).max(100);

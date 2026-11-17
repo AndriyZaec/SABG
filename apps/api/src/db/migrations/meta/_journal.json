@@ -176,6 +176,41 @@
       "when": 1793127179409,
       "tag": "0024_leaderboard_scope",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1794828955309,
+      "tag": "0025_leaderboard_prize",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1794831240896,
+      "tag": "0026_leaderboard_mark",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1794832079343,
+      "tag": "0027_leaderboard_entry_disqualified",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1794832716906,
+      "tag": "0028_leaderboard_finalize",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1794843376984,
+      "tag": "0029_leaderboard_trade_url_check",
+      "breakpoints": true
     }
   ]
 }

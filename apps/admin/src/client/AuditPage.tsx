@@ -20,10 +20,16 @@ const ACTION_LABELS: Record<OperatorAuditEntry["action"], string> = {
   "leaderboard.scope.create": "Leaderboard scope create",
   "leaderboard.scope.rename": "Leaderboard scope rename",
   "leaderboard.scope.current.set": "Leaderboard scope switch",
-  "leaderboard.scope.close": "Leaderboard scope close",
+  "leaderboard.scope.close": "Leaderboard scope end",
   "leaderboard.competition.add": "Leaderboard tournament add",
   "leaderboard.competition.remove": "Leaderboard tournament remove",
   "leaderboard.recompute": "Leaderboard recompute",
+  "leaderboard.prize.set": "Leaderboard prize set",
+  "leaderboard.prize.remove": "Leaderboard prize remove",
+  "leaderboard.prize.sent": "Leaderboard prize sent",
+  "leaderboard.mark.draft.set": "Leaderboard mark draft",
+  "leaderboard.mark.draft.remove": "Leaderboard mark draft remove",
+  "leaderboard.marks.apply": "Leaderboard marks apply",
 };
 
 function startOfDay(value: string): string | undefined {
