@@ -222,7 +222,7 @@ function Cs2ArenaSession({
 
   const standbyContent = arena.status === "cancelled" || view.cancelled
     ? <Cs2ArenaCancelled match={match} reason={arena.cancelledReason ?? view.cancelled?.reason} entry={entry} />
-    : arena.status === "lobby"
+    : arena.status === "lobby" && (!entry.hasEntry || (seriesResult.state !== "loading" && !embed))
       ? <Cs2ArenaLobby arena={arena} match={match} view={view} connected={connected} answerSubmission={answerSubmission} submitAnswer={submitAnswer} series={series} muted={muted} onToggleMute={toggleMuted} entry={entry} />
       : seriesResult.state === "loading"
         ? <div className="nb-container"><Loading label="Loading broadcast…" /></div>
