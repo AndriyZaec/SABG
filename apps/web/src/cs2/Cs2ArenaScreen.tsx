@@ -1,5 +1,4 @@
 import type { Answer, Arena, ArenaCancelledReason, Cs2Match, Cs2SeriesDetail } from "@arena/contracts";
-import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useCs2ArenaSocket } from "./live/useCs2ArenaSocket.js";
 import { SeriesHeader } from "./live/SeriesHeader.js";
@@ -9,7 +8,7 @@ import { TeamLogo } from "./TeamLogo.js";
 import { useCs2Series } from "./useCs2Catalog.js";
 import { StreamPip } from "./stream/StreamPip.js";
 import { streamEmbed } from "./stream/streamEmbed.js";
-import { useCs2ArenaEntry } from "./useCs2ArenaEntry.js";
+import { useCs2ArenaEntry, type Cs2ArenaEntry } from "./useCs2ArenaEntry.js";
 import { useCs2RoundAlerts, type Cs2NewRoundSignal } from "./live/useCs2RoundAlerts.js";
 import { useCs2VictoryAlert } from "./live/useCs2VictoryAlert.js";
 import { useCs2EliminationAlert } from "./live/useCs2EliminationAlert.js";
@@ -26,11 +25,7 @@ import { Loading } from "../ui/Loading.js";
 import { Panel } from "../ui/Panel.js";
 import { Badge } from "../ui/Badge.js";
 
-function Cs2ArenaCancelled({ arena, match, reason }: { arena: Arena; match: Cs2Match; reason: ArenaCancelledReason | undefined }) {
-  const entry = useCs2ArenaEntry({
-    ...(arena.onchainArenaId != null ? { onchainArenaId: arena.onchainArenaId } : {}),
-    backendArenaId: arena.id,
-  });
+function Cs2ArenaCancelled({ match, reason, entry }: { match: Cs2Match; reason: ArenaCancelledReason | undefined; entry: Cs2ArenaEntry }) {
   return (
     <div className="nb-container">
       <Link className="cs2-back cs2-back--spaced" to={`/cs2/series/${match.seriesId}`}>← Back to series</Link>
@@ -70,7 +65,7 @@ function Cs2ArenaLobby({
   series,
   muted,
   onToggleMute,
-  onEntryChange,
+  entry,
 }: {
   arena: Arena;
   match: Cs2Match;
@@ -81,15 +76,10 @@ function Cs2ArenaLobby({
   series?: Cs2SeriesDetail;
   muted: boolean;
   onToggleMute: () => void;
-  onEntryChange: (hasEntry: boolean) => void;
+  entry: Cs2ArenaEntry;
 }) {
   const teams = match.teamScores.map((team) => teamPresentation(team, series));
-  const entry = useCs2ArenaEntry({
-    ...(arena?.onchainArenaId != null ? { onchainArenaId: arena.onchainArenaId } : {}),
-    backendArenaId: arena.id,
-  });
   const zoneHud = view?.round ? classicZoneHud(view) : undefined;
-  useEffect(() => { onEntryChange(entry.hasEntry); }, [entry.hasEntry, onEntryChange]);
 
   if (entry.hasEntry) {
     return (
@@ -220,17 +210,20 @@ function Cs2ArenaSession({
   const [seriesResult] = useCs2Series(match.seriesId, true);
   const series = seriesResult.state === "ready" ? seriesResult.value : undefined;
   const embed = series?.streamUrl === undefined ? undefined : streamEmbed(series.streamUrl, window.location.hostname);
-  const [lobbyHasEntry, setLobbyHasEntry] = useState(false);
-  const [muted, toggleMuted] = useCs2RoundAlerts(newRoundSignal, lobbyHasEntry || view?.myStatus !== undefined);
+  const entry = useCs2ArenaEntry({
+    ...(arena.onchainArenaId != null ? { onchainArenaId: arena.onchainArenaId } : {}),
+    backendArenaId: arena.id,
+  });
+  const [muted, toggleMuted] = useCs2RoundAlerts(newRoundSignal, entry.hasEntry || view?.myStatus !== undefined);
   useCs2VictoryAlert(victorySignal, muted);
   useCs2EliminationAlert(eliminationSignal, muted);
 
   if (!view) return <div className="nb-container"><Loading label="Loading arena…" /></div>;
 
   const standbyContent = arena.status === "cancelled" || view.cancelled
-    ? <Cs2ArenaCancelled arena={arena} match={match} reason={arena.cancelledReason ?? view.cancelled?.reason} />
+    ? <Cs2ArenaCancelled match={match} reason={arena.cancelledReason ?? view.cancelled?.reason} entry={entry} />
     : arena.status === "lobby"
-      ? <Cs2ArenaLobby arena={arena} match={match} view={view} connected={connected} answerSubmission={answerSubmission} submitAnswer={submitAnswer} series={series} muted={muted} onToggleMute={toggleMuted} onEntryChange={setLobbyHasEntry} />
+      ? <Cs2ArenaLobby arena={arena} match={match} view={view} connected={connected} answerSubmission={answerSubmission} submitAnswer={submitAnswer} series={series} muted={muted} onToggleMute={toggleMuted} entry={entry} />
       : seriesResult.state === "loading"
         ? <div className="nb-container"><Loading label="Loading broadcast…" /></div>
         : !embed
