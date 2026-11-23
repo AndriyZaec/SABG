@@ -2,9 +2,9 @@ import { Keypair } from "@solana/web3.js";
 import { describe, expect, it, vi } from "vitest";
 import type { PayoutChain, PayoutStep, SettlementSnapshot, SignedAttempt } from "../chain.js";
 import { runPayout } from "../worker.js";
-import type { Plan, PayoutStore, Recipient } from "../worker.js";
+import type { Plan, PayoutStore } from "../worker.js";
 
-function fixture(count = 26) {
+function fixture(count = 26, skipped: readonly number[] = []) {
   const keys = Array.from({ length: count }, () => Keypair.generate().publicKey);
   const winnerIds = keys.map((_, i) => `user-${i}`);
   const plan: Plan = { arenaId: "arena", winnerIds, paidCount: 0, recipients: null, shareLamports: null, state: "queued" };
@@ -22,7 +22,8 @@ function fixture(count = 26) {
     const intent = entry.intent;
     if (intent.step === "start") {
       chainState.state = "settling";
-      chainState.settlement = { share: BigInt(plan.shareLamports ?? 0), winnerCount: intent.count, paidCount: 0, lastPaidKey: "" };
+      const share = (chainState.pool - chainState.pool / 10n) / BigInt(intent.count);
+      chainState.settlement = { share, winnerCount: intent.count, paidCount: 0, lastPaidKey: "" };
     } else if (intent.step === "pay") {
       const settlement = chainState.settlement;
       if (!settlement) throw new Error("missing fixture settlement");
@@ -39,15 +40,22 @@ function fixture(count = 26) {
     preflight: vi.fn(async () => {}),
     prepare: prepared,
     broadcast,
-    status: async (attempt) => intents.get(attempt.signature)?.verified ? "verified" : "pending",
+    status: async (attempt) => {
+      const entry = intents.get(attempt.signature);
+      if (!entry?.verified) return "pending";
+      const intent = entry.intent;
+      return { kind: "verified", skipped: intent.step === "pay"
+        ? skipped.filter((index) => index >= intent.from && index < intent.from + intent.wallets.length) : [] };
+    },
   };
-  const paid = vi.fn(async (from: number, recipients: Recipient[], _share: bigint, _signature: string) => {
+  const paid = vi.fn<PayoutStore["paid"]>(async (from, recipients) => {
     if (plan.paidCount !== from) throw new Error("DB cursor mismatch");
     plan.paidCount += recipients.length;
   });
   const store: PayoutStore = {
     wallet: async (id) => keys[winnerIds.indexOf(id)]?.toBase58(),
-    freeze: async (recipients, share) => { plan.recipients = recipients; plan.shareLamports = share.toString(); plan.state = "paying"; },
+    freeze: async (recipients) => { plan.recipients = recipients; plan.state = "paying"; },
+    saveShare: async (share) => { plan.shareLamports = share.toString(); },
     attempts: async (intent) => attempts.filter((a) => JSON.stringify(a.intent) === JSON.stringify(intent)).map((a) => a.attempt),
     save: async (intent, attempt) => { attempts.push({ intent, attempt }); },
     paid,
@@ -91,6 +99,44 @@ describe("payout worker", () => {
     expect(env.store.block).toHaveBeenCalledWith("Cannot verify previously executed pay against the plan");
     expect(env.chainState.settlement?.paidCount).toBe(20);
     expect(env.plan.paidCount).toBe(0);
+  });
+
+  it("records verified skips as failed and still reconciles the remaining winners", async () => {
+    const env = fixture(26, [21]);
+    await env.run();
+    const rows = env.paid.mock.calls.flatMap(([, outcomes]) => outcomes);
+    expect(rows).toHaveLength(26);
+    expect(rows[21]).toMatchObject({ status: "failed", reason: expect.stringContaining("manual reimbursement") });
+    expect(rows.filter(({ status }) => status === "sent")).toHaveLength(25);
+    expect(env.plan).toMatchObject({ state: "done", paidCount: 26 });
+  });
+
+  it("uses the finalized on-chain share after an entry lands between freeze and start", async () => {
+    const env = fixture();
+    const freeze = env.store.freeze;
+    env.store.freeze = async (recipients) => {
+      await freeze(recipients);
+      expect(env.plan.shareLamports).toBeNull();
+      env.chainState.pool += 1_000_007n;
+      env.chainState.playerCount++;
+    };
+    await env.run();
+    expect(env.plan).toMatchObject({ state: "done", paidCount: 26, shareLamports: "969237" });
+    expect(env.chain.preflight).toHaveBeenCalledWith(expect.any(Array), 969237n, 28_000_196n);
+    expect(env.paid.mock.calls.map(([, , share]) => share)).toEqual([969237n, 969237n]);
+  });
+
+  it("resumes after start finalized before the share was persisted", async () => {
+    const env = fixture();
+    const saveShare = env.store.saveShare;
+    env.store.saveShare = async () => { throw new Error("DB unavailable"); };
+    await expect(env.run()).rejects.toThrow("DB unavailable");
+    expect(env.plan.shareLamports).toBeNull();
+    expect(env.chainState.settlement?.paidCount).toBe(0);
+    env.store.saveShare = saveShare;
+    await env.run();
+    expect(env.plan).toMatchObject({ state: "done", paidCount: 26, shareLamports: "934621" });
+    expect(env.prepared.mock.calls.filter(([intent]) => intent.step === "start")).toHaveLength(1);
   });
 
   it("blocks the whole plan when a winner has no wallet", async () => {

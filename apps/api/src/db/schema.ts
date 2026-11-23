@@ -490,6 +490,7 @@ export const payouts = pgTable("payout", {
     .references(() => users.id),
   amountLamports: bigint("amount_lamports", { mode: "number" }).notNull(),
   txSignature: text("tx_signature"),
+  failureReason: text("failure_reason"),
   status: payoutStatusEnum("status").notNull(),
   ...timestamps,
 }, (t) => [

@@ -3,6 +3,7 @@ import { PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
 import bs58 from "bs58";
 import { assertPlatformFeeBps, buildProgram, buildSettlementAccounts, decodeArenaState, deriveArenaPdas, deriveSettlement } from "../onchain/arena-program.js";
 import type { ArenaChainState } from "../onchain/arena-program.js";
+import { logger } from "../gateway/logger.js";
 
 export const PAYOUT_BATCH_SIZE = 20;
 export class PayoutBlocked extends Error {}
@@ -13,6 +14,7 @@ export interface SignedAttempt {
   raw: string;
   lastValidBlockHeight: number;
 }
+export type AttemptStatus = "pending" | "expired" | "failed" | { kind: "verified"; skipped: number[] };
 export interface SettlementSnapshot {
   state: ArenaChainState;
   pool: bigint;
@@ -28,6 +30,7 @@ export function payoutChain(id: number) {
   const settlement = deriveSettlement(program.programId, arena);
   const accounts = buildSettlementAccounts(arena, escrow, authority.publicKey);
   const treasury = accounts["treasury"]!;
+  const events = new anchor.EventParser(program.programId, program.coder);
   let verifiedSlot = 0;
 
   async function transaction(intent: PayoutStep): Promise<Transaction> {
@@ -63,28 +66,41 @@ export function payoutChain(id: number) {
     async preflight(wallets: string[], share: bigint, pool: bigint) {
       const reserved = [arena, escrow, settlement, treasury, program.programId, SystemProgram.programId];
       const keys = wallets.map((wallet) => new PublicKey(wallet));
-      const min = BigInt(await connection.getMinimumBalanceForRentExemption(0, "finalized"));
+      const rentBySize = new Map<number, bigint>();
+      const minimum = async (size: number) => {
+        const cached = rentBySize.get(size);
+        if (cached !== undefined) return cached;
+        const balance = BigInt(await connection.getMinimumBalanceForRentExemption(size, "finalized"));
+        rentBySize.set(size, balance);
+        return balance;
+      };
+      const min = await minimum(0);
       if (share < min && keys.length > PAYOUT_BATCH_SIZE) throw new PayoutBlocked("Small shares do not fit one atomic batch");
       const [escrowInfo, treasuryInfo] = await connection.getMultipleAccountsInfo([escrow, treasury], "finalized");
       if (!escrowInfo?.owner.equals(SystemProgram.programId) || escrowInfo.data.length !== 0 || BigInt(escrowInfo.lamports) < pool) {
         throw new PayoutBlocked("Escrow cannot fund the recorded prize pool");
       }
-      const treasuryCredit = BigInt(escrowInfo.lamports) - BigInt(keys.length) * share;
-      const treasuryRent = treasuryInfo?.data.length
-        ? BigInt(await connection.getMinimumBalanceForRentExemption(treasuryInfo.data.length, "finalized")) : min;
-      if ((treasuryInfo && (!treasuryInfo.owner.equals(SystemProgram.programId) || treasuryInfo.executable)) ||
-        (treasuryCredit > 0n && BigInt(treasuryInfo?.lamports ?? 0) + treasuryCredit < treasuryRent)) {
-        throw new PayoutBlocked("Treasury cannot receive the remainder");
-      }
+      let credited = 0n;
       for (let at = 0; at < keys.length; at += 100) {
         const slice = keys.slice(at, at + 100);
         const infos = await connection.getMultipleAccountsInfo(slice, "finalized");
-        slice.forEach((key, i) => {
+        for (const [i, key] of slice.entries()) {
           const info = infos[i];
-          if (reserved.some((p) => p.equals(key)) ||
-            (info && (!info.owner.equals(SystemProgram.programId) || info.executable || info.data.length !== 0)) ||
-            BigInt(info?.lamports ?? 0) + share < min) throw new PayoutBlocked(`Ineligible payout wallet ${key.toBase58()}`);
-        });
+          const wallet = key.toBase58();
+          if (reserved.some((p) => p.equals(key))) throw new PayoutBlocked(`Reserved payout wallet ${wallet}`);
+          const balance = BigInt(info?.lamports ?? 0) + share;
+          if (info?.executable || balance > 0xffff_ffff_ffff_ffffn || balance < await minimum(info?.data.length ?? 0)) {
+            if (share < min) throw new PayoutBlocked(`Ineligible payout wallet ${wallet}`);
+            logger.warn({ onchainArenaId: id, wallet, index: at + i }, "Payout preflight predicts a skipped winner");
+          } else {
+            credited += share;
+          }
+        }
+      }
+      const treasuryCredit = BigInt(escrowInfo.lamports) - credited;
+      if ((treasuryInfo && (!treasuryInfo.owner.equals(SystemProgram.programId) || treasuryInfo.executable)) ||
+        (treasuryCredit > 0n && BigInt(treasuryInfo?.lamports ?? 0) + treasuryCredit < await minimum(treasuryInfo?.data.length ?? 0))) {
+        throw new PayoutBlocked("Treasury cannot receive the remainder");
       }
     },
     async prepare(intent: PayoutStep): Promise<SignedAttempt> {
@@ -96,7 +112,7 @@ export function payoutChain(id: number) {
       if (!tx.signature) throw new Error("Payout signing failed");
       return { signature: bs58.encode(tx.signature), raw: tx.serialize().toString("base64"), lastValidBlockHeight: latest.lastValidBlockHeight };
     },
-    async status(attempt: SignedAttempt, intent: PayoutStep): Promise<"pending" | "expired" | "failed" | "verified"> {
+    async status(attempt: SignedAttempt, intent: PayoutStep): Promise<AttemptStatus> {
       const signed = Transaction.from(Buffer.from(attempt.raw, "base64"));
       const expected = await transaction(intent);
       expected.feePayer = authority.publicKey;
@@ -109,8 +125,29 @@ export function payoutChain(id: number) {
           throw new PayoutBlocked("Finalized transaction differs from payout plan");
         }
         if (seen.meta.err !== null) return "failed";
+        const skipped = new Set<number>();
+        if (intent.step === "pay") {
+          let complete = false;
+          for (const event of events.parseLogs(seen.meta.logMessages ?? [])) {
+            if (event.name === "winnerSkipped") {
+              const { arena: eventArena, index, winner } = event.data;
+              if (complete || !eventArena.equals(arena) || intent.wallets[index - intent.from] !== winner.toBase58() || skipped.has(index)) {
+                throw new PayoutBlocked("Finalized skip event differs from payout plan");
+              }
+              skipped.add(index);
+            } else if (event.name === "winnerBatchPaid") {
+              const { arena: eventArena, from, count } = event.data;
+              if (complete || !eventArena.equals(arena) || from !== intent.from || count !== intent.wallets.length) {
+                throw new PayoutBlocked("Finalized batch event differs from payout plan");
+              }
+              complete = true;
+            }
+          }
+          // This marker follows all skips. Don't infer that everyone was paid from truncated logs.
+          if (!complete) throw new Error("Finalized batch event is unavailable");
+        }
         verifiedSlot = Math.max(verifiedSlot, seen.slot);
-        return "verified";
+        return { kind: "verified", skipped: [...skipped] };
       }
       return await connection.getBlockHeight("finalized") > attempt.lastValidBlockHeight ? "expired" : "pending";
     },

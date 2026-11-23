@@ -2,7 +2,7 @@
 // payout, result hash / badge. Live game logic stays off-chain.
 //
 use anchor_lang::prelude::*;
-use anchor_lang::system_program::{self, transfer, Transfer};
+use anchor_lang::system_program::{transfer, Transfer};
 
 pub mod error;
 pub mod state;
@@ -158,19 +158,11 @@ pub mod arena {
         let escrow = ctx.accounts.escrow.to_account_info();
         let treasury = ctx.accounts.treasury.to_account_info();
         let rent = Rent::get()?;
-        let residual = escrow
-            .lamports()
-            .checked_sub(payout_total(settlement.share, count)?)
-            .ok_or(ArenaError::InsufficientEscrow)?;
-        if final_batch {
-            validate_credit(&treasury, residual, &rent)?;
-        } else {
-            require!(
-                settlement.share >= rent.minimum_balance(0),
-                ArenaError::SmallShareRequiresSingleBatch
-            );
-            require!(residual >= rent.minimum_balance(0), ArenaError::EscrowRent);
-        }
+        let can_skip = settlement.share >= rent.minimum_balance(0);
+        require!(
+            final_batch || can_skip,
+            ArenaError::SmallShareRequiresSingleBatch
+        );
 
         let reserved = [
             arena_key,
@@ -181,19 +173,32 @@ pub mod arena {
             ctx.accounts.system_program.key(),
         ];
         let mut last = settlement.last_paid_key;
-        for winner in ctx.remaining_accounts {
+        let mut creditable = [false; MAX_WINNERS_PER_BATCH as usize];
+        let mut transfers = 0;
+        for (winner, creditable) in ctx.remaining_accounts.iter().zip(creditable.iter_mut()) {
             let key = winner.key();
             require!(
-                winner.is_writable
-                    && !winner.executable
-                    && *winner.owner == system_program::ID
-                    && winner.data_is_empty()
-                    && !reserved.contains(&key),
+                winner.is_writable && !reserved.contains(&key),
                 ArenaError::InvalidWinner
             );
             require!(key.to_bytes() > last.to_bytes(), ArenaError::WinnerOrder);
-            validate_credit(winner, settlement.share, &rent)?;
+            *creditable = can_credit(winner, settlement.share, &rent);
+            if *creditable {
+                transfers += 1;
+            } else {
+                require!(can_skip, ArenaError::RecipientRent);
+            }
             last = key;
+        }
+
+        let residual = escrow
+            .lamports()
+            .checked_sub(payout_total(settlement.share, transfers)?)
+            .ok_or(ArenaError::InsufficientEscrow)?;
+        if final_batch {
+            validate_credit(&treasury, residual, &rent)?;
+        } else {
+            require!(residual >= rent.minimum_balance(0), ArenaError::EscrowRent);
         }
 
         let escrow_seeds: &[&[u8]] = &[b"escrow", arena_key.as_ref(), &[arena.escrow_bump]];
@@ -210,8 +215,18 @@ pub mod arena {
                 amount,
             )
         };
-        for winner in ctx.remaining_accounts {
-            send(winner.clone(), settlement.share)?;
+        for (index, (winner, creditable)) in
+            ctx.remaining_accounts.iter().zip(creditable).enumerate()
+        {
+            if creditable {
+                send(winner.clone(), settlement.share)?;
+            } else {
+                emit!(WinnerSkipped {
+                    arena: arena_key,
+                    index: expected_paid + index as u32,
+                    winner: winner.key(),
+                });
+            }
         }
 
         settlement.paid_count = expected_paid + count;
@@ -362,6 +377,14 @@ fn validate_credit(account: &AccountInfo, amount: u64, rent: &Rent) -> Result<()
         );
     }
     Ok(())
+}
+
+fn can_credit(account: &AccountInfo, amount: u64, rent: &Rent) -> bool {
+    !account.executable
+        && account
+            .lamports()
+            .checked_add(amount)
+            .is_some_and(|balance| rent.is_exempt(balance, account.data_len()))
 }
 
 // --- Account contexts -------------------------------------------------------

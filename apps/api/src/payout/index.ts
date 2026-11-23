@@ -51,13 +51,16 @@ export const payoutService = {
 function createStore(arenaId: string): PayoutStore {
   return {
     wallet: async (id) => (await userRepository.findById(id))?.walletAddress,
-    async freeze(recipients, share) {
+    async freeze(recipients) {
       await db.transaction(async (tx) => {
         const [legacy] = await tx.select({ id: payouts.id }).from(payouts).where(eq(payouts.arenaId, arenaId)).limit(1);
         if (legacy) throw new PayoutBlocked("Arena has legacy payout records; reconcile separately");
-        await tx.update(payoutPlans).set({ recipients, shareLamports: share.toString(), state: "paying" })
+        await tx.update(payoutPlans).set({ recipients, state: "paying" })
           .where(eq(payoutPlans.arenaId, arenaId));
       });
+    },
+    async saveShare(share) {
+      await db.update(payoutPlans).set({ shareLamports: share.toString() }).where(eq(payoutPlans.arenaId, arenaId));
     },
     attempts: (intent) => db.select().from(payoutAttempts).where(and(eq(payoutAttempts.arenaId, arenaId),
       eq(payoutAttempts.step, intent.step), eq(payoutAttempts.from, range(intent).from))),
@@ -71,10 +74,16 @@ function createStore(arenaId: string): PayoutStore {
         const [updated] = await tx.update(payoutPlans).set({ paidCount: from + recipients.length })
           .where(and(eq(payoutPlans.arenaId, arenaId), eq(payoutPlans.paidCount, from))).returning();
         if (!updated) throw new Error(`Persisted payout cursor changed for ${arenaId}`);
-        await tx.insert(payouts).values(recipients.map(({ userId }) => ({
-          arenaId, userId, amountLamports, txSignature: signature, status: "sent" as const,
+        await tx.insert(payouts).values(recipients.map((recipient) => ({
+          arenaId, userId: recipient.userId, amountLamports, txSignature: signature,
+          status: recipient.status, failureReason: recipient.status === "failed" ? recipient.reason : null,
         })));
       });
+      for (const [index, recipient] of recipients.entries()) {
+        if (recipient.status !== "failed") continue;
+        logger.error({ arenaId, index: from + index, signature, userId: recipient.userId, wallet: recipient.wallet,
+          amountLamports, reason: recipient.reason }, "Winner payout skipped on-chain");
+      }
     },
     async done() {
       await db.update(payoutPlans).set({ state: "done" }).where(eq(payoutPlans.arenaId, arenaId));
@@ -88,13 +97,25 @@ function createStore(arenaId: string): PayoutStore {
 }
 
 export async function registerPayoutJobs(boss: PgBoss): Promise<void> {
-  await boss.work<{ arenaId: string }>(PAYOUT_QUEUE, async ([job]) => {
+  await boss.work<{ arenaId: string }, void, { includeMetadata: true }>(PAYOUT_QUEUE, { includeMetadata: true }, async ([job]) => {
     if (!job) return;
     const { arenaId } = job.data;
-    await withPayoutLock(arenaId, async () => {
-      const [plan] = await db.select().from(payoutPlans).where(eq(payoutPlans.arenaId, arenaId));
-      if (plan) await runPayout(plan, payoutChain(plan.onchainArenaId), createStore(arenaId));
-    });
+    const store = createStore(arenaId);
+    try {
+      await withPayoutLock(arenaId, async () => {
+        const [plan] = await db.select().from(payoutPlans).where(eq(payoutPlans.arenaId, arenaId));
+        if (plan && plan.state !== "done" && plan.state !== "blocked") {
+          await runPayout(plan, payoutChain(plan.onchainArenaId), store);
+        }
+      });
+    } catch (error) {
+      logger.error({ arenaId, retryCount: job.retryCount, retryLimit: job.retryLimit, err: error }, "Arena payout run failed");
+      if (job.retryCount < job.retryLimit) throw error;
+      await withPayoutLock(arenaId, async () => {
+        const [plan] = await db.select({ state: payoutPlans.state }).from(payoutPlans).where(eq(payoutPlans.arenaId, arenaId));
+        if (plan && plan.state !== "done" && plan.state !== "blocked") await store.block(error instanceof Error ? error.message : String(error));
+      });
+    }
   });
 }
 

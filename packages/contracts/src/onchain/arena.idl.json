@@ -907,6 +907,19 @@
         44,
         198
       ]
+    },
+    {
+      "name": "WinnerSkipped",
+      "discriminator": [
+        157,
+        186,
+        91,
+        108,
+        208,
+        145,
+        46,
+        196
+      ]
     }
   ],
   "errors": [
@@ -1279,6 +1292,26 @@
           {
             "name": "count",
             "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "WinnerSkipped",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "arena",
+            "type": "pubkey"
+          },
+          {
+            "name": "index",
+            "type": "u32"
+          },
+          {
+            "name": "winner",
+            "type": "pubkey"
           }
         ]
       }

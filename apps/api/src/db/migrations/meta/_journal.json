@@ -218,6 +218,13 @@
       "when": 1795450498129,
       "tag": "0030_arena_payout_batches",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1795463610481,
+      "tag": "0031_payout_skip_reason",
+      "breakpoints": true
     }
   ]
 }

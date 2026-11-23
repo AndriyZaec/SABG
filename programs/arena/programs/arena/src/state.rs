@@ -30,6 +30,13 @@ pub struct WinnerBatchPaid {
 }
 
 #[event]
+pub struct WinnerSkipped {
+    pub arena: Pubkey,
+    pub index: u32,
+    pub winner: Pubkey,
+}
+
+#[event]
 pub struct SettlementCompleted {
     pub arena: Pubkey,
     pub winner_count: u32,

@@ -913,6 +913,19 @@ export type Arena = {
         44,
         198
       ]
+    },
+    {
+      "name": "winnerSkipped",
+      "discriminator": [
+        157,
+        186,
+        91,
+        108,
+        208,
+        145,
+        46,
+        196
+      ]
     }
   ],
   "errors": [
@@ -1285,6 +1298,26 @@ export type Arena = {
           {
             "name": "count",
             "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "winnerSkipped",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "arena",
+            "type": "pubkey"
+          },
+          {
+            "name": "index",
+            "type": "u32"
+          },
+          {
+            "name": "winner",
+            "type": "pubkey"
           }
         ]
       }

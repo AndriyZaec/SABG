@@ -217,6 +217,7 @@ describe("arena — escrow + entry pass", () => {
 });
 
 describe("arena — payout", () => {
+  const executableWinner = new PublicKey("4zjp5rbh9vBVc1tNAbpKygud5WKR31yBZeBZRBDzgFNg");
   before(async () => {
     if ((await provider.connection.getBalance(treasury)) === 0) {
       const transaction = new Transaction().add(
@@ -228,6 +229,64 @@ describe("arena — payout", () => {
       );
       await provider.sendAndConfirm(transaction);
     }
+  });
+
+  for (const change of ["assign", "allocate"] as const) {
+    it(`pays a winner who uses ${change} after an earlier batch`, async () => {
+      const arenaId = freshArenaId();
+      const { arena, escrow } = deriveArena(arenaId);
+      await initArena(arenaId);
+      const players = [await buyIn(arena), await buyIn(arena)]
+        .sort((a, b) => Buffer.compare(a.publicKey.toBuffer(), b.publicKey.toBuffer()));
+      const [first, last] = players;
+      if (!first || !last) throw new Error("missing recipients");
+      await startSettlement(arena, escrow, 2).rpc();
+      await payBatch(arena, escrow, 0, [first.publicKey]).rpc();
+      await provider.sendAndConfirm(new Transaction().add(change === "assign"
+        ? SystemProgram.assign({ accountPubkey: last.publicKey, programId: executableWinner })
+        : SystemProgram.allocate({ accountPubkey: last.publicKey, space: 32 })), [last]);
+      const before = await provider.connection.getAccountInfo(last.publicKey);
+      if (!before) throw new Error("missing mutated recipient");
+      assert.equal(change === "assign" ? before.owner.toBase58() : before.data.length,
+        change === "assign" ? executableWinner.toBase58() : 32);
+      await payBatch(arena, escrow, 1, [last.publicKey]).rpc();
+      assert.equal(await provider.connection.getBalance(last.publicKey), before.lamports + 90_000_000);
+    });
+  }
+
+  it("skips an executable, advances the cursor and sweeps its unpaid share", async () => {
+    const arenaId = freshArenaId();
+    const { arena, escrow } = deriveArena(arenaId);
+    await initArena(arenaId);
+    const players = await fundAndEnter(arena, 2, entryFee.toNumber());
+    const [wallet] = players;
+    if (!wallet) throw new Error("missing winner fixture");
+    assert.isTrue((await provider.connection.getAccountInfo(executableWinner))?.executable);
+    const treasuryBefore = await provider.connection.getBalance(treasury);
+    const executableBefore = await provider.connection.getBalance(executableWinner);
+    const walletBefore = await provider.connection.getBalance(wallet);
+    const winners = sortKeys([wallet, executableWinner]);
+    await startSettlement(arena, escrow, 2).rpc();
+    const skipIndex = winners.findIndex((key) => key.equals(executableWinner));
+    let skipSignature = "";
+    for (const [index, key] of winners.entries()) {
+      const sig = await payBatch(arena, escrow, index, [key]).rpc(index === skipIndex ? finalized : undefined);
+      if (index === skipIndex) {
+        skipSignature = sig;
+        const cursor = await program.account.settlement.fetch(settlementPda(arena));
+        assert.equal(cursor.paidCount, index + 1);
+        assert.equal(cursor.lastPaidKey.toBase58(), executableWinner.toBase58());
+      }
+    }
+    const transaction = await provider.connection.getTransaction(skipSignature, { commitment: "finalized" });
+    const parser = new anchor.EventParser(program.programId, program.coder);
+    const skipped = [...parser.parseLogs(transaction?.meta?.logMessages ?? [])].filter((event) => event.name === "winnerSkipped");
+    assert.deepEqual(skipped.map(({ data }) => [data.arena.toBase58(), data.index, data.winner.toBase58()]),
+      [[arena.toBase58(), skipIndex, executableWinner.toBase58()]]);
+    assert.equal(await provider.connection.getBalance(executableWinner), executableBefore);
+    assert.equal(await provider.connection.getBalance(wallet), walletBefore + 90_000_000);
+    assert.equal(await provider.connection.getBalance(treasury), treasuryBefore + 110_000_000);
+    assert.equal(await provider.connection.getBalance(escrow), 0);
   });
 
   it("pays 26 winners across batches, rejects replay and returns the settlement deposit", async () => {
