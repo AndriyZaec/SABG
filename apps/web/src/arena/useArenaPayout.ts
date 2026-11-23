@@ -1,15 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useWallet } from "@solana/wallet-adapter-react";
 import { BN } from "@coral-xyz/anchor";
-import { ARENA_TREASURY_ADDRESS } from "@arena/contracts/onchain";
-import { PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import { LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { DEMO_ARENA_ID, deriveArenaPdas, onchainArenaState, useArenaProgram } from "../solana/program.js";
 
 export interface ArenaPayoutOptions {
   onchainArenaId?: number;
 }
 
-type Status = "loading" | "idle" | "working" | "error";
+type Status = "loading" | "idle" | "error";
 
 const errorMessage = (e: unknown) =>
   e instanceof Error ? e.message : "Transaction failed";
@@ -22,14 +20,12 @@ export interface PayoutState {
   prizePoolSol: number;
   settled: boolean;
   cancelled: boolean;
-  isPayoutAuthority: boolean;
-  settle: (winners: string[]) => Promise<void>;
+  settling: boolean;
   refresh: () => Promise<void>;
 }
 
 export function useArenaPayout(options: ArenaPayoutOptions = {}): PayoutState {
   const program = useArenaProgram();
-  const { publicKey } = useWallet();
   const { onchainArenaId } = options;
   const arenaId = useMemo(
     () => (onchainArenaId != null ? new BN(onchainArenaId) : DEMO_ARENA_ID),
@@ -42,7 +38,7 @@ export function useArenaPayout(options: ArenaPayoutOptions = {}): PayoutState {
   const [prizePoolSol, setPrizePoolSol] = useState(0);
   const [settled, setSettled] = useState(false);
   const [cancelled, setCancelled] = useState(false);
-  const [isPayoutAuthority, setIsPayoutAuthority] = useState(false);
+  const [settling, setSettling] = useState(false);
 
   const refresh = useCallback(async (showLoading = true) => {
     if (!program) return;
@@ -56,14 +52,14 @@ export function useArenaPayout(options: ArenaPayoutOptions = {}): PayoutState {
         setPrizePoolSol(0);
         setSettled(false);
         setCancelled(false);
-        setIsPayoutAuthority(false);
+        setSettling(false);
       } else {
         const arenaState = onchainArenaState(account.state);
         setExists(true);
         setPrizePoolSol(Number(account.prizePoolLamports.toString()) / LAMPORTS_PER_SOL);
         setSettled(arenaState === "settled");
         setCancelled(arenaState === "cancelled");
-        setIsPayoutAuthority(publicKey ? account.payoutAuthority.equals(publicKey) : false);
+        setSettling(arenaState === "settling");
       }
       if (showLoading) setStatus("idle");
     } catch (e) {
@@ -72,39 +68,13 @@ export function useArenaPayout(options: ArenaPayoutOptions = {}): PayoutState {
         setError(errorMessage(e));
       }
     }
-  }, [program, publicKey, arenaId]);
+  }, [program, arenaId]);
 
   useEffect(() => {
     void refresh();
     const timer = window.setInterval(() => void refresh(false), 10_000);
     return () => window.clearInterval(timer);
   }, [refresh]);
-
-  const settle = useCallback(
-    async (winners: string[]) => {
-      if (!program || !publicKey) return;
-      setStatus("working");
-      setError(undefined);
-      try {
-        const { arena, escrow } = deriveArenaPdas(program.programId, arenaId);
-        const remainingAccounts = winners.map((w) => ({
-          pubkey: new PublicKey(w),
-          isWritable: true,
-          isSigner: false,
-        }));
-        await program.methods
-          .settlePayout()
-          .accountsPartial({ arena, escrow, treasury: new PublicKey(ARENA_TREASURY_ADDRESS), payoutAuthority: publicKey })
-          .remainingAccounts(remainingAccounts)
-          .rpc();
-        await refresh();
-      } catch (e) {
-        setStatus("error");
-        setError(errorMessage(e));
-      }
-    },
-    [program, publicKey, arenaId, refresh],
-  );
 
   return {
     ready: program !== null,
@@ -114,8 +84,7 @@ export function useArenaPayout(options: ArenaPayoutOptions = {}): PayoutState {
     prizePoolSol,
     settled,
     cancelled,
-    isPayoutAuthority,
-    settle,
+    settling,
     refresh,
   };
 }

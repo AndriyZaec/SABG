@@ -1,22 +1,16 @@
-import { useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useArenaPayout } from "../arena/useArenaPayout.js";
 import { useBackendArena } from "../arena/useBackendArena.js";
 import { Panel } from "../ui/Panel.js";
-import { Button } from "../ui/Button.js";
 import { Badge } from "../ui/Badge.js";
 import { Loading } from "../ui/Loading.js";
 
 export function PayoutScreen() {
-  const { connected, publicKey } = useWallet();
+  const { connected } = useWallet();
   const { arena: backendArena } = useBackendArena();
-  const { status, error, exists, prizePoolSol, settled, cancelled, isPayoutAuthority, settle } = useArenaPayout(
+  const { status, error, exists, prizePoolSol, settled, cancelled, settling } = useArenaPayout(
     backendArena?.onchainArenaId != null ? { onchainArenaId: backendArena.onchainArenaId } : {},
   );
-  const [winners, setWinners] = useState("");
-
-  const selfAddress = publicKey?.toBase58() ?? "";
-  const winnerList = winners.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
 
   return (
     <div className="nb-container" style={{ maxWidth: 560, display: "grid", gap: 20 }}>
@@ -41,7 +35,7 @@ export function PayoutScreen() {
               ) : cancelled ? (
                 <Badge tone="neutral">Cancelled</Badge>
               ) : (
-                <Badge tone="live">In play</Badge>
+                 <Badge tone="live">{settling ? "Paying out" : "In play"}</Badge>
               )}
             </span>
           </div>
@@ -69,36 +63,9 @@ export function PayoutScreen() {
             </p>
           )}
 
-          {!settled && !cancelled && isPayoutAuthority && (
-            <div style={{ display: "grid", gap: 12, marginTop: 16 }}>
-              <label style={{ display: "grid", gap: 6 }}>
-                <span className="nb-label">Winner address(es) — comma/space separated, split equally</span>
-                <textarea
-                  className="nb-input"
-                  value={winners}
-                  onChange={(e) => setWinners(e.target.value)}
-                  rows={2}
-                  placeholder={selfAddress}
-                />
-              </label>
-              <div className="nb-row">
-                <Button variant="plain" onClick={() => setWinners(selfAddress)}>
-                  Use my address
-                </Button>
-                <Button
-                  variant="survive"
-                  onClick={() => settle(winnerList.length ? winnerList : [selfAddress])}
-                  disabled={status === "working"}
-                >
-                  {status === "working" ? "Settling…" : "Settle & pay out"}
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {!settled && !cancelled && !isPayoutAuthority && (
+          {!settled && !cancelled && (
             <p className="nb-label" style={{ marginTop: 16 }}>
-              Only the payout authority can settle this arena.
+              Payout runs automatically after results are finalized.
             </p>
           )}
 

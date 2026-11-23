@@ -16,12 +16,30 @@ const queryClient = postgres(databaseUrl);
 
 const FIXTURE_RUNTIME_LOCK_NAMESPACE = 1_397_315_407;
 const CS2_SERIES_RUNTIME_LOCK_NAMESPACE = 1_397_315_408;
+const PAYOUT_LOCK_NAMESPACE = 1_397_315_410;
 export const OPERATOR_MUTATION_LOCK_ID = 1_397_315_409;
 
 export type ReleaseDatabaseLock = () => Promise<void>;
 
 export const db = drizzle(queryClient, { schema });
 export type DatabaseTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+export async function withPayoutLock(arenaId: string, run: () => Promise<void>): Promise<void> {
+  const connection = await queryClient.reserve();
+  try {
+    const [row] = await connection<{ acquired: boolean }[]>`
+      select pg_try_advisory_lock(${PAYOUT_LOCK_NAMESPACE}, hashtext(${arenaId})) as acquired
+    `;
+    if (!row?.acquired) throw new Error(`Payout job is already active for ${arenaId}`);
+    try {
+      await run();
+    } finally {
+      await connection`select pg_advisory_unlock(${PAYOUT_LOCK_NAMESPACE}, hashtext(${arenaId}))`;
+    }
+  } finally {
+    connection.release();
+  }
+}
 
 export async function checkDatabaseConnection(): Promise<void> {
   await queryClient`select 1`;

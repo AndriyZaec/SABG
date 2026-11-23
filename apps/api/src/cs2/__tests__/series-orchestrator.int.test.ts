@@ -669,7 +669,7 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
 
   it("operator skip is refused for a restored live arena that still holds paid entries but has no runtime", async () => {
     const seeded = await seedLiveArenaAtCrash(69, [{ status: "eliminated", paid: true }]);
-    const settleSpy = vi.spyOn(payoutService, "settleArena").mockResolvedValue(undefined);
+    const settleSpy = vi.spyOn(payoutService, "settleArena");
     try {
       const restored = await Cs2SeriesOrchestrator.create(seeded.series, { writeQueue: new WriteQueue(), entryFeeLamports: 1000 });
       expect((await arenaRepository.findById(seeded.arena.id))?.status).toBe("live");
@@ -734,7 +734,7 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     for (const player of players) runtime!.join(player.id, player.username, at(-9));
     await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: true }), at(1));
 
-    const settleSpy = vi.spyOn(payoutService, "settleArena").mockResolvedValue(undefined);
+    const settleSpy = vi.spyOn(payoutService, "settleArena");
     try {
       orchestrator.currentBus()!.publish({ kind: "cs2_match_end", timestamp: at(40) });
       await writeQueue.drain();
@@ -776,12 +776,12 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
     await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: false }), at(61));
     expect((await arenaRepository.findById(arena1.id))?.status).toBe("cancelled");
 
-    const settleSpy = vi.spyOn(payoutService, "settleArena").mockResolvedValue(undefined);
+    const settleSpy = vi.spyOn(payoutService, "settleArena");
     try {
       arena1Bus.publish({ kind: "cs2_match_end", timestamp: at(100) });
       await writeQueue.drain();
       expect((await arenaRepository.findById(arena1.id))?.status).toBe("cancelled");
-      expect(settleSpy).not.toHaveBeenCalled();
+      await expect(settleSpy.mock.results[0]?.value).resolves.toBe(false);
     } finally {
       settleSpy.mockRestore();
     }
@@ -817,7 +817,7 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
       clock: { ticking: true, currentSeconds: 20 },
     });
     const deliver = (signal: MatchSignal) => orchestrator.currentBus()?.publish(signal);
-    const settleSpy = vi.spyOn(payoutService, "settleArena").mockResolvedValue(undefined);
+    const settleSpy = vi.spyOn(payoutService, "settleArena");
     try {
       await orchestrator.poll(snapshot(matchTeamIds, { hasLiveGame: true }), at(70));
       deliver({ kind: "cs2_round_lock", roundNumber: 1, timestamp: at(71) });
@@ -900,7 +900,7 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
 
   it("crash-closes a live arena on restore: voids unsettled rounds and pays the active players", async () => {
     const seeded = await seedLiveArenaAtCrash(36, [{ status: "active" }, { status: "active" }, { status: "eliminated" }]);
-    const settleSpy = vi.spyOn(payoutService, "settleArena").mockResolvedValue(undefined);
+    const settleSpy = vi.spyOn(payoutService, "settleArena");
     try {
       await Cs2SeriesOrchestrator.create(seeded.series, { writeQueue: new WriteQueue(), entryFeeLamports: 1000 });
 
@@ -929,7 +929,7 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
 
   it("continues the series after a crash close: map 1's end opens arena 2 and finishes match 1", async () => {
     const seeded = await seedLiveArenaAtCrash(39, [{ status: "active" }]);
-    const settleSpy = vi.spyOn(payoutService, "settleArena").mockResolvedValue(undefined);
+    const settleSpy = vi.spyOn(payoutService, "settleArena");
     try {
       const writeQueue = new WriteQueue();
       const restored = await Cs2SeriesOrchestrator.create(seeded.series, { writeQueue, entryFeeLamports: 1000 });
@@ -953,7 +953,7 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
 
   it("refuses to follow the next map as the crash-closed one when it is already live at the first poll", async () => {
     const seeded = await seedLiveArenaAtCrash(45, [{ status: "active" }]);
-    const settleSpy = vi.spyOn(payoutService, "settleArena").mockResolvedValue(undefined);
+    const settleSpy = vi.spyOn(payoutService, "settleArena");
     try {
       const restored = await Cs2SeriesOrchestrator.create(seeded.series, { writeQueue: new WriteQueue(), entryFeeLamports: 1000 });
 
@@ -971,7 +971,7 @@ describe.skipIf(!RUN)("Cs2SeriesOrchestrator (integration, requires DATABASE_URL
 
   it("leaves a live arena live on restore when it has paid entries but no active player", async () => {
     const seeded = await seedLiveArenaAtCrash(42, [{ status: "eliminated", paid: true }]);
-    const settleSpy = vi.spyOn(payoutService, "settleArena").mockResolvedValue(undefined);
+    const settleSpy = vi.spyOn(payoutService, "settleArena");
     try {
       await Cs2SeriesOrchestrator.create(seeded.series, { writeQueue: new WriteQueue(), entryFeeLamports: 1000 });
 

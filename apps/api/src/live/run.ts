@@ -21,6 +21,8 @@ import { matchRepository } from "../db/repositories/match.repository.js";
 import { arenaRepository } from "../db/repositories/arena.repository.js";
 import { predictionRoundRepository } from "../db/repositories/prediction-round.repository.js";
 import { payoutService } from "../payout/index.js";
+import { isOnchainArenaProvisioningEnabled } from "../onchain/index.js";
+import { startScheduler, stopScheduler } from "../scheduler/index.js";
 
 const LIVE_ENTRY_FEE_LAMPORTS = 100_000_000;
 
@@ -64,6 +66,7 @@ const arena = await arenaRepository.upsertForMatch(match.id, {
 logger.info({ matchId: match.id, arenaId: arena.id, fixtureId }, "live match/arena ready");
 
 const writeQueue = new WriteQueue();
+const scheduler = isOnchainArenaProvisioningEnabled() ? await startScheduler() : undefined;
 const predictionStore = createPgPredictionStore(arena.id, writeQueue);
 const arenaPlayerStore = createPgArenaPlayerStore(arena.id, writeQueue);
 
@@ -75,9 +78,9 @@ const persistence: ArenaPersistence = {
     void writeQueue.enqueue(arena.id, () => predictionRoundRepository.upsert(round).then(() => undefined));
   },
   finishArena(arenaId, winners) {
-    void writeQueue.enqueue(arenaId, () => arenaRepository.setStatus(arenaId, "finished"));
-    // Release the escrow to winners (no-op for off-chain arenas — see payout service).
-    void payoutService.settleArena(arenaId, winners);
+    void writeQueue.enqueue(arenaId, async () => {
+      await payoutService.settleArena(arenaId, winners);
+    });
   },
 };
 
@@ -120,6 +123,8 @@ async function shutdown(signal: string): Promise<void> {
   logger.info({ signal }, "shutting down gracefully");
 
   worker.shutdown();
+  await writeQueue.drain();
+  if (scheduler) await stopScheduler(scheduler);
   await MongoService.quit().catch((err) => logger.warn({ err }, "error closing MongoDB client"));
 
   process.exit(0);

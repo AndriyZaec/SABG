@@ -48,14 +48,6 @@ export async function submitEntryTx(signedTxBase64: string): Promise<string> {
   return submitSignedEntry(signedTxBase64);
 }
 
-export async function settleArenaPayoutOnchain(
-  onchainArenaId: number,
-  winnerWallets: string[],
-): Promise<import("./arena-program.js").PayoutSettlement> {
-  const { settlePayoutOnchain } = await import("./arena-program.js");
-  return settlePayoutOnchain(onchainArenaId, winnerWallets);
-}
-
 export async function cancelArenaOnchain(onchainArenaId: number): Promise<void> {
   const { cancelArenaOnchain: cancel } = await import("./arena-program.js");
   await cancel(onchainArenaId);

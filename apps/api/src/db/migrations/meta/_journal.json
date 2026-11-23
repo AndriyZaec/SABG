@@ -211,6 +211,13 @@
       "when": 1794843376984,
       "tag": "0029_leaderboard_trade_url_check",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1795450498129,
+      "tag": "0030_arena_payout_batches",
+      "breakpoints": true
     }
   ]
 }
