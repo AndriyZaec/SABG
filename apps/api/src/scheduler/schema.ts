@@ -9,6 +9,7 @@ export async function migrateSchedulerSchema(): Promise<void> {
   try {
     await boss.start();
     await boss.createQueue(PAYOUT_QUEUE, payoutQueueOptions);
+    await boss.updateQueue(PAYOUT_QUEUE, { heartbeatSeconds: payoutQueueOptions.heartbeatSeconds });
   } finally {
     await boss.stop({ graceful: false });
   }

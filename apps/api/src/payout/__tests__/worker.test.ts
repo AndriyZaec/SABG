@@ -60,16 +60,18 @@ function fixture(count = 26) {
 }
 
 describe("payout worker", () => {
-  it("recovers from an RPC timeout after the first batch landed, and verifies it before marking sent", async () => {
+  it("recovers from a process failure after the first batch landed, despite an ambiguous RPC result", async () => {
     const env = fixture();
     const send = env.broadcast.getMockImplementation()!;
     env.broadcast.mockImplementationOnce(send).mockImplementationOnce(async (attempt) => {
       await send(attempt);
       throw new Error("transport timeout");
     });
-    await expect(env.run()).rejects.toThrow("transport timeout");
+    env.paid.mockRejectedValueOnce(new Error("process stopped before DB commit"));
+    await expect(env.run()).rejects.toThrow("process stopped before DB commit");
     expect(env.chainState.settlement?.paidCount).toBe(20);
-    expect(env.paid).not.toHaveBeenCalled();
+    expect(env.plan.paidCount).toBe(0);
+    env.paid.mockClear();
     await env.run();
     expect(env.plan.state).toBe("done");
     expect(env.plan.shareLamports).toBe("934621");

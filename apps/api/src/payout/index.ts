@@ -12,7 +12,10 @@ import { runPayout } from "./worker.js";
 import type { PayoutStore } from "./worker.js";
 
 export const PAYOUT_QUEUE = "settle-arena-v2";
-export const payoutQueueOptions = { policy: "stately", retryLimit: 10, retryDelay: 10, retryBackoff: true, expireInSeconds: 1800 } as const;
+export const payoutQueueOptions = {
+  policy: "stately", retryLimit: 10, retryDelay: 10, retryBackoff: true,
+  expireInSeconds: 1800, heartbeatSeconds: 15,
+} as const;
 const producer = new PgBoss({ db: fromDrizzle(db, sql), migrate: false, createSchema: false });
 
 const range = (intent: PayoutStep) => intent.step === "pay"

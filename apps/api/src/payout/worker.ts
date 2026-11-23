@@ -56,14 +56,22 @@ export async function runPayout(plan: Plan, chain: PayoutChain, store: PayoutSto
       open = await chain.prepare(intent);
       await store.save(intent, open);
     }
-    for (let i = 0; i < 12; i++) {
-      if (i % 4 === 0) await chain.broadcast(open);
+    let broadcastError: unknown;
+    for (let i = 0; i < 20; i++) {
+      if (i % 4 === 0) {
+        try {
+          await chain.broadcast(open);
+        } catch (error) {
+          // RPC can reject a rebroadcast after the original landed but before it finalized.
+          broadcastError = error;
+        }
+      }
       await store.wait();
       const state = await chain.status(open, intent);
       if (state === "verified") return open.signature;
       if (state === "failed" || state === "expired") throw new Error(`Payout ${intent.step} attempt ${state}`);
     }
-    throw new Error(`Payout ${intent.step} still pending`);
+    throw new Error(`Payout ${intent.step} still pending`, { cause: broadcastError });
   };
 
   try {
