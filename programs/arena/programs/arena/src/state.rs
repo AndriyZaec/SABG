@@ -7,6 +7,34 @@ pub enum ArenaState {
     Open,
     Settled,
     Cancelled,
+    Settling,
+}
+
+#[account]
+#[derive(InitSpace)]
+pub struct Settlement {
+    pub arena: Pubkey,
+    pub funder: Pubkey,
+    pub winner_count: u32,
+    pub paid_count: u32,
+    pub last_paid_key: Pubkey,
+    pub share: u64,
+    pub bump: u8,
+}
+
+#[event]
+pub struct WinnerBatchPaid {
+    pub arena: Pubkey,
+    pub from: u32,
+    pub count: u32,
+}
+
+#[event]
+pub struct SettlementCompleted {
+    pub arena: Pubkey,
+    pub winner_count: u32,
+    pub share: u64,
+    pub treasury_lamports: u64,
 }
 
 #[account]

@@ -17,4 +17,5 @@ no-log-ix-name = []
 idl-build = ["anchor-lang/idl-build"]
 
 [dependencies]
-anchor-lang = "0.32.1"
+# Preserve cancel_arena calls that omit its new trailing optional account.
+anchor-lang = { version = "0.32.1", features = ["allow-missing-optionals"] }
