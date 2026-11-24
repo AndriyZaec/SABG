@@ -3,6 +3,7 @@ import { PgBoss } from "pg-boss";
 import { databaseUrl } from "../db/client.js";
 import { logger } from "../gateway/logger.js";
 import { processPendingRefunds } from "../payout/refunds.js";
+import { registerPayoutJobs } from "../payout/index.js";
 
 export type Scheduler = PgBoss;
 
@@ -36,6 +37,7 @@ export async function stopScheduler(scheduler: Scheduler): Promise<void> {
 }
 
 async function registerJobs(boss: PgBoss): Promise<void> {
+  await registerPayoutJobs(boss);
   // exclusive: a slow run never piles up queued runs behind it; the next minute picks up what's left.
   await boss.createQueue(REFUND_QUEUE, { policy: "exclusive" });
   await boss.schedule(REFUND_QUEUE, "* * * * *");

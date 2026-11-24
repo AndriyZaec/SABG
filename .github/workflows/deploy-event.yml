@@ -86,7 +86,7 @@ jobs:
         run: pnpm typecheck
 
       - name: Migrate integration database
-        run: pnpm --filter @arena/api db:migrate
+        run: pnpm --filter @arena/api db:migrate:local
 
       - name: Test API, auth, admin, and operator packages
         run: pnpm --filter @arena/api test && pnpm --filter @arena/auth test && pnpm --filter @arena/admin test && pnpm --filter @arena/operator test

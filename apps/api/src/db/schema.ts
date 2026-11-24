@@ -490,11 +490,35 @@ export const payouts = pgTable("payout", {
     .references(() => users.id),
   amountLamports: bigint("amount_lamports", { mode: "number" }).notNull(),
   txSignature: text("tx_signature"),
+  failureReason: text("failure_reason"),
   status: payoutStatusEnum("status").notNull(),
   ...timestamps,
 }, (t) => [
   index("payout_arena_id_idx").on(t.arenaId),
 ]);
+
+export const payoutPlans = pgTable("payout_plan", {
+  arenaId: uuid("arena_id").primaryKey().references(() => arenas.id, { onDelete: "cascade" }),
+  onchainArenaId: bigint("onchain_arena_id", { mode: "number" }).notNull().unique(),
+  winnerIds: jsonb("winner_ids").$type<string[]>().notNull(),
+  recipients: jsonb("recipients").$type<{ userId: string; wallet: string }[]>(),
+  shareLamports: text("share_lamports"),
+  state: text("state").$type<"queued" | "paying" | "blocked" | "done">().notNull().default("queued"),
+  issue: text("issue"),
+  paidCount: integer("paid_count").notNull().default(0),
+  ...timestamps,
+});
+
+export const payoutAttempts = pgTable("payout_attempt", {
+  signature: text("signature").primaryKey(),
+  arenaId: uuid("arena_id").notNull().references(() => payoutPlans.arenaId, { onDelete: "cascade" }),
+  step: text("step").$type<"start" | "pay" | "close">().notNull(),
+  from: integer("from_index").notNull(),
+  count: integer("winner_count").notNull(),
+  raw: text("raw").notNull(),
+  lastValidBlockHeight: bigint("last_valid_block_height", { mode: "number" }).notNull(),
+  ...timestamps,
+}, (t) => [index("payout_attempt_step_idx").on(t.arenaId, t.step, t.from)]);
 
 // Commit an immutable audit record with each destructive reset.
 export const replayResetAudits = pgTable("demo_reset_audit", {

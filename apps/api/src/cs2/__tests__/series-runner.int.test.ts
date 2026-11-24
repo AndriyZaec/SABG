@@ -173,7 +173,7 @@ describe.skipIf(!RUN)("Cs2SeriesRunner (integration, requires DATABASE_URL)", ()
     const arena = await arenaRepository.upsertForMatch(match.id, { mode: "hardcore", entryFeeLamports: 1000, prizePoolLamports: 0 });
     expect(await arenaRepository.setLiveIfOpen(arena.id)).toBeDefined();
 
-    const settleSpy = vi.spyOn(payoutService, "settleArena").mockResolvedValue(undefined);
+    const settleSpy = vi.spyOn(payoutService, "settleArena");
     try {
       const result = await start(gridSeriesId, rawSeries(gridIds, { format: "best-of-3", teams: [1, 0], live: false }));
 
@@ -215,7 +215,7 @@ describe.skipIf(!RUN)("Cs2SeriesRunner (integration, requires DATABASE_URL)", ()
     const arena = await arenaRepository.upsertForMatch(match.id, { mode: "hardcore", entryFeeLamports: 1000, prizePoolLamports: 0 });
     expect(await arenaRepository.setLiveIfOpen(arena.id)).toBeDefined();
 
-    const settleSpy = vi.spyOn(payoutService, "settleArena").mockResolvedValue(undefined);
+    const settleSpy = vi.spyOn(payoutService, "settleArena");
     try {
       const ended = new Promise<string>((resolve) => {
         void start(gridSeriesId, rawSeries(gridIds, { format: "best-of-3", teams: [1, 0], live: true }), { onEnd: resolve });
@@ -261,4 +261,3 @@ describe.skipIf(!RUN)("Cs2SeriesRunner (integration, requires DATABASE_URL)", ()
     }
   });
 });
-

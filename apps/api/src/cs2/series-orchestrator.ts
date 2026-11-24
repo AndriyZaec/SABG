@@ -170,7 +170,10 @@ export class Cs2SeriesOrchestrator {
     );
     for (const round of unsettled) await predictionRoundRepository.upsert({ ...round, status: "voided", settledAt: now });
 
-    const winnerIds = await arenaPlayerRepository.getActivePlayerIds(arenaId);
+    // A prior finish may have committed winner marks before the handoff transaction failed.
+    const winnerIds = (await arenaPlayerRepository.list(arenaId))
+      .filter(({ status }) => status === "active" || status === "winner")
+      .map(({ userId }) => userId);
     if (winnerIds.length === 0) {
       const passes = await entryPassRepository.listByArenaId(arenaId);
       if (passes.some((pass) => pass.status === "paid")) {
@@ -179,12 +182,11 @@ export class Cs2SeriesOrchestrator {
         return;
       }
     }
-    if ((await arenaRepository.setFinishedIfLive(arenaId)) === undefined) {
+    if ((await payoutService.settleArena(arenaId, winnerIds)) === false) {
       logger.warn({ arenaId }, "cs2: live arena at restore is no longer live; not finishing or paying");
       return;
     }
     for (const userId of winnerIds) await arenaPlayerRepository.setStatus(arenaId, userId, "winner");
-    await payoutService.settleArena(arenaId, winnerIds);
     logger.info(
       { arenaId, winners: winnerIds.length, voidedRounds: unsettled.length },
       "cs2: crash-closed a live arena on restore",
@@ -399,12 +401,11 @@ export class Cs2SeriesOrchestrator {
       finishArena: (arenaId, winners, results) => {
         void this.options.writeQueue.enqueue(arenaId, async () => {
           // Pay only after our own live -> finished transition; a cancelled arena must never finish or pay.
-          if ((await arenaRepository.setFinishedIfLive(arenaId)) === undefined) {
+          if ((await payoutService.settleArena(arenaId, winners)) === false) {
             logger.warn({ arenaId }, "cs2: match end for an arena that isn't live; not finishing or paying");
             return;
           }
           await recordArenaResults(arenaId, results);
-          await payoutService.settleArena(arenaId, winners);
           this.options.onArenaFinished?.();
         });
       },

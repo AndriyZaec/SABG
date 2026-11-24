@@ -21,6 +21,8 @@ import {
 import { calculateLobbyDurationMs, createGameSource, type GameSource } from "./game-source.js";
 import { REPLAY_CYCLE_EXIT_CODE, shouldCycleReplay } from "./replay-cycle-policy.js";
 import { closeEntrySubmissions } from "./entry-prepare-store.js";
+import { isOnchainArenaProvisioningEnabled } from "../onchain/index.js";
+import { startScheduler, stopScheduler } from "../scheduler/index.js";
 
 const EVENT_ENTRY_FEE_LAMPORTS = 100_000_000;
 
@@ -30,6 +32,7 @@ async function main(): Promise<void> {
   let gatewayServer: ReturnType<typeof createGatewayServer> | undefined;
   let gameSource: GameSource | undefined;
   let releaseRuntimeLock: ReleaseDatabaseLock | undefined;
+  let scheduler: Awaited<ReturnType<typeof startScheduler>> | undefined;
   let activeWork: Promise<unknown> = Promise.resolve();
   let shutdownPromise: Promise<void> | undefined;
 
@@ -63,6 +66,7 @@ async function main(): Promise<void> {
       await settle("websocket", wsClosing);
       await settle("http", httpClosing);
       await settle("write-queue", writeQueue.drain());
+      await settle("scheduler", scheduler ? stopScheduler(scheduler) : Promise.resolve());
       await settle("runtime-lock", releaseRuntimeLock?.() ?? Promise.resolve());
       await settle("postgres", closeDatabaseConnection());
       logger.info({ signal }, "gateway shutdown complete");
@@ -97,6 +101,10 @@ async function main(): Promise<void> {
 
     await trackWork(checkDatabaseConnection());
     if (abortController.signal.aborted) return;
+    if (isOnchainArenaProvisioningEnabled()) {
+      await trackWork(startScheduler().then((started) => { scheduler = started; }));
+      if (abortController.signal.aborted) return;
+    }
 
     releaseRuntimeLock = await trackWork(tryAcquireFixtureRuntimeLock(gameSource.fixture.fixtureId));
     if (!releaseRuntimeLock) {
@@ -144,7 +152,6 @@ async function main(): Promise<void> {
       },
       finishArena(arenaId, winners) {
         void writeQueue.enqueue(arenaId, async () => {
-          await arenaRepository.setStatus(arenaId, "finished");
           await payoutService.settleArena(arenaId, winners);
         });
       },

@@ -21,3 +21,7 @@ wallet = "~/.config/solana/id.json"
 
 [scripts]
 test = "pnpm exec mocha 'tests/**/*.ts'"
+
+[[test.genesis]]
+address = "4zjp5rbh9vBVc1tNAbpKygud5WKR31yBZeBZRBDzgFNg"
+program = "target/deploy/arena.so"

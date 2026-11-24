@@ -14,6 +14,7 @@ declare_id!("84o7QQ3vkGkm3D6wfaqEHxFN93p3Q2b6SFtfazzxZuxH");
 
 const MAX_BPS: u16 = 10_000;
 const PLATFORM_FEE_BPS: u16 = 1_000;
+const MAX_WINNERS_PER_BATCH: u32 = 20;
 const DEVNET_TREASURY: Pubkey = pubkey!("nvy4VWVymKZpYZEBtwNYUzJzG9R11P7Wc7khvenMpzW");
 
 #[program]
@@ -79,84 +80,210 @@ pub mod arena {
         Ok(())
     }
 
-    /// Distribute the escrow to winner(s), passed as writable remaining accounts.
-    /// Equal split with any remainder going to the first winner; runs once.
-    pub fn settle_payout<'info>(
-        ctx: Context<'_, '_, '_, 'info, SettlePayout<'info>>,
-    ) -> Result<()> {
+    /// Freeze the recorded pool and fix the equal share. The authority chooses recipients.
+    pub fn start_settlement(ctx: Context<StartSettlement>, winner_count: u32) -> Result<()> {
         let arena = &mut ctx.accounts.arena;
         require!(arena.state == ArenaState::Open, ArenaError::ArenaNotOpen);
-        require_keys_eq!(
-            ctx.accounts.payout_authority.key(),
-            arena.payout_authority,
-            ArenaError::Unauthorized,
+        require!(
+            winner_count > 0 && winner_count <= arena.player_count,
+            ArenaError::InvalidWinnerCount
         );
-
-        let winners = ctx.remaining_accounts;
-        require!(!winners.is_empty(), ArenaError::NoWinners);
-
-        let escrow = ctx.accounts.escrow.to_account_info();
-        for winner in winners {
-            require_keys_neq!(winner.key(), escrow.key(), ArenaError::InvalidWinner);
-        }
         let gross_pool = arena.prize_pool_lamports;
-        let escrow_balance = escrow.lamports();
+        let escrow_balance = ctx.accounts.escrow.get_lamports();
+        require!(escrow_balance >= gross_pool, ArenaError::InsufficientEscrow);
         let fee_numerator = u128::from(gross_pool)
             .checked_mul(u128::from(arena.platform_fee_bps))
             .ok_or(ArenaError::AccountingOverflow)?;
         let platform_fee = u64::try_from(fee_numerator / u128::from(MAX_BPS))
             .map_err(|_| ArenaError::AccountingOverflow)?;
-        let winner_pool = escrow_balance
+        let winner_pool = gross_pool
             .checked_sub(platform_fee)
             .ok_or(ArenaError::AccountingUnderflow)?;
-        let n = winners.len() as u64;
-        let share = winner_pool / n;
-        let remainder = winner_pool - share * n;
+        let share = winner_pool / u64::from(winner_count);
+        require!(share > 0, ArenaError::ZeroWinnerShare);
 
-        let arena_key = arena.key();
-        let escrow_seeds: &[&[u8]] = &[b"escrow", arena_key.as_ref(), &[arena.escrow_bump]];
-
-        transfer(
-            CpiContext::new_with_signer(
-                ctx.accounts.system_program.to_account_info(),
-                Transfer {
-                    from: escrow.clone(),
-                    to: ctx.accounts.treasury.to_account_info(),
-                },
-                &[escrow_seeds],
-            ),
-            platform_fee,
+        // Multi-transaction payouts must be able to fund every empty system wallet.
+        // Smaller shares can still be sent to eligible wallets in one atomic batch.
+        let rent = Rent::get()?;
+        require!(
+            share >= rent.minimum_balance(0) || winner_count <= MAX_WINNERS_PER_BATCH,
+            ArenaError::SmallShareRequiresSingleBatch
+        );
+        let treasury_amount = escrow_balance
+            .checked_sub(payout_total(share, winner_count)?)
+            .ok_or(ArenaError::InsufficientEscrow)?;
+        validate_credit(
+            &ctx.accounts.treasury.to_account_info(),
+            treasury_amount,
+            &rent,
         )?;
 
-        for (i, winner) in winners.iter().enumerate() {
-            let amount = if i == 0 { share + remainder } else { share };
+        let settlement = &mut ctx.accounts.settlement;
+        settlement.arena = arena.key();
+        settlement.funder = ctx.accounts.payout_authority.key();
+        settlement.winner_count = winner_count;
+        settlement.paid_count = 0;
+        settlement.last_paid_key = Pubkey::default();
+        settlement.share = share;
+        settlement.bump = ctx.bumps.settlement;
+        arena.state = ArenaState::Settling;
+        Ok(())
+    }
+
+    /// Pay a bounded slice of recipients in strictly increasing raw pubkey order.
+    pub fn pay_batch<'info>(
+        ctx: Context<'_, '_, '_, 'info, PayBatch<'info>>,
+        expected_paid: u32,
+    ) -> Result<()> {
+        let arena = &mut ctx.accounts.arena;
+        let settlement = &mut ctx.accounts.settlement;
+        require!(arena.state == ArenaState::Settling, ArenaError::NotSettling);
+        require_eq!(
+            settlement.paid_count,
+            expected_paid,
+            ArenaError::StaleBatchCursor
+        );
+        let count = u32::try_from(ctx.remaining_accounts.len())
+            .map_err(|_| ArenaError::InvalidBatchSize)?;
+        let remaining = settlement
+            .winner_count
+            .checked_sub(expected_paid)
+            .ok_or(ArenaError::AccountingUnderflow)?;
+        require!(
+            count > 0 && count <= remaining && count <= MAX_WINNERS_PER_BATCH,
+            ArenaError::InvalidBatchSize
+        );
+        let final_batch = count == remaining;
+        let arena_key = arena.key();
+        let escrow = ctx.accounts.escrow.to_account_info();
+        let treasury = ctx.accounts.treasury.to_account_info();
+        let rent = Rent::get()?;
+        let can_skip = settlement.share >= rent.minimum_balance(0);
+        require!(
+            final_batch || can_skip,
+            ArenaError::SmallShareRequiresSingleBatch
+        );
+
+        let reserved = [
+            arena_key,
+            escrow.key(),
+            settlement.key(),
+            treasury.key(),
+            *ctx.program_id,
+            ctx.accounts.system_program.key(),
+        ];
+        let mut last = settlement.last_paid_key;
+        let mut creditable = [false; MAX_WINNERS_PER_BATCH as usize];
+        let mut transfers = 0;
+        for (winner, creditable) in ctx.remaining_accounts.iter().zip(creditable.iter_mut()) {
+            let key = winner.key();
+            require!(
+                winner.is_writable && !reserved.contains(&key),
+                ArenaError::InvalidWinner
+            );
+            require!(key.to_bytes() > last.to_bytes(), ArenaError::WinnerOrder);
+            *creditable = can_credit(winner, settlement.share, &rent);
+            if *creditable {
+                transfers += 1;
+            } else {
+                require!(can_skip, ArenaError::RecipientRent);
+            }
+            last = key;
+        }
+
+        let residual = escrow
+            .lamports()
+            .checked_sub(payout_total(settlement.share, transfers)?)
+            .ok_or(ArenaError::InsufficientEscrow)?;
+        if final_batch {
+            validate_credit(&treasury, residual, &rent)?;
+        } else {
+            require!(residual >= rent.minimum_balance(0), ArenaError::EscrowRent);
+        }
+
+        let escrow_seeds: &[&[u8]] = &[b"escrow", arena_key.as_ref(), &[arena.escrow_bump]];
+        let send = |to: AccountInfo<'info>, amount| {
             transfer(
                 CpiContext::new_with_signer(
                     ctx.accounts.system_program.to_account_info(),
                     Transfer {
                         from: escrow.clone(),
-                        to: winner.clone(),
+                        to,
                     },
                     &[escrow_seeds],
                 ),
                 amount,
-            )?;
+            )
+        };
+        for (index, (winner, creditable)) in
+            ctx.remaining_accounts.iter().zip(creditable).enumerate()
+        {
+            if creditable {
+                send(winner.clone(), settlement.share)?;
+            } else {
+                emit!(WinnerSkipped {
+                    arena: arena_key,
+                    index: expected_paid + index as u32,
+                    winner: winner.key(),
+                });
+            }
         }
 
-        arena.prize_pool_lamports = 0;
-        arena.state = ArenaState::Settled;
+        settlement.paid_count = expected_paid + count;
+        settlement.last_paid_key = last;
+        emit!(WinnerBatchPaid {
+            arena: arena_key,
+            from: expected_paid,
+            count
+        });
+        if final_batch {
+            if residual > 0 {
+                send(treasury, residual)?;
+            }
+            arena.prize_pool_lamports = 0;
+            arena.state = ArenaState::Settled;
+            emit!(SettlementCompleted {
+                arena: arena_key,
+                winner_count: settlement.winner_count,
+                share: settlement.share,
+                treasury_lamports: residual,
+            });
+        }
+        Ok(())
+    }
+
+    /// Reclaim the rent deposit after the backend has reconciled the terminal result.
+    pub fn close_settlement(ctx: Context<CloseSettlement>) -> Result<()> {
+        require!(
+            matches!(
+                ctx.accounts.arena.state,
+                ArenaState::Settled | ArenaState::Cancelled
+            ),
+            ArenaError::SettlementNotTerminal
+        );
         Ok(())
     }
 
     /// Permanently close entry and enable deterministic per-EntryPass refunds.
     pub fn cancel_arena(ctx: Context<CancelArena>) -> Result<()> {
         let arena = &mut ctx.accounts.arena;
-        require!(arena.state == ArenaState::Open, ArenaError::ArenaNotOpen);
         require_keys_eq!(
             ctx.accounts.payout_authority.key(),
             arena.payout_authority,
             ArenaError::Unauthorized,
         );
+        match arena.state {
+            ArenaState::Open => {}
+            ArenaState::Settling => {
+                let settlement = ctx
+                    .accounts
+                    .settlement
+                    .as_ref()
+                    .ok_or(ArenaError::MissingSettlement)?;
+                require_eq!(settlement.paid_count, 0, ArenaError::PayoutStarted);
+            }
+            _ => return err!(ArenaError::ArenaNotOpen),
+        }
         arena.state = ArenaState::Cancelled;
         Ok(())
     }
@@ -232,6 +359,34 @@ pub mod arena {
     }
 }
 
+fn payout_total(share: u64, count: u32) -> Result<u64> {
+    share
+        .checked_mul(u64::from(count))
+        .ok_or_else(|| error!(ArenaError::AccountingOverflow))
+}
+
+fn validate_credit(account: &AccountInfo, amount: u64, rent: &Rent) -> Result<()> {
+    if amount > 0 {
+        let balance = account
+            .lamports()
+            .checked_add(amount)
+            .ok_or(ArenaError::AccountingOverflow)?;
+        require!(
+            rent.is_exempt(balance, account.data_len()),
+            ArenaError::RecipientRent
+        );
+    }
+    Ok(())
+}
+
+fn can_credit(account: &AccountInfo, amount: u64, rent: &Rent) -> bool {
+    !account.executable
+        && account
+            .lamports()
+            .checked_add(amount)
+            .is_some_and(|balance| rent.is_exempt(balance, account.data_len()))
+}
+
 // --- Account contexts -------------------------------------------------------
 
 #[derive(Accounts)]
@@ -279,13 +434,34 @@ pub struct BuyEntry<'info> {
 }
 
 #[derive(Accounts)]
-pub struct SettlePayout<'info> {
-    #[account(mut, seeds = [b"arena", arena.arena_id.to_le_bytes().as_ref()], bump = arena.bump)]
+pub struct StartSettlement<'info> {
+    #[account(mut, seeds = [b"arena", arena.arena_id.to_le_bytes().as_ref()], bump = arena.bump, has_one = payout_authority @ ArenaError::Unauthorized)]
     pub arena: Account<'info, Arena>,
 
-    /// CHECK: escrow PDA (system-owned) that the pooled lamports are paid out from.
+    #[account(seeds = [b"escrow", arena.key().as_ref()], bump = arena.escrow_bump)]
+    pub escrow: SystemAccount<'info>,
+
+    #[account(address = DEVNET_TREASURY @ ArenaError::InvalidTreasury)]
+    pub treasury: SystemAccount<'info>,
+
+    #[account(init, payer = payout_authority, space = 8 + Settlement::INIT_SPACE, seeds = [b"settlement", arena.key().as_ref()], bump)]
+    pub settlement: Account<'info, Settlement>,
+
+    #[account(mut)]
+    pub payout_authority: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct PayBatch<'info> {
+    #[account(mut, seeds = [b"arena", arena.arena_id.to_le_bytes().as_ref()], bump = arena.bump, has_one = payout_authority @ ArenaError::Unauthorized)]
+    pub arena: Account<'info, Arena>,
+
     #[account(mut, seeds = [b"escrow", arena.key().as_ref()], bump = arena.escrow_bump)]
     pub escrow: SystemAccount<'info>,
+
+    #[account(mut, seeds = [b"settlement", arena.key().as_ref()], bump = settlement.bump, has_one = arena)]
+    pub settlement: Account<'info, Settlement>,
 
     #[account(mut, address = DEVNET_TREASURY @ ArenaError::InvalidTreasury)]
     pub treasury: SystemAccount<'info>,
@@ -295,10 +471,27 @@ pub struct SettlePayout<'info> {
 }
 
 #[derive(Accounts)]
+pub struct CloseSettlement<'info> {
+    #[account(seeds = [b"arena", arena.arena_id.to_le_bytes().as_ref()], bump = arena.bump, has_one = payout_authority @ ArenaError::Unauthorized)]
+    pub arena: Account<'info, Arena>,
+
+    #[account(mut, close = funder, seeds = [b"settlement", arena.key().as_ref()], bump = settlement.bump, has_one = arena, has_one = funder)]
+    pub settlement: Account<'info, Settlement>,
+
+    /// CHECK: the settlement records this address as its rent payer.
+    #[account(mut)]
+    pub funder: UncheckedAccount<'info>,
+    pub payout_authority: Signer<'info>,
+}
+
+#[derive(Accounts)]
 pub struct CancelArena<'info> {
     #[account(mut, seeds = [b"arena", arena.arena_id.to_le_bytes().as_ref()], bump = arena.bump)]
     pub arena: Account<'info, Arena>,
     pub payout_authority: Signer<'info>,
+
+    #[account(seeds = [b"settlement", arena.key().as_ref()], bump = settlement.bump, has_one = arena)]
+    pub settlement: Option<Account<'info, Settlement>>,
 }
 
 #[derive(Accounts)]

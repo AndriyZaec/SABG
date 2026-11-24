@@ -8,13 +8,14 @@ import type { ArenaProgram } from "@arena/contracts/onchain";
 export const DEMO_ARENA_ID = new BN(2);
 export const DEFAULT_ENTRY_FEE_LAMPORTS = new BN(0.1 * LAMPORTS_PER_SOL);
 
-export type OnchainArenaState = "open" | "settled" | "cancelled";
+export type OnchainArenaState = "open" | "settling" | "settled" | "cancelled";
 
 export function onchainArenaState(state: unknown): OnchainArenaState {
   if (typeof state === "object" && state !== null) {
     if ("open" in state) return "open";
     if ("settled" in state) return "settled";
     if ("cancelled" in state) return "cancelled";
+    if ("settling" in state) return "settling";
   }
   throw new Error("Unknown on-chain arena state");
 }

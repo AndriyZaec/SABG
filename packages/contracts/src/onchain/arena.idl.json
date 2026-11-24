@@ -225,11 +225,126 @@
                 "account": "Arena"
               }
             ]
-          }
+          },
+          "relations": [
+            "settlement"
+          ]
         },
         {
           "name": "payout_authority",
           "signer": true
+        },
+        {
+          "name": "settlement",
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  116,
+                  116,
+                  108,
+                  101,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "arena"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "close_settlement",
+      "docs": [
+        "Reclaim the rent deposit after the backend has reconciled the terminal result."
+      ],
+      "discriminator": [
+        45,
+        247,
+        83,
+        183,
+        24,
+        102,
+        0,
+        68
+      ],
+      "accounts": [
+        {
+          "name": "arena",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  114,
+                  101,
+                  110,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "arena.arena_id",
+                "account": "Arena"
+              }
+            ]
+          },
+          "relations": [
+            "settlement"
+          ]
+        },
+        {
+          "name": "settlement",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  116,
+                  116,
+                  108,
+                  101,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "arena"
+              }
+            ]
+          }
+        },
+        {
+          "name": "funder",
+          "writable": true,
+          "relations": [
+            "settlement"
+          ]
+        },
+        {
+          "name": "payout_authority",
+          "signer": true,
+          "relations": [
+            "arena"
+          ]
         }
       ],
       "args": []
@@ -320,6 +435,122 @@
         {
           "name": "platform_fee_bps",
           "type": "u16"
+        }
+      ]
+    },
+    {
+      "name": "pay_batch",
+      "docs": [
+        "Pay a bounded slice of recipients in strictly increasing raw pubkey order."
+      ],
+      "discriminator": [
+        94,
+        138,
+        173,
+        194,
+        252,
+        142,
+        7,
+        53
+      ],
+      "accounts": [
+        {
+          "name": "arena",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  114,
+                  101,
+                  110,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "arena.arena_id",
+                "account": "Arena"
+              }
+            ]
+          },
+          "relations": [
+            "settlement"
+          ]
+        },
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "arena"
+              }
+            ]
+          }
+        },
+        {
+          "name": "settlement",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  116,
+                  116,
+                  108,
+                  101,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "arena"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "writable": true,
+          "address": "nvy4VWVymKZpYZEBtwNYUzJzG9R11P7Wc7khvenMpzW"
+        },
+        {
+          "name": "payout_authority",
+          "signer": true,
+          "relations": [
+            "arena"
+          ]
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "expected_paid",
+          "type": "u32"
         }
       ]
     },
@@ -484,20 +715,19 @@
       "args": []
     },
     {
-      "name": "settle_payout",
+      "name": "start_settlement",
       "docs": [
-        "Distribute the escrow to winner(s), passed as writable remaining accounts.",
-        "Equal split with any remainder going to the first winner; runs once."
+        "Freeze the recorded pool and fix the equal share. The authority chooses recipients."
       ],
       "discriminator": [
-        245,
-        141,
-        29,
-        81,
-        209,
-        73,
-        180,
-        155
+        120,
+        157,
+        184,
+        126,
+        71,
+        133,
+        61,
+        245
       ],
       "accounts": [
         {
@@ -525,7 +755,6 @@
         },
         {
           "name": "escrow",
-          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -548,19 +777,54 @@
         },
         {
           "name": "treasury",
-          "writable": true,
           "address": "nvy4VWVymKZpYZEBtwNYUzJzG9R11P7Wc7khvenMpzW"
         },
         {
+          "name": "settlement",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  116,
+                  116,
+                  108,
+                  101,
+                  109,
+                  101,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "arena"
+              }
+            ]
+          }
+        },
+        {
           "name": "payout_authority",
-          "signer": true
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "arena"
+          ]
         },
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
         }
       ],
-      "args": []
+      "args": [
+        {
+          "name": "winner_count",
+          "type": "u32"
+        }
+      ]
     }
   ],
   "accounts": [
@@ -591,6 +855,19 @@
       ]
     },
     {
+      "name": "Settlement",
+      "discriminator": [
+        55,
+        11,
+        219,
+        33,
+        36,
+        136,
+        40,
+        182
+      ]
+    },
+    {
       "name": "WinnerBadge",
       "discriminator": [
         137,
@@ -601,6 +878,47 @@
         222,
         154,
         1
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "SettlementCompleted",
+      "discriminator": [
+        24,
+        33,
+        148,
+        69,
+        53,
+        1,
+        59,
+        48
+      ]
+    },
+    {
+      "name": "WinnerBatchPaid",
+      "discriminator": [
+        231,
+        125,
+        223,
+        22,
+        208,
+        205,
+        44,
+        198
+      ]
+    },
+    {
+      "name": "WinnerSkipped",
+      "discriminator": [
+        157,
+        186,
+        91,
+        108,
+        208,
+        145,
+        46,
+        196
       ]
     }
   ],
@@ -663,7 +981,7 @@
     {
       "code": 6011,
       "name": "InvalidWinner",
-      "msg": "Escrow cannot receive a winner payout"
+      "msg": "Account cannot receive a winner payout"
     },
     {
       "code": 6012,
@@ -674,6 +992,71 @@
       "code": 6013,
       "name": "InvalidTreasury",
       "msg": "Invalid platform treasury"
+    },
+    {
+      "code": 6014,
+      "name": "InvalidWinnerCount",
+      "msg": "Winner count must be positive and at most the number of entries"
+    },
+    {
+      "code": 6015,
+      "name": "NotSettling",
+      "msg": "Arena is not settling"
+    },
+    {
+      "code": 6016,
+      "name": "StaleBatchCursor",
+      "msg": "Requested payout cursor does not match the settlement"
+    },
+    {
+      "code": 6017,
+      "name": "InvalidBatchSize",
+      "msg": "Batch size exceeds the remaining winners or the transaction limit"
+    },
+    {
+      "code": 6018,
+      "name": "WinnerOrder",
+      "msg": "Winner keys must be strictly increasing"
+    },
+    {
+      "code": 6019,
+      "name": "InsufficientEscrow",
+      "msg": "Escrow balance is less than the recorded pool"
+    },
+    {
+      "code": 6020,
+      "name": "ZeroWinnerShare",
+      "msg": "Each winner must receive at least one lamport"
+    },
+    {
+      "code": 6021,
+      "name": "EscrowRent",
+      "msg": "Intermediate escrow balance is below the rent-exempt minimum"
+    },
+    {
+      "code": 6022,
+      "name": "RecipientRent",
+      "msg": "Destination balance after payout would be below the rent-exempt minimum"
+    },
+    {
+      "code": 6023,
+      "name": "MissingSettlement",
+      "msg": "A settlement account is needed to cancel a settling arena"
+    },
+    {
+      "code": 6024,
+      "name": "PayoutStarted",
+      "msg": "Cannot cancel after any winner has been paid"
+    },
+    {
+      "code": 6025,
+      "name": "SettlementNotTerminal",
+      "msg": "Cannot close a settlement for a nonterminal arena"
+    },
+    {
+      "code": 6026,
+      "name": "SmallShareRequiresSingleBatch",
+      "msg": "A share below the wallet rent minimum requires one atomic payout batch"
     }
   ],
   "types": [
@@ -775,6 +1158,9 @@
           },
           {
             "name": "Cancelled"
+          },
+          {
+            "name": "Settling"
           }
         ]
       }
@@ -808,6 +1194,66 @@
       }
     },
     {
+      "name": "Settlement",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "arena",
+            "type": "pubkey"
+          },
+          {
+            "name": "funder",
+            "type": "pubkey"
+          },
+          {
+            "name": "winner_count",
+            "type": "u32"
+          },
+          {
+            "name": "paid_count",
+            "type": "u32"
+          },
+          {
+            "name": "last_paid_key",
+            "type": "pubkey"
+          },
+          {
+            "name": "share",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SettlementCompleted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "arena",
+            "type": "pubkey"
+          },
+          {
+            "name": "winner_count",
+            "type": "u32"
+          },
+          {
+            "name": "share",
+            "type": "u64"
+          },
+          {
+            "name": "treasury_lamports",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "WinnerBadge",
       "docs": [
         "Proof-of-win issued to a winning wallet."
@@ -826,6 +1272,46 @@
           {
             "name": "bump",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "WinnerBatchPaid",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "arena",
+            "type": "pubkey"
+          },
+          {
+            "name": "from",
+            "type": "u32"
+          },
+          {
+            "name": "count",
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "WinnerSkipped",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "arena",
+            "type": "pubkey"
+          },
+          {
+            "name": "index",
+            "type": "u32"
+          },
+          {
+            "name": "winner",
+            "type": "pubkey"
           }
         ]
       }
